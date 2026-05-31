@@ -3,3 +3,6 @@ build/
 build-*/
 __pycache__/
 bindings/python/elips/*.so
+
+
+PROMPT.md
