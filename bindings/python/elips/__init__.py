@@ -42,25 +42,58 @@ __version__ = "1.0.0"
 # -- module imports -----------------------------------------------------------
 
 from ._core import (
+    Comparator,
     Config,
     ConfigError,
     Database,
     DimensionMismatch,
+    Durability,
     ElipsError,
     Filter,
     GraphParams,
+    IndexType,
     InvalidVector,
     LockConflict,
+    Metric,
     NotFound,
+    ParseError,
     Result,
     StorageError,
+    Token,
+    TokenKind,
     Transaction,
     TransactionVault,
     Vault,
     VaultInfo,
+    distance,
+    metric_from_string,
+    metric_to_string,
     open,
     open_with_config,
+    validate_eql,
+    requires_normalization,
+    tokenize_eql,
 )
+
+try:
+    from ._core import (
+        GpuConfig,
+        GpuDeviceInfo,
+        GpuError,
+        GpuIndexAlgorithm,
+        GpuIndexBuildParams,
+        GpuMetricsSnapshot,
+        GpuPolicy,
+        GpuPrecision,
+        GraphBuildAlgo,
+        GraphIndexBuildParams,
+        IndexBuildMode,
+        IvfPqBuildParams,
+        KernelTiming,
+    )
+    _has_gpu = True
+except ImportError:
+    _has_gpu = False
 
 # -- public API ---------------------------------------------------------------
 
@@ -78,6 +111,35 @@ __all__ = [
     "GraphParams",
     "Transaction",
     "TransactionVault",
+    # enums
+    "Metric",
+    "IndexType",
+    "Durability",
+    "Comparator",
+    # EQL
+    "Token",
+    "TokenKind",
+    "validate_eql",
+    "tokenize_eql",
+    # utilities
+    "distance",
+    "requires_normalization",
+    "metric_from_string",
+    "metric_to_string",
+    # GPU types
+    "GpuConfig",
+    "GpuDeviceInfo",
+    "GpuError",
+    "GpuIndexAlgorithm",
+    "GpuIndexBuildParams",
+    "GpuMetricsSnapshot",
+    "GpuPolicy",
+    "GpuPrecision",
+    "GraphBuildAlgo",
+    "GraphIndexBuildParams",
+    "IndexBuildMode",
+    "IvfPqBuildParams",
+    "KernelTiming",
     # errors
     "ElipsError",
     "DimensionMismatch",
@@ -86,4 +148,5 @@ __all__ = [
     "NotFound",
     "StorageError",
     "LockConflict",
+    "ParseError",
 ]
