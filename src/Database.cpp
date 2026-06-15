@@ -12,6 +12,12 @@
 #include "elips/storage/WAL.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
+#ifdef ELIPS_GPU_ENABLED
+#include "elips/gpu_engine/GpuDeviceManager.hpp"
+#include "elips/gpu_engine/GpuDeviceInfo.hpp"
+#include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
+#endif
+
 namespace elips {
 namespace {
 
@@ -396,6 +402,18 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
         const bool sync = effective.durability() != Durability::relaxed;
         instance->attach_wal(std::make_unique<WAL>(walpath, sync));
     }
+
+#ifdef ELIPS_GPU_ENABLED
+    if (config.has_gpu() && config.gpu().policy != gpu::GpuPolicy::CpuOnly) {
+        gpu::GpuDeviceManager manager;
+        auto devices = manager.probe_all_devices();
+        if (!devices.empty()) {
+            instance->set_gpu_available(true);
+            instance->set_gpu_info(devices.front());
+        }
+    }
+#endif
+
     return instance;
 }
 
@@ -449,5 +467,11 @@ RecordID TransactionVault::place(const Vector& vector, Payload payload,
 void TransactionVault::erase(const RecordID& id) {
     txn_->enqueue_erase(vault_, id);
 }
+
+#ifdef ELIPS_GPU_ENABLED
+gpu::GpuDeviceInfo ElipsInstance::gpu_info() const { return gpu_info_; }
+
+gpu::GpuMetricsSnapshot ElipsInstance::gpu_stats() const { return gpu_stats_; }
+#endif
 
 }  // namespace elips
