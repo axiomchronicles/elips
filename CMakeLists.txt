@@ -98,10 +98,19 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/record_id_test.cpp
         tests/unit/hnsw_recall_test.cpp
         tests/unit/eql_test.cpp
+        tests/unit/vector_test.cpp
+        tests/unit/config_test.cpp
+        tests/unit/exact_edge_cases_test.cpp
+        tests/unit/hnsw_edge_cases_test.cpp
+        tests/unit/filter_edge_test.cpp
+        tests/unit/scan_test.cpp
+        tests/unit/durability_test.cpp
+        tests/unit/eql_edge_test.cpp
         tests/integration/roundtrip_test.cpp
         tests/integration/transaction_filter_test.cpp
         tests/recovery/wal_recovery_test.cpp
         tests/concurrency/single_writer_test.cpp
+        tests/concurrency/multi_reader_test.cpp
     )
     target_link_libraries(elips_tests PRIVATE elips_core GTest::gtest_main)
 
