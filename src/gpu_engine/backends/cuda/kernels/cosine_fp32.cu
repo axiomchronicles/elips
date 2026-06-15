@@ -18,15 +18,13 @@ extern "C" __global__ void cosine_distance_fp32(
     int ni = blockIdx.y * blockDim.x + threadIdx.x;
     if (qi >= nq || ni >= nb) return;
 
-    float dot = 0.0f, nq_mag = 0.0f, nd_mag = 0.0f;
+    float dot = 0.0f;
     for (int d = 0; d < dim; ++d) {
         float qv = queries[qi * dim + d];
         float dv = database[ni * dim + d];
         dot += qv * dv;
-        nq_mag += qv * qv;
-        nd_mag += dv * dv;
     }
-    distances[qi * nb + ni] = 1.0f - dot / (sqrtf(nq_mag) * sqrtf(nd_mag) + 1e-8f);
+    distances[qi * nb + ni] = 1.0f - dot;
 }
 */
 #endif

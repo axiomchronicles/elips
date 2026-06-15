@@ -11,16 +11,13 @@ kernel void cosine_distance_fp32(
     uint2 gid [[thread_position_in_grid]]
 ) {
     if (gid.x >= nq || gid.y >= nb) return;
-    float dot = 0.0f, nq_mag = 0.0f, nd_mag = 0.0f;
+    float dot = 0.0f;
     for (uint d = 0; d < dim; ++d) {
         float qv = queries[gid.x * dim + d];
         float dv = database[gid.y * dim + d];
         dot += qv * dv;
-        nq_mag += qv * qv;
-        nd_mag += dv * dv;
     }
-    float denom = sqrt(nq_mag) * sqrt(nd_mag) + 1e-8f;
-    distances[gid.x * nb + gid.y] = 1.0f - dot / denom;
+    distances[gid.x * nb + gid.y] = 1.0f - dot;
 }
 
 kernel void euclidean_distance_fp32(
