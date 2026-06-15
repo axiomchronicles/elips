@@ -1,0 +1,41 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Queries   { float q[]; };
+layout(set = 0, binding = 1) readonly buffer Database  { float d[]; };
+layout(set = 0, binding = 2) writeonly buffer Distances { float dist[]; };
+
+layout(push_constant) uniform Params {
+    uint nq;
+    uint nb;
+    uint dim;
+} params;
+
+shared float shr_sum[256];
+
+void main() {
+    uint qi = gl_WorkGroupID.x;
+    uint ni = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+
+    float sum = 0.0;
+
+    for (uint d = tid; d < params.dim; d += 256) {
+        sum += q[qi * params.dim + d] * d[ni * params.dim + d];
+    }
+
+    shr_sum[tid] = sum;
+    barrier();
+
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            shr_sum[tid] += shr_sum[tid + stride];
+        }
+        barrier();
+    }
+
+    if (tid == 0) {
+        dist[qi * params.nb + ni] = -shr_sum[0];
+    }
+}
