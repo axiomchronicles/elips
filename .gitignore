@@ -9,3 +9,10 @@ PROMPT.md
 .DS_Store
 **/.DS_Store
 
+env/
+.venv/
+
+elips.egg-info/
+dist/
+*.egg-info/
+*.egg

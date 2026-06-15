@@ -114,6 +114,14 @@ TEST_F(DatabaseTest, ReopenWithConflictingDimensionThrows) {
                  elips::ConfigError);
 }
 
+TEST_F(DatabaseTest, ReadOnlyOpenRequiresExistingDatabase) {
+    EXPECT_THROW(
+        (void)elips::open(
+            path(),
+            elips::Config{}.access_mode(elips::AccessMode::read_only)),
+        elips::ConfigError);
+}
+
 TEST_F(DatabaseTest, EraseRemovesRecord) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     auto& vault = db->vault("v");

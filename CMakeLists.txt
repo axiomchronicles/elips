@@ -101,6 +101,7 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/eql_test.cpp
         tests/unit/vector_test.cpp
         tests/unit/config_test.cpp
+        tests/unit/metadata_index_test.cpp
         tests/unit/exact_edge_cases_test.cpp
         tests/unit/hnsw_edge_cases_test.cpp
         tests/unit/filter_edge_test.cpp
@@ -141,20 +142,41 @@ endif()
 option(ELIPS_BUILD_PYTHON "Build the Python (PyBind11) bindings" OFF)
 
 if(ELIPS_BUILD_PYTHON)
-    include(FetchContent)
-    FetchContent_Declare(
-        pybind11
-        URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.zip
+    set(
+        ELIPS_PYBIND11_SOURCE_DIR
+        ""
+        CACHE PATH
+        "Optional local pybind11 source tree used instead of FetchContent"
     )
-    FetchContent_MakeAvailable(pybind11)
+    if(ELIPS_PYBIND11_SOURCE_DIR)
+        add_subdirectory(
+            "${ELIPS_PYBIND11_SOURCE_DIR}"
+            "${CMAKE_CURRENT_BINARY_DIR}/_deps/pybind11-local"
+        )
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            pybind11
+            URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.zip
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
 
     pybind11_add_module(elips_pymodule bindings/python/elips_python.cpp)
     target_link_libraries(elips_pymodule PRIVATE elips_core)
     if(ELIPS_GPU_ENABLED)
         target_compile_definitions(elips_pymodule PRIVATE ELIPS_GPU_ENABLED)
     endif()
+
+    set(
+        ELIPS_PYTHON_OUTPUT_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/elips"
+        CACHE PATH
+        "Directory where the Python extension module is written"
+    )
     set_target_properties(elips_pymodule PROPERTIES
         OUTPUT_NAME _core
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/elips
+        LIBRARY_OUTPUT_DIRECTORY "${ELIPS_PYTHON_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${ELIPS_PYTHON_OUTPUT_DIR}"
     )
 endif()

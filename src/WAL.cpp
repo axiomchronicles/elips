@@ -73,7 +73,8 @@ void WAL::append_insert(const std::string& vault, const RecordID& id,
 }
 
 void WAL::append_erase(const std::string& vault, const RecordID& id) {
-    append(Entry{Op::erase, vault, id, {}, {}});
+    append(Entry{Op::erase, vault, id, {}, {}, std::nullopt, std::nullopt,
+                 std::nullopt});
 }
 
 void WAL::reset() {

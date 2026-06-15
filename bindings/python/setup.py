@@ -24,16 +24,24 @@ class CMakeExtension(Extension):
 class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:
         out_dir = Path(self.get_ext_fullpath(ext.name)).resolve().parent
+        out_dir.mkdir(parents=True, exist_ok=True)
         cfg = "Release"
+        cmake_args = [
+            "cmake", "-S", str(ROOT), "-B", self.build_temp,
+            f"-DCMAKE_BUILD_TYPE={cfg}",
+            "-DELIPS_BUILD_PYTHON=ON",
+            "-DELIPS_BUILD_TESTS=OFF",
+            "-DELIPS_BUILD_CLI=OFF",
+            f"-DPYTHON_EXECUTABLE={sys.executable}",
+            f"-DELIPS_PYTHON_OUTPUT_DIR={out_dir}",
+        ]
+        local_pybind11 = ROOT / "build" / "_deps" / "pybind11-src"
+        if local_pybind11.exists():
+            cmake_args.append(
+                f"-DELIPS_PYBIND11_SOURCE_DIR={local_pybind11.resolve()}"
+            )
         subprocess.run(
-            [
-                "cmake", "-S", str(ROOT), "-B", self.build_temp,
-                f"-DCMAKE_BUILD_TYPE={cfg}",
-                "-DELIPS_BUILD_PYTHON=ON",
-                "-DELIPS_BUILD_TESTS=OFF",
-                "-DELIPS_BUILD_CLI=OFF",
-                f"-DPYTHON_EXECUTABLE={sys.executable}",
-            ],
+            cmake_args,
             check=True,
         )
         subprocess.run(

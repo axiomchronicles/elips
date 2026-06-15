@@ -39,6 +39,55 @@ TEST_F(RecoveryTest, WalReplayRecoversUncheckpointedWrites) {
     EXPECT_EQ(db->vault("v").seek(elips::Vector{{1.0F, 0.0F, 0.0F}}, 5).size(), 2U);
 }
 
+TEST_F(RecoveryTest, WalReplayRecoversExtendedRecordState) {
+    elips::RecordID kept_id;
+    {
+        auto db = elips::open(path(), elips::Config{}.dimension(2).durability(
+                                          elips::Durability::paranoid));
+        auto& vault = db->vault("docs");
+
+        elips::DocumentAttachment document;
+        document.text = "alpha note";
+        document.uri = "file:///tmp/alpha.txt";
+        document.mime_type = "text/plain";
+
+        elips::ChunkInfo chunk;
+        chunk.document_key = "doc-alpha";
+        chunk.ordinal = 1;
+        chunk.char_start = 3;
+        chunk.char_end = 12;
+
+        elips::EmbeddingLineage lineage;
+        lineage.provider = "pytest";
+        lineage.model = "toy";
+        lineage.revision = "v2";
+        lineage.attributes = {{"stage", std::string{"recovery"}}};
+
+        kept_id = vault.place(elips::Vector{{1.0F, 0.0F}},
+                              {{"kind", std::string{"alpha"}}},
+                              std::nullopt,
+                              document,
+                              chunk,
+                              lineage);
+        db->abandon();
+    }
+
+    auto recovered = elips::open(path());
+    const auto record = recovered->vault("docs").fetch(kept_id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_TRUE(record->document.has_value());
+    EXPECT_EQ(record->document->text, "alpha note");
+    EXPECT_EQ(record->document->uri, "file:///tmp/alpha.txt");
+    ASSERT_TRUE(record->chunk.has_value());
+    EXPECT_EQ(record->chunk->document_key, "doc-alpha");
+    EXPECT_EQ(record->chunk->ordinal, 1U);
+    ASSERT_TRUE(record->lineage.has_value());
+    EXPECT_EQ(record->lineage->provider, "pytest");
+    EXPECT_EQ(record->lineage->model, "toy");
+    EXPECT_EQ(std::get<std::string>(record->lineage->attributes.at("stage")),
+              "recovery");
+}
+
 TEST_F(RecoveryTest, CorruptWalTailIsTruncatedNotFatal) {
     {
         auto db = elips::open(path(), elips::Config{}.dimension(2));
@@ -71,6 +120,50 @@ TEST_F(RecoveryTest, WalAppendAndReplayRoundTrip) {
     EXPECT_EQ(entries[0].id, id);
     EXPECT_EQ(entries[0].vault, "vault_a");
     EXPECT_EQ(entries[1].op, elips::WAL::Op::erase);
+}
+
+TEST_F(RecoveryTest, WalAppendAndReplayExtendedInsertRoundTrip) {
+    const fs::path wal_path = dir_ / "extended.wal";
+    fs::create_directories(dir_);
+    const elips::RecordID id = elips::RecordID::generate();
+
+    elips::DocumentAttachment document;
+    document.text = "alpha note";
+    document.uri = "memory://alpha";
+    document.mime_type = "text/plain";
+
+    elips::ChunkInfo chunk;
+    chunk.document_key = "doc-alpha";
+    chunk.ordinal = 2;
+    chunk.char_start = 4;
+    chunk.char_end = 13;
+
+    elips::EmbeddingLineage lineage;
+    lineage.provider = "pytest";
+    lineage.model = "toy";
+    lineage.revision = "v2";
+    lineage.attributes = {{"stage", std::string{"wal"}}};
+
+    {
+        elips::WAL wal(wal_path);
+        wal.append_insert("vault_docs", id, std::vector<float>{1.0F, 0.0F},
+                          {{"kind", std::string{"alpha"}}}, document, chunk,
+                          lineage);
+    }
+
+    const auto entries = elips::WAL::replay(wal_path);
+    ASSERT_EQ(entries.size(), 1U);
+    EXPECT_EQ(entries[0].op, elips::WAL::Op::insert_ex);
+    EXPECT_EQ(entries[0].id, id);
+    ASSERT_TRUE(entries[0].document.has_value());
+    EXPECT_EQ(entries[0].document->text, "alpha note");
+    ASSERT_TRUE(entries[0].chunk.has_value());
+    EXPECT_EQ(entries[0].chunk->document_key, "doc-alpha");
+    ASSERT_TRUE(entries[0].lineage.has_value());
+    EXPECT_EQ(entries[0].lineage->provider, "pytest");
+    EXPECT_EQ(entries[0].lineage->model, "toy");
+    EXPECT_EQ(std::get<std::string>(entries[0].lineage->attributes.at("stage")),
+              "wal");
 }
 
 }  // namespace

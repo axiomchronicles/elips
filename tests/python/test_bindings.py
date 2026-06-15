@@ -25,6 +25,24 @@ def toy_embed(texts):
     return out
 
 
+def make_chunk(key, ordinal=0, start=0, end=0):
+    chunk = elips.ChunkInfo()
+    chunk.document_key = key
+    chunk.ordinal = ordinal
+    chunk.char_start = start
+    chunk.char_end = end
+    return chunk
+
+
+def make_lineage(provider="pytest", model="toy", revision=""):
+    lineage = elips.EmbeddingLineage()
+    lineage.provider = provider
+    lineage.model = model
+    lineage.revision = revision
+    lineage.attributes = {}
+    return lineage
+
+
 def test_exceptions():
     """Verify all 8 exceptions are importable and properly raised."""
     for name in [
@@ -211,11 +229,7 @@ def test_native_document_query_surface():
     db = elips.open_with_config(":memory:", config)
     docs = db.vault("docs")
 
-    chunk = elips.ChunkInfo()
-    chunk.document_key = "doc-alpha"
-    chunk.ordinal = 2
-    chunk.char_start = 4
-    chunk.char_end = 13
+    chunk = make_chunk("doc-alpha", ordinal=2, start=4, end=13)
 
     rid = docs.place_document("alpha note", {"kind": "alpha"}, chunk=chunk)
     fetched = docs.fetch(rid)
@@ -243,6 +257,48 @@ def test_native_document_query_surface():
     assert plan.strategy == elips.QueryStrategy.hybrid_fusion
 
     print("  PASS test_native_document_query_surface")
+
+
+def test_place_many_text_batch_with_lineage():
+    """Batch ingestion supports text-only rows plus explicit lineage objects."""
+    config = (elips.Config()
+              .dimension(2)
+              .metric("cosine")
+              .text_embedder(toy_embed, provider="pytest", model="toy"))
+    db = elips.open_with_config(":memory:", config)
+    docs = db.vault("docs")
+
+    explicit_lineage = make_lineage(provider="custom", model="manual", revision="r1")
+    explicit_lineage.attributes = {"stage": "batch"}
+
+    docs.place_many([
+        {
+            "text": "alpha note",
+            "data": {"kind": "alpha"},
+            "chunk": make_chunk("doc-alpha", ordinal=0, start=0, end=10),
+            "lineage": explicit_lineage,
+        },
+        {
+            "text": "beta note",
+            "data": {"kind": "beta"},
+            "chunk": make_chunk("doc-beta", ordinal=1, start=0, end=9),
+        },
+    ])
+
+    assert docs.count() == 2
+    alpha = docs.seek_text("alpha", top=1)[0]
+    beta = docs.seek_text("beta", top=1)[0]
+
+    assert alpha.document.text == "alpha note"
+    assert alpha.chunk.document_key == "doc-alpha"
+    assert alpha.lineage.provider == "custom"
+    assert alpha.lineage.attributes["stage"] == "batch"
+    assert beta.document.text == "beta note"
+    assert beta.chunk.document_key == "doc-beta"
+    assert beta.lineage.provider == "pytest"
+    assert beta.lineage.model == "toy"
+
+    print("  PASS test_place_many_text_batch_with_lineage")
 
 
 def test_place_many():
@@ -573,6 +629,36 @@ def test_modern_document_api():
     print("  PASS test_modern_document_api")
 
 
+def test_modern_probe_hybrid_and_explain():
+    """Modern wrapper exposes hybrid probe and planner details."""
+    engine = elips.connect(":memory:", dimension=2, metric="cosine", embedder=toy_embed)
+    arena = engine.arena("docs")
+
+    arena.ingest(
+        texts=["alpha design note", "beta incident runbook"],
+        meta=[{"kind": "alpha"}, {"kind": "beta"}],
+    )
+
+    hits = arena.probe_hybrid([1.0, 0.0], "alpha", top=2, include_vectors=True)
+    assert len(hits) == 2
+    assert hits[0].text == "alpha design note"
+    assert len(hits[0].vector) == 2
+
+    plan = arena.explain(
+        [1.0, 0.0],
+        top=1,
+        where=elips.Filter().field("kind").equals("alpha"),
+        has_text_component=True,
+    )
+    assert plan.strategy == elips.QueryStrategy.hybrid_fusion
+    assert plan.metadata_accelerated is True
+    assert plan.candidate_count >= 1
+    assert plan.gpu_index is False
+    assert plan.index_type == "graph"
+
+    print("  PASS test_modern_probe_hybrid_and_explain")
+
+
 def test_modern_merge_replaces_existing_key():
     """Modern merge relies on vault-level replace semantics for repeated IDs."""
     engine = elips.connect(":memory:", dimension=2, metric="cosine",
@@ -677,6 +763,36 @@ def test_segmented_persistence_and_read_only_mode():
     print("  PASS test_segmented_persistence_and_read_only_mode")
 
 
+def test_compact_and_rebuild_index_python_api():
+    """Python maintenance APIs preserve searchability across compaction."""
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "compact")
+        config = (elips.Config()
+                  .dimension(2)
+                  .metric("cosine")
+                  .segmented_storage(True)
+                  .text_embedder(toy_embed, provider="pytest", model="toy"))
+
+        db = elips.open_with_config(db_path, config)
+        docs = db.vault("docs")
+        first = docs.place_document("alpha design note", {"kind": "alpha"})
+        docs.place_document("beta incident runbook", {"kind": "beta"})
+
+        docs.rebuild_index()
+        db.compact()
+        db.close()
+
+        assert os.path.exists(os.path.join(db_path, "elips.manifest"))
+
+        reader = elips.open(db_path, access_mode="read_only")
+        hit = reader.vault("docs").seek_text("alpha", top=1)[0]
+        assert hit.id == first
+        assert hit.document.text == "alpha design note"
+        reader.close()
+
+    print("  PASS test_compact_and_rebuild_index_python_api")
+
+
 if __name__ == "__main__":
     tests = [
         test_exceptions,
@@ -688,6 +804,7 @@ if __name__ == "__main__":
         test_database_crud,
         test_native_document_query_surface,
         test_place_many,
+        test_place_many_text_batch_with_lineage,
         test_filtered_search,
         test_transaction,
         test_database_context_manager,
@@ -699,9 +816,11 @@ if __name__ == "__main__":
         test_memory_leak_check,
         test_type_stubs,
         test_modern_document_api,
+        test_modern_probe_hybrid_and_explain,
         test_modern_merge_replaces_existing_key,
         test_parity_cpp_vs_python,
         test_segmented_persistence_and_read_only_mode,
+        test_compact_and_rebuild_index_python_api,
     ]
 
     failed = 0
