@@ -6,3 +6,6 @@ bindings/python/elips/*.so
 
 
 PROMPT.md
+.DS_Store
+**/.DS_Store
+
