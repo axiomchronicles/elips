@@ -11,7 +11,7 @@ Usage::
         ...
 """
 
-from typing import Iterable, Mapping, Sequence, Union
+from typing import Iterable, List, Mapping, Sequence, Tuple, Union
 
 #: A metadata value: integer, float, boolean, or string.
 MetaValue = Union[bool, int, float, str]
@@ -27,10 +27,16 @@ PayloadLike = Mapping[str, MetaValue]
 BatchRecord = Mapping[str, Union[Vector, PayloadLike, str, None]]
 
 #: A fetch result: dict with ``id``, ``vector``, and ``data`` keys.
-FetchResult = dict  # {id: str, vector: tuple[float, ...], data: PayloadLike}
+FetchResult = Mapping[str, Union[str, Vector, PayloadLike, None]]
 
 #: A scan result: dict with ``id`` and ``data`` keys.
-ScanResult = dict  # {id: str, data: PayloadLike}
+ScanResult = Mapping[str, Union[str, PayloadLike]]
+
+#: A query binding: mapping of variable names to vectors.
+QueryBindings = Mapping[str, Vector]
+
+#: A record for place_many: id, vector, and payload dicts.
+RecordDict = Mapping[str, Union[str, Vector, PayloadLike, None]]
 
 __all__ = [
     "MetaValue",
@@ -39,4 +45,6 @@ __all__ = [
     "BatchRecord",
     "FetchResult",
     "ScanResult",
+    "QueryBindings",
+    "RecordDict",
 ]
