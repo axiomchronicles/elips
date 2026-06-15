@@ -42,11 +42,15 @@ public:
 
 private:
     void release_buffer() noexcept;
+    void sync_device_buffer_best_effort() noexcept;
+    [[nodiscard]] std::expected<GpuBuffer, GpuError>
+    create_device_buffer_from_host(std::span<const float> vectors);
 
     GpuPort& backend_;
     elips::Metric metric_;
     uint16_t dimension_;
     GpuBuffer database_buffer_;
+    std::vector<float> host_vectors_;
     std::vector<RecordID> ids_;
     size_t count_{0};
 };

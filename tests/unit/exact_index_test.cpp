@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Errors.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/index_engine/ExactIndex.hpp"
 
@@ -55,6 +56,21 @@ TEST(ExactIndexTest, RemoveDropsRecordFromResults) {
 TEST(ExactIndexTest, TypeNameIsExact) {
     ExactIndex index(Metric::cosine, 4);
     EXPECT_EQ(index.type_name(), "exact");
+}
+
+TEST(ExactIndexTest, InsertRejectsDimensionMismatch) {
+    ExactIndex index(Metric::euclidean, 2);
+
+    EXPECT_THROW(index.insert(make_id(), std::vector<float>{1.0F}),
+                 elips::DimensionMismatch);
+}
+
+TEST(ExactIndexTest, SearchRejectsDimensionMismatch) {
+    ExactIndex index(Metric::euclidean, 2);
+    index.insert(make_id(), std::vector<float>{0.0F, 0.0F});
+
+    EXPECT_THROW((void)index.search(std::vector<float>{1.0F}, 1),
+                 elips::DimensionMismatch);
 }
 
 }  // namespace

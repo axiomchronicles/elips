@@ -1,12 +1,27 @@
 #include "elips/index_engine/ExactIndex.hpp"
 
 #include <algorithm>
+#include <string>
+#include <string_view>
 
+#include "elips/domain/Errors.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips {
+namespace {
+
+void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
+                        std::string_view label) {
+    if (vector.size() != dimension) {
+        throw DimensionMismatch{std::string(label) +
+                                " dimension does not match index"};
+    }
+}
+
+}  // namespace
 
 void ExactIndex::insert(const RecordID& id, std::span<const float> vector) {
+    validate_dimension(vector, dimension_, "vector");
     ids_.push_back(id);
     data_.insert(data_.end(), vector.begin(), vector.end());
 }
@@ -24,6 +39,8 @@ void ExactIndex::remove(const RecordID& id) {
 
 std::vector<IndexPort::Hit> ExactIndex::search(std::span<const float> query,
                                                std::size_t k) const {
+    validate_dimension(query, dimension_, "query");
+
     std::vector<Hit> scored;
     scored.reserve(ids_.size());
     for (std::size_t i = 0; i < ids_.size(); ++i) {

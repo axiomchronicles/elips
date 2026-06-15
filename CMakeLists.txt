@@ -119,6 +119,7 @@ if(ELIPS_BUILD_TESTS)
 if(ELIPS_GPU_ENABLED)
     target_sources(elips_tests PRIVATE
         tests/unit/gpu/GpuDeviceManagerTest.cpp
+        tests/unit/gpu/GpuBruteForceIndexTest.cpp
         tests/unit/gpu/GpuMemoryManagerTest.cpp
         tests/unit/gpu/DynamicBatcherTest.cpp
         tests/integration/gpu/MetalBackendTest.cpp

@@ -42,7 +42,9 @@ public:
     [[nodiscard]] void* device_ptr() const noexcept { return device_ptr_; }
     [[nodiscard]] size_t bytes() const noexcept { return bytes_; }
     [[nodiscard]] void* backend_handle() const noexcept { return backend_handle_; }
-    [[nodiscard]] explicit operator bool() const noexcept { return device_ptr_ != nullptr; }
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return device_ptr_ != nullptr || backend_handle_ != nullptr || bytes_ != 0;
+    }
 
 private:
     void* device_ptr_{nullptr};

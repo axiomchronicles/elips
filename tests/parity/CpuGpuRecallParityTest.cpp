@@ -5,9 +5,8 @@
 #include "elips/gpu_engine/GpuSelector.hpp"
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/domain/Vector.hpp"
 #include "elips/domain/RecordID.hpp"
+#include "elips/index_engine/ExactIndex.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
@@ -40,11 +39,9 @@ protected:
         if (sel.has_value()) {
             backend_ = std::move(*sel);
         }
-        cpu_index_ = std::make_unique<ExactIndex>(Metric::cosine, 128);
     }
 
     std::unique_ptr<GpuPort> backend_;
-    std::unique_ptr<ExactIndex> cpu_index_;
 };
 
 TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
@@ -63,8 +60,9 @@ TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
     std::vector<RecordID> ids;
     for (size_t i = 0; i < n; ++i) ids.push_back(RecordID::generate());
 
+    ExactIndex cpu_index(Metric::cosine, static_cast<uint16_t>(dim));
     for (size_t i = 0; i < n; ++i) {
-        cpu_index_->insert(ids[i], {vectors.data() + i * dim, dim});
+        cpu_index.insert(ids[i], {vectors.data() + i * dim, dim});
     }
 
     GpuConfig gconfig;
@@ -77,7 +75,7 @@ TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
     std::vector<float> query(dim);
     for (auto& v : query) v = dist(rng);
 
-    auto ground = cpu_index_->search(query, k);
+    auto ground = cpu_index.search(query, k);
     auto actual = gpu_idx.search(query, k);
 
     EXPECT_EQ(ground.size(), k);
