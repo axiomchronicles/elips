@@ -142,6 +142,7 @@ class Config:
         provider: str = ...,
         model: str = ...,
     ) -> "Config": ...
+    def gpu(self, config: "GpuConfig") -> "Config": ...
 
     @property
     def dimension_val(self) -> int:

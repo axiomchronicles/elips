@@ -16,3 +16,7 @@ elips.egg-info/
 dist/
 *.egg-info/
 *.egg
+
+.mypy_cache/
+.pytest_cache/
+*.log

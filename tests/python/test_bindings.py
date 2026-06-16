@@ -785,7 +785,12 @@ def test_type_stubs():
     """Verify py.typed marker and stub file presence."""
     elips_dir = os.path.dirname(elips.__file__)
     assert os.path.exists(os.path.join(elips_dir, "py.typed")), "py.typed missing"
-    assert os.path.exists(os.path.join(elips_dir, "_core.pyi")), "_core.pyi missing"
+    stub_path = os.path.join(elips_dir, "_core.pyi")
+    assert os.path.exists(stub_path), "_core.pyi missing"
+
+    with open(stub_path, "r", encoding="utf-8") as f:
+        stub_text = f.read()
+    assert "def gpu(self, config: \"GpuConfig\") -> \"Config\": ..." in stub_text
     print("  PASS test_type_stubs")
 
 
