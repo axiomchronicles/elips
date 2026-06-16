@@ -1,6 +1,7 @@
 #include "elips/index_engine/ExactIndex.hpp"
 
 #include <algorithm>
+#include <expected>
 #include <string>
 #include <string_view>
 
@@ -55,6 +56,34 @@ std::vector<IndexPort::Hit> ExactIndex::search(std::span<const float> query,
         [](const Hit& lhs, const Hit& rhs) { return lhs.second < rhs.second; });
     scored.resize(take);
     return scored;
+}
+
+std::expected<IndexSnapshot, std::string> ExactIndex::export_snapshot() const {
+    IndexSnapshot snapshot;
+    snapshot.kind = IndexSnapshotKind::exact;
+    snapshot.metric = metric_;
+    snapshot.dimension = dimension_;
+    snapshot.ids = ids_;
+    snapshot.vectors = data_;
+    return snapshot;
+}
+
+std::expected<void, std::string>
+ExactIndex::import_snapshot(const IndexSnapshot& snapshot) {
+    if (snapshot.dimension != dimension_) {
+        return std::unexpected("snapshot dimension does not match ExactIndex");
+    }
+    if (snapshot.metric != metric_) {
+        return std::unexpected("snapshot metric does not match ExactIndex");
+    }
+    if (snapshot.vectors.size() !=
+        snapshot.ids.size() * static_cast<std::size_t>(dimension_)) {
+        return std::unexpected("snapshot vector payload is not row-major exact data");
+    }
+
+    ids_ = snapshot.ids;
+    data_ = snapshot.vectors;
+    return {};
 }
 
 }  // namespace elips

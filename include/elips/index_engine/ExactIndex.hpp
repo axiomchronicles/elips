@@ -2,6 +2,7 @@
 #define ELIPS_INDEX_ENGINE_EXACT_INDEX_HPP
 
 #include <cstddef>
+#include <expected>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -9,12 +10,13 @@
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/IndexTransferPort.hpp"
 
 namespace elips {
 
 // Brute-force linear scan over (id, vector) pairs. Exact results; used for
 // small collections and as the recall ground-truth oracle for ANN benchmarks.
-class ExactIndex final : public IndexPort {
+class ExactIndex final : public IndexPort, public IndexTransferPort {
 public:
     ExactIndex(Metric metric, std::uint16_t dimension) noexcept
         : metric_(metric), dimension_(dimension) {}
@@ -28,6 +30,11 @@ public:
     [[nodiscard]] std::string_view type_name() const noexcept override {
         return "exact";
     }
+
+    [[nodiscard]] std::expected<IndexSnapshot, std::string>
+    export_snapshot() const override;
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const IndexSnapshot& snapshot) override;
 
 private:
     Metric metric_;

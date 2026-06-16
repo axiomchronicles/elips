@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <random>
 #include <span>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/IndexTransferPort.hpp"
 
 namespace elips {
 
@@ -19,7 +21,7 @@ namespace elips {
 // Vectors are stored row-major; the graph is layered with probabilistic level
 // assignment. Removal is a soft tombstone (graph navigation is preserved;
 // deleted nodes are excluded from results), matching the MVCC delete model.
-class HierarchicalGraphIndex final : public IndexPort {
+class HierarchicalGraphIndex final : public IndexPort, public IndexTransferPort {
 public:
     HierarchicalGraphIndex(Metric metric, std::uint16_t dimension,
                            GraphParams params);
@@ -35,6 +37,11 @@ public:
     [[nodiscard]] std::string_view type_name() const noexcept override {
         return "graph";
     }
+
+    [[nodiscard]] std::expected<IndexSnapshot, std::string>
+    export_snapshot() const override;
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const IndexSnapshot& snapshot) override;
 
 private:
     using NodeId = std::uint32_t;

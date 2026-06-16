@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <expected>
 #include <queue>
 #include <unordered_set>
 
@@ -210,6 +211,65 @@ std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
         }
     }
     return hits;
+}
+
+std::expected<IndexSnapshot, std::string>
+HierarchicalGraphIndex::export_snapshot() const {
+    IndexSnapshot snapshot;
+    snapshot.kind = IndexSnapshotKind::graph;
+    snapshot.metric = metric_;
+    snapshot.dimension = dimension_;
+
+    snapshot.ids.reserve(ids_.size());
+    snapshot.vectors.reserve(data_.size());
+    for (std::size_t node = 0; node < ids_.size(); ++node) {
+        if (deleted_[node]) {
+            continue;
+        }
+        snapshot.ids.push_back(ids_[node]);
+        const auto base =
+            static_cast<std::ptrdiff_t>(node * static_cast<std::size_t>(dimension_));
+        snapshot.vectors.insert(snapshot.vectors.end(),
+                                data_.begin() + base,
+                                data_.begin() + base + dimension_);
+    }
+    return snapshot;
+}
+
+std::expected<void, std::string>
+HierarchicalGraphIndex::import_snapshot(const IndexSnapshot& snapshot) {
+    if (snapshot.dimension != dimension_) {
+        return std::unexpected(
+            "snapshot dimension does not match HierarchicalGraphIndex");
+    }
+    if (snapshot.metric != metric_) {
+        return std::unexpected("snapshot metric does not match HierarchicalGraphIndex");
+    }
+    if (snapshot.vectors.size() !=
+        snapshot.ids.size() * static_cast<std::size_t>(dimension_)) {
+        return std::unexpected(
+            "snapshot vector payload is not row-major graph index data");
+    }
+
+    data_.clear();
+    ids_.clear();
+    deleted_.clear();
+    node_levels_.clear();
+    links_.clear();
+    id_to_node_.clear();
+    entry_point_ = -1;
+    max_level_ = -1;
+    deleted_count_ = 0;
+
+    for (std::size_t i = 0; i < snapshot.ids.size(); ++i) {
+        insert(snapshot.ids[i],
+               std::span<const float>{
+                   snapshot.vectors.data() +
+                       i * static_cast<std::size_t>(dimension_),
+                   dimension_});
+    }
+
+    return {};
 }
 
 }  // namespace elips

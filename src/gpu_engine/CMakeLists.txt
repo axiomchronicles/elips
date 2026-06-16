@@ -5,6 +5,7 @@
 add_library(elips_gpu STATIC
     GpuDeviceManager.cpp
     GpuSelector.cpp
+    GpuIndexTransferManager.cpp
     GpuMemoryManager.cpp
     GpuMemoryPool.cpp
     DynamicBatcher.cpp
@@ -12,6 +13,8 @@ add_library(elips_gpu STATIC
     GpuSearchPipeline.cpp
     GpuQuantizationPipeline.cpp
     GpuProfiler.cpp
+    detail/IvfIndexState.cpp
+    GpuDistributedIndex.cpp
     GpuGraphIndex.cpp
     GpuIVFFlatIndex.cpp
     GpuIVFPQIndex.cpp

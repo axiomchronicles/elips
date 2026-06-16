@@ -1,10 +1,12 @@
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 
 #include <algorithm>
+#include <expected>
 #include <string>
 #include <string_view>
 
 #include "elips/gpu_engine/GpuSearchPipeline.hpp"
+#include "elips/gpu_engine/GpuIndexTransferManager.hpp"
 #include "elips/domain/Errors.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
@@ -23,7 +25,10 @@ void validate_dimension(std::span<const float> vector, uint16_t dimension,
 
 GpuBruteForceIndex::GpuBruteForceIndex(GpuPort& backend, elips::Metric metric,
                                        uint16_t dimension, const GpuConfig& config)
-    : backend_(backend), metric_(metric), dimension_(dimension) {
+    : backend_(backend),
+      metric_(metric),
+      dimension_(dimension),
+      backend_name_(backend.device_info().backend) {
     (void)config;
 }
 
@@ -166,25 +171,67 @@ GpuBruteForceIndex::search_batch(std::span<const float> queries, size_t k,
 
 std::expected<void, GpuError>
 GpuBruteForceIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
-    for (size_t i = 0; i < ids_.size(); ++i) {
-        cpu_index_out.insert(
-            ids_[i],
-            std::span<const float>{host_vectors_.data() + i * dimension_,
-                                   dimension_});
+    auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
+    if (!transfer) {
+        return std::unexpected(GpuError::IndexBuildFailed);
+    }
+    auto cloned = GpuIndexTransferManager::clone_gpu_to_cpu(*this, *transfer);
+    if (!cloned.has_value()) {
+        return std::unexpected(GpuError::IndexBuildFailed);
     }
     return {};
 }
 
 std::expected<void, GpuError>
-GpuBruteForceIndex::import_from_cpu_index(const elips::IndexPort&) { return {}; }
+GpuBruteForceIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+    const auto* transfer =
+        dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
+    if (!transfer) {
+        return std::unexpected(GpuError::IndexBuildFailed);
+    }
+    return GpuIndexTransferManager::clone_cpu_to_gpu(*transfer, *this);
+}
 
 size_t GpuBruteForceIndex::device_bytes_used() const noexcept {
     return database_buffer_.bytes();
 }
 
 std::string_view GpuBruteForceIndex::backend_name() const noexcept {
-    static const std::string name = backend_.device_info().backend;
-    return name;
+    return backend_name_;
+}
+
+std::expected<elips::IndexSnapshot, std::string>
+GpuBruteForceIndex::export_snapshot() const {
+    elips::IndexSnapshot snapshot;
+    snapshot.kind = elips::IndexSnapshotKind::gpu_brute_force;
+    snapshot.metric = metric_;
+    snapshot.dimension = dimension_;
+    snapshot.ids = ids_;
+    snapshot.vectors = host_vectors_;
+    return snapshot;
+}
+
+std::expected<void, std::string>
+GpuBruteForceIndex::import_snapshot(const elips::IndexSnapshot& snapshot) {
+    if (snapshot.dimension != dimension_) {
+        return std::unexpected(
+            "snapshot dimension does not match GpuBruteForceIndex");
+    }
+    if (snapshot.metric != metric_) {
+        return std::unexpected("snapshot metric does not match GpuBruteForceIndex");
+    }
+    if (snapshot.vectors.size() !=
+        snapshot.ids.size() * static_cast<std::size_t>(dimension_)) {
+        return std::unexpected(
+            "snapshot vector payload is not row-major brute-force data");
+    }
+
+    release_buffer();
+    host_vectors_ = snapshot.vectors;
+    ids_ = snapshot.ids;
+    count_ = ids_.size();
+    sync_device_buffer_best_effort();
+    return {};
 }
 
 } // namespace elips::gpu

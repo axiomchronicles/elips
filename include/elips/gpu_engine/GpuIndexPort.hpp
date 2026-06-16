@@ -13,10 +13,11 @@
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 #include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/IndexTransferPort.hpp"
 
 namespace elips::gpu {
 
-class GpuIndexPort : public elips::IndexPort {
+class GpuIndexPort : public elips::IndexPort, public elips::IndexTransferPort {
 public:
     ~GpuIndexPort() override = default;
 

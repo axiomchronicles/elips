@@ -1,13 +1,21 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_GRAPH_INDEX_HPP
 #define ELIPS_GPU_ENGINE_GPU_GRAPH_INDEX_HPP
 
+#include <expected>
+#include <memory>
 #include <span>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuIndexPort.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
+
+namespace elips {
+class HierarchicalGraphIndex;
+}
 
 namespace elips::gpu {
 
@@ -40,8 +48,15 @@ public:
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
 
+    [[nodiscard]] std::expected<elips::IndexSnapshot, std::string>
+    export_snapshot() const override;
+
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const elips::IndexSnapshot& snapshot) override;
+
 private:
     void release_graph_data() noexcept;
+    void sync_device_data_best_effort() noexcept;
 
     GpuPort& backend_;
     elips::Metric metric_;
@@ -49,6 +64,11 @@ private:
     size_t count_{0};
     GpuBuffer graph_data_;
     std::vector<RecordID> ids_;
+    std::vector<float> host_vectors_;
+    std::unordered_map<RecordID, std::size_t> id_to_slot_;
+    std::unique_ptr<elips::HierarchicalGraphIndex> cpu_graph_;
+    std::string backend_name_;
+    GpuConfig config_;
 };
 
 } // namespace elips::gpu

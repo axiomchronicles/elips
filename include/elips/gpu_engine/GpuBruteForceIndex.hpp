@@ -1,7 +1,9 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_BRUTE_FORCE_INDEX_HPP
 #define ELIPS_GPU_ENGINE_GPU_BRUTE_FORCE_INDEX_HPP
 
+#include <expected>
 #include <span>
+#include <string>
 #include <vector>
 
 #include "elips/Config.hpp"
@@ -40,6 +42,12 @@ public:
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
 
+    [[nodiscard]] std::expected<elips::IndexSnapshot, std::string>
+    export_snapshot() const override;
+
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const elips::IndexSnapshot& snapshot) override;
+
 private:
     void release_buffer() noexcept;
     void sync_device_buffer_best_effort() noexcept;
@@ -53,6 +61,7 @@ private:
     std::vector<float> host_vectors_;
     std::vector<RecordID> ids_;
     size_t count_{0};
+    std::string backend_name_;
 };
 
 } // namespace elips::gpu

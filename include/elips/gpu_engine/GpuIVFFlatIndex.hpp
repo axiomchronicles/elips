@@ -1,7 +1,10 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_IVF_FLAT_INDEX_HPP
 #define ELIPS_GPU_ENGINE_GPU_IVF_FLAT_INDEX_HPP
 
+#include <expected>
+#include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 #include "elips/Config.hpp"
@@ -10,11 +13,15 @@
 #include "elips/gpu_engine/GpuPort.hpp"
 
 namespace elips::gpu {
+namespace detail {
+class IvfIndexState;
+}
 
 class GpuIVFFlatIndex final : public GpuIndexPort {
 public:
     GpuIVFFlatIndex(GpuPort& backend, elips::Metric metric, uint16_t dimension,
                     const GpuConfig& config);
+    ~GpuIVFFlatIndex() override;
 
     void insert(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
@@ -39,12 +46,24 @@ public:
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
 
+    [[nodiscard]] std::expected<elips::IndexSnapshot, std::string>
+    export_snapshot() const override;
+
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const elips::IndexSnapshot& snapshot) override;
+
 private:
+    [[nodiscard]] std::vector<Hit> rank_candidates(
+        std::span<const float> query, std::size_t k,
+        const std::vector<RecordID>& candidate_ids,
+        const std::vector<float>& candidate_vectors) const;
+
     GpuPort& backend_;
     elips::Metric metric_;
     uint16_t dimension_;
-    size_t n_lists_{1024};
-    size_t count_{0};
+    GpuConfig config_;
+    std::string backend_name_;
+    std::unique_ptr<detail::IvfIndexState> state_;
 };
 
 } // namespace elips::gpu

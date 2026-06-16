@@ -1,7 +1,10 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_IVFPQ_INDEX_HPP
 #define ELIPS_GPU_ENGINE_GPU_IVFPQ_INDEX_HPP
 
+#include <expected>
+#include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 #include "elips/Config.hpp"
@@ -10,11 +13,15 @@
 #include "elips/gpu_engine/GpuPort.hpp"
 
 namespace elips::gpu {
+namespace detail {
+class IvfIndexState;
+}
 
 class GpuIVFPQIndex final : public GpuIndexPort {
 public:
     GpuIVFPQIndex(GpuPort& backend, elips::Metric metric, uint16_t dimension,
                   const GpuConfig& config);
+    ~GpuIVFPQIndex() override;
 
     void insert(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
@@ -39,14 +46,28 @@ public:
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
 
+    [[nodiscard]] std::expected<elips::IndexSnapshot, std::string>
+    export_snapshot() const override;
+
+    [[nodiscard]] std::expected<void, std::string>
+    import_snapshot(const elips::IndexSnapshot& snapshot) override;
+
 private:
+    void rebuild_codes();
+    [[nodiscard]] std::vector<float> decode_candidate_vector(
+        std::span<const std::uint8_t> code,
+        std::span<const float> centroid) const;
+
     GpuPort& backend_;
     elips::Metric metric_;
     uint16_t dimension_;
-    size_t n_lists_{1024};
+    GpuConfig config_;
     uint32_t pq_dim_{0};
     uint32_t pq_bits_{8};
-    size_t count_{0};
+    std::vector<float> codebook_;
+    std::vector<std::uint8_t> codes_;
+    std::string backend_name_;
+    std::unique_ptr<detail::IvfIndexState> state_;
 };
 
 } // namespace elips::gpu

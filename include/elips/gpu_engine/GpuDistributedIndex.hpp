@@ -1,23 +1,27 @@
-#ifndef ELIPS_GPU_ENGINE_GPU_HYBRID_INDEX_HPP
-#define ELIPS_GPU_ENGINE_GPU_HYBRID_INDEX_HPP
+#ifndef ELIPS_GPU_ENGINE_GPU_DISTRIBUTED_INDEX_HPP
+#define ELIPS_GPU_ENGINE_GPU_DISTRIBUTED_INDEX_HPP
 
+#include <atomic>
 #include <expected>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
-#include "elips/Config.hpp"
-#include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuIndexPort.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
-#include "elips/index_engine/IndexPort.hpp"
 
 namespace elips::gpu {
 
-class GpuHybridIndex final : public GpuIndexPort {
+enum class DistributedMode {
+    replicate,
+    shard,
+};
+
+class GpuDistributedIndex final : public GpuIndexPort {
 public:
-    GpuHybridIndex(GpuPort& backend, std::unique_ptr<elips::IndexPort> cpu_index,
-                   elips::Metric metric, uint16_t dimension, const GpuConfig& config);
+    GpuDistributedIndex(std::vector<std::unique_ptr<GpuIndexPort>> indexes,
+                        DistributedMode mode);
+    ~GpuDistributedIndex() override = default;
 
     void insert(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
@@ -49,10 +53,15 @@ public:
     import_snapshot(const elips::IndexSnapshot& snapshot) override;
 
 private:
-    std::unique_ptr<elips::IndexPort> cpu_index_;
-    std::unique_ptr<GpuIndexPort> gpu_index_;
+    [[nodiscard]] std::vector<Hit> merge_hits(
+        const std::vector<std::vector<Hit>>& shard_hits, std::size_t k) const;
+
+    std::vector<std::unique_ptr<GpuIndexPort>> indexes_;
+    DistributedMode mode_;
+    mutable std::atomic<std::size_t> next_replica_{0};
+    std::string backend_name_{"distributed"};
 };
 
-} // namespace elips::gpu
+}  // namespace elips::gpu
 
-#endif
+#endif  // ELIPS_GPU_ENGINE_GPU_DISTRIBUTED_INDEX_HPP
