@@ -1,50 +1,85 @@
-"""Type aliases for the ELIPS Python SDK.
+from __future__ import annotations
 
-These aliases are provided for IDE convenience and documentation. They do not
-add runtime behavior; all types map directly to the C++ extension types.
+r"""Typed aliases and ``TypedDict`` models for the ELIPS Python SDK.
 
-Usage::
+Examples::
 
-    from elips.types import MetaValue, Vector, PayloadLike
-
-    def embed(text: str) -> Vector:
-        ...
+    >>> from elips.types import MetricName, PayloadLike, RecordInputDict
+    >>> metric: MetricName = "cosine"
+    >>> payload: PayloadLike = {"kind": "design", "published": True}
+    >>> record: RecordInputDict = {"text": "alpha note", "meta": payload}
 """
 
-from typing import Iterable, List, Mapping, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Literal, Mapping, Optional, Sequence, TypedDict, Union
 
-#: A metadata value: integer, float, boolean, or string.
+if TYPE_CHECKING:
+    from .core import ChunkInfo, DocumentAttachment, EmbeddingLineage
+
+# Primitive aliases
 MetaValue = Union[bool, int, float, str]
-
-#: A vector: any sequence of 32-bit floats.
 Vector = Sequence[float]
-
-#: A metadata payload: mapping of string keys to typed values.
 PayloadLike = Mapping[str, MetaValue]
+Metadata = dict[str, MetaValue]
 
-#: One batch record for ``place_many()``.
-#: Must have at least ``vector``; ``data`` and ``id`` are optional.
-BatchRecord = Mapping[str, Union[Vector, PayloadLike, str, None]]
+# Literal-friendly names used by the pure-Python facade
+MetricName = Literal["cosine", "euclidean", "dot_product"]
+IndexName = Literal["graph", "exact"]
+AccessModeName = Literal["read_write", "read_only"]
 
-#: A fetch result: dict with ``id``, ``vector``, and ``data`` keys.
-FetchResult = Mapping[str, Union[str, Vector, PayloadLike, None]]
 
-#: A scan result: dict with ``id`` and ``data`` keys.
-ScanResult = Mapping[str, Union[str, PayloadLike]]
+class RecordInputDict(TypedDict, total=False):
+    r"""Mapping input accepted by :meth:`elips.Arena.write_many` and :meth:`elips.Arena.ingest`."""
 
-#: A query binding: mapping of variable names to vectors.
+    vector: Vector
+    text: str
+    meta: PayloadLike
+    key: str
+    document: "DocumentAttachment"
+    chunk: "ChunkInfo"
+    lineage: "EmbeddingLineage"
+
+
+class BatchRecord(TypedDict, total=False):
+    r"""Legacy batch mapping accepted by :meth:`elips.Vault.place_many` and modern compatibility helpers."""
+
+    id: str
+    vector: Vector
+    text: str
+    data: PayloadLike
+    document: "DocumentAttachment"
+    chunk: "ChunkInfo"
+    lineage: "EmbeddingLineage"
+
+
+class StoredRecord(TypedDict):
+    r"""Record dictionary returned by :meth:`elips.Vault.fetch` and :meth:`elips.Vault.scan`."""
+
+    id: str
+    vector: tuple[float, ...]
+    data: dict[str, MetaValue]
+    document: Optional["DocumentAttachment"]
+    chunk: Optional["ChunkInfo"]
+    lineage: Optional["EmbeddingLineage"]
+
+
+FetchResult = StoredRecord
+ScanResult = StoredRecord
 QueryBindings = Mapping[str, Vector]
-
-#: A record for place_many: id, vector, and payload dicts.
-RecordDict = Mapping[str, Union[str, Vector, PayloadLike, None]]
+RecordDict = BatchRecord
 
 __all__ = [
-    "MetaValue",
-    "Vector",
-    "PayloadLike",
+    "AccessModeName",
     "BatchRecord",
     "FetchResult",
-    "ScanResult",
+    "IndexName",
+    "MetaValue",
+    "Metadata",
+    "MetricName",
+    "PayloadLike",
     "QueryBindings",
     "RecordDict",
+    "RecordInputDict",
+    "ScanResult",
+    "StoredRecord",
+    "Vector",
 ]

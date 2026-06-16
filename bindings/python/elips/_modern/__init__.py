@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-r"""Compatibility facade for the modern ELIPS API.
+r"""Modern ELIPS API package.
 
 Examples::
 
-    >>> from elips.modern import RecordInput, connect
+    >>> from elips._modern import RecordInput, connect
     >>> engine = connect(":memory:", dimension=2)
     >>> arena = engine.arena("documents")
     >>> _ = arena.write(RecordInput(text="alpha note", meta={"kind": "design"}))
-    >>> engine.close()
 """
 
-from ._modern import Arena, Embedder, Engine, Hit, RecordInput, Row, connect, connect_with_config
+from .arena import Arena
+from .connect import connect, connect_with_config
+from .engine import Engine
+from .models import Hit, RecordInput, Row
+from .typing import Embedder
 
 __all__ = [
     "Arena",

@@ -8,62 +8,56 @@ The `elips` Python package is a hybrid of pure-Python modules and a compiled C++
 bindings/python/
 ├── setup.py                           # pip / cibuildwheel entry point
 └── elips/
-    ├── __init__.py                    # Public API facade over _core + modern.py
+    ├── __init__.py                    # Small public facade over core.py + modern.py
+    ├── core.py                        # Low-level pure-Python facade over _core
     ├── _core.pyi                      # Type stubs (924 lines) — consumed by IDEs & type checkers
     ├── _core.cpython-3XX-<arch>.so    # Compiled pybind11 extension (macOS: .dylib, Linux: .so)
-    ├── modern.py                      # Typed higher-level Engine/Arena wrapper
+    ├── modern.py                      # Compatibility facade for the modern API
+    ├── _modern/
+    │   ├── __init__.py                # Structured modern API exports
+    │   ├── arena.py                   # Arena implementation
+    │   ├── connect.py                 # connect() / connect_with_config()
+    │   ├── engine.py                  # Engine implementation
+    │   ├── models.py                  # RecordInput / Row / Hit dataclasses
+    │   ├── typing.py                  # Embedder protocol and modern typing helpers
+    │   └── _records.py                # Internal record normalization helpers
     ├── py.typed                       # PEP 561 marker — empty file, signals presence of inline types
     ├── errors.py                      # Error hierarchy re-exports (convenience submodule)
-    └── types.py                       # Type alias re-exports (convenience submodule)
+    └── types.py                       # Literals, aliases, and TypedDict models
 ```
 
 ## `__init__.py` — The Public API
 
 ```python
-from ._core import (
-    Comparator,
-    Config,
-    ConfigError,
-    Database,
-    DimensionMismatch,
-    Durability,
-    ElipsError,
-    Filter,
-    GraphParams,
-    IndexType,
-    InvalidVector,
-    LockConflict,
-    Metric,
-    NotFound,
-    ParseError,
-    Result,
-    StorageError,
-    Token,
-    TokenKind,
-    Transaction,
-    TransactionVault,
-    Vault,
-    VaultInfo,
-    distance,
-    metric_from_string,
-    metric_to_string,
-    open,
-    open_with_config,
-    validate_eql,
-    requires_normalization,
-    tokenize_eql,
-)
+from . import core as _core_api
+from . import modern as _modern_api
+from .core import *
+from .modern import *
 ```
 
-The `__init__.py` facade re-exports both the compiled `_core` surface and the
-typed helpers from `modern.py` (`connect()`, `connect_with_config()`,
-`Engine`, `Arena`, `Row`, `Hit`, and the `Embedder` protocol). The extension
-may expose additional internal symbols, but only those explicitly re-exported
-here are part of the public API.
+The package root is intentionally small. It imports from the structured
+`core.py` and `modern.py` facades and then exposes the combined `__all__`.
+This keeps the public import path stable (`import elips`) while letting the
+actual implementation live in smaller, testable modules.
+
+## `core.py` — The Low-Level Facade
+
+`core.py` is the pure-Python shim over the compiled `_core` extension. It owns:
+
+- the `_has_gpu` conditional import logic
+- the stable low-level `__all__`
+- the package `__version__`
+- direct re-exports of `Database`, `Vault`, `Config`, and the other runtime
+  types defined by pybind11
+
+This moves extension-specific wiring out of `__init__.py` without changing the
+user-facing surface.
 
 ### GPU Conditional Imports
 
-GPU types import conditionally. If the extension was compiled without GPU support (no `ELIPS_GPU_ENABLED` define), the GPU classes are not present in `_core`:
+GPU types import conditionally in `core.py`. If the extension was compiled
+without GPU support (no `ELIPS_GPU_ENABLED` define), the GPU classes are not
+present in `_core`:
 
 ```python
 try:
@@ -159,9 +153,29 @@ __all__ = [
 ]
 ```
 
-`__all__` controls what `from elips import *` exposes. GPU types are appended
-only when the extension was built with GPU support, so CPU-only installs keep a
-stable import surface without dangling GPU names.
+`__all__` is now composed from `core.py` plus `modern.py`. GPU types are still
+appended only when the extension was built with GPU support, so CPU-only
+installs keep a stable import surface without dangling GPU names.
+
+## `modern.py` And `elips/_modern/` — The Modern API
+
+`modern.py` is now a compatibility facade that re-exports the actual modern
+implementation from `elips/_modern/`.
+
+This split keeps `from elips.modern import Engine` working, but organizes the
+wrapper into purpose-specific files:
+
+- `connect.py` for high-level open/configure flows
+- `engine.py` for the `Engine` lifecycle wrapper
+- `arena.py` for the typed `Arena` query and write API
+- `models.py` for `RecordInput`, `Row`, and `Hit`
+- `typing.py` for the `Embedder` protocol
+- `_records.py` for legacy-column to structured-record normalization
+
+The key API addition is `RecordInput`, a typed dataclass that groups a record's
+vector, text, document, metadata, and lineage into one reusable object. The
+older column-oriented `Arena.ingest(...)` shape is still supported, but it now
+normalizes into the same structured path under the hood.
 
 ## `_core.cpython-XXX.so` — The Compiled Extension
 
@@ -200,10 +214,10 @@ An empty file whose presence signals to type checkers that the `elips` package s
 
 ## `errors.py` — Error Hierarchy Submodule
 
-A convenience module that re-exports the exception classes from `_core`:
+A convenience module that re-exports the exception classes from `core.py`:
 
 ```python
-from ._core import (
+from .core import (
     ConfigError,
     DimensionMismatch,
     ElipsError,
@@ -224,22 +238,26 @@ elips.DimensionMismatch          # via __init__.py re-export
 from elips.errors import DimensionMismatch  # via submodule
 ```
 
-## `types.py` — Type Alias Submodule
+## `types.py` — Runtime Typing Models
 
-Provides reusable type aliases for IDE convenience — no runtime behavior:
+`types.py` is now more than a small alias file. It provides:
+
+- primitive aliases such as `MetaValue`, `Vector`, and `PayloadLike`
+- `Literal` names such as `MetricName`, `IndexName`, and `AccessModeName`
+- `TypedDict` models such as `RecordInputDict`, `BatchRecord`, and `StoredRecord`
 
 ```python
 MetaValue = Union[bool, int, float, str]
 Vector = Sequence[float]
 PayloadLike = Mapping[str, MetaValue]
-BatchRecord = Mapping[str, Union[Vector, PayloadLike, str, None]]
-FetchResult = Mapping[str, Union[str, Vector, PayloadLike, None]]
-ScanResult = Mapping[str, Union[str, PayloadLike]]
-QueryBindings = Mapping[str, Vector]
-RecordDict = Mapping[str, Union[str, Vector, PayloadLike, None]]
+MetricName = Literal["cosine", "euclidean", "dot_product"]
+IndexName = Literal["graph", "exact"]
+AccessModeName = Literal["read_write", "read_only"]
 ```
 
-These aliases are duplicated in `_core.pyi` so they are available at the type level. The `types.py` module provides them at runtime for annotations and documentation.
+The primitive aliases are duplicated in `_core.pyi` so they are available at
+the type level for the compiled extension. The richer `TypedDict` models only
+exist in the pure-Python package and are used by the refactored modern API.
 
 ## `setup.py` — Build & Distribution
 
@@ -248,7 +266,7 @@ setup(
     name="elips",
     version="1.0.0",
     description="Embedded local vector database (SQLite for vectors)",
-    packages=["elips"],
+    packages=find_packages(include=["elips", "elips.*"]),
     package_data={"elips": ["py.typed", "_core.pyi"]},
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild},
@@ -261,6 +279,7 @@ The `CMakeBuild` custom command invokes CMake configure + build with `ELIPS_BUIL
 
 Key points:
 - **Python 3.9+** is the minimum version
+- `find_packages(...)` now includes the private `elips._modern` package
 - The extension is always built from source (no pre-built wheels)
 - `package_data` ensures `py.typed` and `_core.pyi` are included in distributions
 - `pip` builds are limited to CPU; GPU backends must be configured via direct CMake

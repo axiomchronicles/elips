@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from setuptools import Extension, setup
+from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +55,7 @@ setup(
     name="elips",
     version="1.0.0",
     description="Embedded local vector database (SQLite for vectors)",
-    packages=["elips"],
+    packages=find_packages(include=["elips", "elips.*"]),
     package_data={"elips": ["py.typed", "_core.pyi"]},
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild},

@@ -1,20 +1,22 @@
-"""ELIPS exception hierarchy.
+from __future__ import annotations
 
-All ELIPS errors derive from :class:`ElipsError`, which itself derives from
-:exc:`RuntimeError`. Catching ``ElipsError`` catches all ELIPS-specific
-failures.
+r"""ELIPS exception hierarchy.
 
-.. code-block:: python
+All ELIPS errors derive from :class:`ElipsError`, which in turn derives from
+:class:`RuntimeError`.
 
-    try:
-        docs.place([1.0, 2.0], {"key": "value"})
-    except elips.DimensionMismatch as e:
-        print("Vector dimension is wrong:", e)
-    except elips.ElipsError as e:
-        print("Some other ELIPS error:", e)
+Examples::
+
+    >>> import elips
+    >>> try:
+    ...     db = elips.open(":memory:", dimension=2)
+    ...     db.vault("docs").place([1.0])
+    ... except elips.DimensionMismatch:
+    ...     print("dimension error")
+    dimension error
 """
 
-from ._core import (
+from .core import (
     ConfigError,
     DimensionMismatch,
     ElipsError,

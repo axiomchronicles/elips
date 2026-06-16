@@ -38,13 +38,19 @@ def main() -> None:
         embedder = engine.raw.config.text_embedder_info
         print(f"text embedder: {embedder.provider}/{embedder.model}@{embedder.revision}")
 
-        arena.ingest(
-            texts=["alpha design note", "beta incident runbook"],
-            meta=[{"kind": "design"}, {"kind": "ops"}],
-            chunks=[
-                build_chunk("doc-alpha", 0, 0, 17),
-                build_chunk("doc-beta", 0, 0, 21),
-            ],
+        arena.write_many(
+            [
+                elips.RecordInput(
+                    text="alpha design note",
+                    meta={"kind": "design"},
+                    chunk=build_chunk("doc-alpha", 0, 0, 17),
+                ),
+                {
+                    "text": "beta incident runbook",
+                    "meta": {"kind": "ops"},
+                    "chunk": build_chunk("doc-beta", 0, 0, 21),
+                },
+            ]
         )
 
         print("text probe:")

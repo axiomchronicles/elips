@@ -8,7 +8,8 @@ ELIPS ships two Python surfaces:
 
 Use the low-level API when you want full control over configuration and exact
 parity with the C++ runtime. Use the modern wrapper when you want typed,
-text-first ingestion and retrieval ergonomics.
+text-first ingestion and retrieval ergonomics built around `RecordInput`,
+`Row`, and `Hit`.
 
 New databases attach the built-in local text embedder automatically unless you
 disable it with `use_default_text_embedder=False` or
@@ -81,10 +82,10 @@ engine = elips.connect(
 )
 arena = engine.arena("documents")
 
-keys = arena.ingest(
-    texts=["alpha design note", "beta runbook"],
-    meta=[{"kind": "design"}, {"kind": "ops"}],
-)
+keys = arena.write_many([
+    elips.RecordInput(text="alpha design note", meta={"kind": "design"}),
+    {"text": "beta runbook", "meta": {"kind": "ops"}},
+])
 
 rows = arena.pull(keys, include_vectors=True)
 hits = arena.probe_text("alpha", top=2)
@@ -94,7 +95,9 @@ hybrid = arena.probe_hybrid([0.0, 1.0], "alpha", top=2)
 `Arena` automatically uses native core text APIs when the database config has a
 resolved text embedder, including the default local embedder. If not, but the
 wrapper is given a Python callable embedder, it falls back to Python-side
-embedding plus `seek_hybrid()`.
+embedding plus `seek_hybrid()`. The older column-oriented `arena.ingest(...)`
+shape is still supported for compatibility, but `RecordInput` and
+`arena.write_many(...)` are the preferred entry points for new code.
 
 ## Persistence & Lifecycle
 

@@ -868,6 +868,49 @@ def test_type_stubs():
     print("  PASS test_type_stubs")
 
 
+def test_public_facades_and_structured_record_api():
+    """Structured record inputs and facade modules remain importable."""
+    import elips.core as core
+    import elips.modern as modern
+
+    assert core.Database is elips.Database
+    assert modern.Engine is elips.Engine
+    assert modern.RecordInput is elips.RecordInput
+
+    engine = elips.connect(":memory:", dimension=2, metric="cosine", embedder=toy_embed)
+    arena = engine.arena("docs")
+
+    markdown = elips.DocumentAttachment(text="beta appendix", mime_type="text/markdown")
+    keys = arena.write_many([
+        elips.RecordInput(text="alpha note", meta={"kind": "alpha"}),
+        {"text": "beta note", "meta": {"kind": "beta"}},
+        {"vector": [0.0, 1.0], "document": markdown, "meta": {"kind": "appendix"}},
+    ])
+    assert len(keys) == 3
+
+    legacy_key = arena.ingest(
+        vectors=[[1.0, 0.0]],
+        documents=[elips.DocumentAttachment(text="gamma note", mime_type="text/plain")],
+        meta=[{"kind": "legacy"}],
+    )[0]
+
+    pulled = arena.pull(keys + [legacy_key], include_vectors=True)
+    assert pulled[0].document is not None
+    assert pulled[0].text == "alpha note"
+    assert pulled[2].document is not None
+    assert pulled[2].document.mime_type == "text/markdown"
+    assert pulled[3].document is not None
+    assert pulled[3].text == "gamma note"
+
+    hit = arena.probe_text("alpha", top=1, include_vectors=True)[0]
+    assert hit.document is not None
+    assert hit.text == "alpha note"
+    assert len(hit.vector) == 2
+
+    engine.close()
+    print("  PASS test_public_facades_and_structured_record_api")
+
+
 def test_modern_document_api():
     """Modern Engine/Arena wrappers support text-first ingestion and querying."""
     engine = elips.connect(":memory:", dimension=2, metric="cosine", embedder=toy_embed)
@@ -1095,6 +1138,7 @@ if __name__ == "__main__":
         test_edge_cases,
         test_memory_leak_check,
         test_type_stubs,
+        test_public_facades_and_structured_record_api,
         test_modern_document_api,
         test_modern_probe_hybrid_and_explain,
         test_modern_merge_replaces_existing_key,
