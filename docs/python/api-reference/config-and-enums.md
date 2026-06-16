@@ -8,14 +8,14 @@ features.
 ```python
 config = (
     elips.Config()
-    .dimension(2)
+    .dimension(128)
     .metric("cosine")
     .index("graph")
     .durability("standard")
     .access_mode("read_write")
     .segmented_storage(True)
     .metadata_acceleration(True)
-    .text_embedder(toy_embed, provider="demo", model="toy")
+    .auto_text_embedder(True)
 )
 ```
 
@@ -29,7 +29,9 @@ config = (
 - `access_mode(mode: str)`
 - `segmented_storage(enabled: bool)`
 - `metadata_acceleration(enabled: bool)`
-- `text_embedder(embedder, provider="...", model="...")`
+- `auto_text_embedder(enabled: bool)`
+- `local_text_embedder(config=LocalEmbedderConfig(...))`
+- `text_embedder(embedder, provider="...", model="...", revision="", dimension=0)`
 - `gpu(config)` when GPU support is built
 
 ### Read-Only Properties
@@ -42,8 +44,41 @@ config = (
 - `access_mode_val` / `access_mode_enum`
 - `segmented_storage_enabled`
 - `metadata_acceleration_enabled`
+- `auto_text_embedder_enabled`
 - `has_text_embedder`
+- `text_embedder_info`
 - `gpu_val`
+
+## Local Embedding Types
+
+### `LocalEmbedderConfig`
+
+```python
+local = elips.LocalEmbedderConfig(
+    model="default",
+    revision="v1",
+    storage_path="/tmp/elips/default.localembed",
+    dimension=128,
+)
+```
+
+Use this with `Config.local_text_embedder(local)` or `elips.open(..., embedder=local)`.
+
+### `TextEmbedderInfo`
+
+Resolved metadata for the current or expected text embedder:
+
+- `kind`
+- `provider`
+- `model`
+- `revision`
+- `backend`
+- `dimension`
+- `fingerprint`
+- `storage_path`
+- `rehydratable`
+- `loaded`
+- `auto_attached`
 
 ## `GraphParams`
 

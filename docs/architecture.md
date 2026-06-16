@@ -56,6 +56,8 @@ Persistent databases can run in two layouts:
   file per vault under `segments/`.
 - Snapshot mode: a single `elips.snapshot` file for compatibility or when
   segmented storage is disabled.
+- Text embedder identity: `TEXT_EMBEDDER.manifest` plus optional
+  `text_embedder/*.localembed` artifacts for the built-in local embedder.
 
 All mutations are WAL-appended before in-memory mutation. WAL replay rebuilds
 the record store on open, including document attachments, chunk info, and
@@ -79,9 +81,12 @@ There are two layers:
 - Modern wrapper: `connect()`, `Engine`, and `Arena` for typed text-first
   ingestion and retrieval.
 
-The modern wrapper prefers native core text APIs when a `Config.text_embedder()`
-is configured and otherwise falls back to Python-side embedding plus hybrid
-querying.
+The modern wrapper prefers native core text APIs when the database config
+resolves a text embedder, including the default local embedder attached for new
+databases. When the config has no native embedder but the wrapper is given a
+Python callable embedder, it falls back to Python-side embedding plus hybrid
+querying. If neither exists, text-first APIs raise `ConfigError` / `ValueError`
+rather than silently switching to lexical-only behavior.
 
 For the detailed FAISS reverse-engineering and the corresponding Elips GPU
 index design and implementation plan, see

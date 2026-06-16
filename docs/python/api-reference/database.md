@@ -14,6 +14,8 @@ def open(
     metric: str = "cosine",
     index: str = "graph",
     access_mode: str = "read_write",
+    embedder = None,
+    use_default_text_embedder: bool = True,
 ) -> Database
 ```
 
@@ -24,6 +26,9 @@ Use `open()` for simple cases.
 - `metric`: `"cosine"`, `"euclidean"`, `"dot_product"`
 - `index`: `"graph"` or `"exact"`
 - `access_mode`: `"read_write"` or `"read_only"`
+- `embedder`: optional Python callable embedder or `LocalEmbedderConfig`
+- `use_default_text_embedder`: attach the built-in local embedder automatically
+  for new databases when no explicit embedder is supplied
 
 Read-only opens require an existing database.
 
@@ -37,6 +42,8 @@ Use this when you need:
 
 - `segmented_storage()`
 - `metadata_acceleration()`
+- `auto_text_embedder()`
+- `local_text_embedder()`
 - `text_embedder()`
 - GPU configuration
 
@@ -102,7 +109,8 @@ effective = db.config
 ```
 
 Returns the effective `Config`, including persisted dimension/metric/index and
-runtime options such as access mode and metadata acceleration.
+runtime options such as access mode, metadata acceleration, and resolved text
+embedder metadata.
 
 ### `gpu_info()` and `gpu_stats()`
 

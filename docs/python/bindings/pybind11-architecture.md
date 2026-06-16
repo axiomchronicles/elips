@@ -1,10 +1,10 @@
 # PyBind11 Binding Architecture
 
-This document describes how the C++ types in `elips_python.cpp` map to Python via pybind11, including type conversion, exception mapping, RAII patterns, and enum registration.
+This document describes how the C++ types in `elips_python.cpp` map to Python via pybind11, including type conversion, exception mapping, RAII patterns, enum registration, and text embedder bridging.
 
 ## Overview
 
-The binding file (`bindings/python/elips_python.cpp`, 796 lines) is a single pybind11 module named `_core`. It wraps the `elips_core` library (and optionally `elips_gpu`) and is the sole compiled source of all Python-facing classes.
+The binding file (`bindings/python/elips_python.cpp`, 1326 lines) is a single pybind11 module named `_core`. It wraps the `elips_core` library (and optionally `elips_gpu`) and is the sole compiled source of all Python-facing classes.
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -31,6 +31,23 @@ The binding file (`bindings/python/elips_python.cpp`, 796 lines) is a single pyb
 ```
 
 ## Type Conversion Layer
+
+## Text Embedder Bridge
+
+Python text embedding reaches the C++ core through three paths:
+
+- `Config.text_embedder(...)` wraps a Python callable in `PythonTextEmbedder`,
+  which implements `elips::TextEmbedderPort`.
+- `LocalEmbedderConfig` maps directly to
+  `elips::LocalTextEmbedderOptions` for the built-in rehydratable local
+  embedder.
+- `open(..., use_default_text_embedder=True)` forwards the default-local
+  preference into the core resolver, which auto-attaches the built-in local
+  embedder for new databases.
+
+The binding also exposes `TextEmbedderInfo` so Python can inspect provider,
+model, revision, backend, fingerprint, storage path, rehydratable state, and
+whether the embedder was auto-attached.
 
 ### Vector Conversion: `to_vector`
 

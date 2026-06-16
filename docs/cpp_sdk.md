@@ -4,37 +4,19 @@ The C++ surface is the runtime's source of truth. It exposes typed
 configuration, document-aware records, planner introspection, persistence
 control, and optional GPU-backed indexes.
 
+New databases automatically attach the built-in local text embedder unless you
+disable it with `Config::auto_text_embedder(false)`.
+
 ## Minimal Example
 
 ```cpp
-#include <memory>
-#include <string_view>
-
 #include "elips/elips.hpp"
-#include "elips/text_engine/TextEmbedderPort.hpp"
-
-class ToyEmbedder final : public elips::TextEmbedderPort {
-public:
-    [[nodiscard]] elips::Vector embed(std::string_view text) const override {
-        return elips::Vector{{text.find("alpha") != std::string_view::npos ? 1.0F : 0.0F,
-                              text.find("beta") != std::string_view::npos ? 1.0F : 0.0F}};
-    }
-
-    [[nodiscard]] std::string_view provider_name() const noexcept override {
-        return "demo";
-    }
-
-    [[nodiscard]] std::string_view model_name() const noexcept override {
-        return "toy";
-    }
-};
 
 auto db = elips::open(
     ":memory:",
     elips::Config{}
-        .dimension(2)
-        .metric(elips::Metric::cosine)
-        .text_embedder(std::make_shared<ToyEmbedder>()));
+        .dimension(128)
+        .metric(elips::Metric::cosine));
 
 auto& docs = db->vault("documents");
 docs.place_document("alpha design note", {{"kind", std::string{"design"}}});
@@ -83,6 +65,15 @@ auto reader = elips::open(
     "/tmp/elips-cpp",
     elips::Config{}.access_mode(elips::AccessMode::read_only));
 ```
+
+## Local vs External Embedders
+
+- The built-in local embedder is rehydratable and persisted via
+  `TEXT_EMBEDDER.manifest` plus a local artifact under `text_embedder/`.
+- Custom `TextEmbedderPort` implementations still work through
+  `Config::text_embedder(...)`, but ELIPS can only persist their metadata. A
+  later reopen must provide the same embedder explicitly before text-first APIs
+  can be used again.
 
 ## Transactions And EQL
 

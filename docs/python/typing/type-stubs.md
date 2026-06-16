@@ -1,6 +1,9 @@
 # Type Stubs & IDE Support
 
-ELIPS ships a complete type stub file (`_core.pyi`, 698 lines) alongside the compiled extension, enabling full static analysis and IDE support.
+ELIPS ships a complete type stub file (`_core.pyi`, 924 lines) alongside the
+compiled extension, enabling full static analysis and IDE support. The higher
+level `modern.py` surface (`connect()`, `Engine`, `Arena`, `Row`, `Hit`) also
+ships inline Python annotations.
 
 ## How Type Stubs Work
 
@@ -148,12 +151,14 @@ class Metric(IntEnum):
 | `TokenKind` | `IntEnum` — `word`, `number`, `string`, `punct`, `end` |
 | `Token` | Has `kind: TokenKind`, `text: str`, `number: float`, `is_integer: bool` |
 
-### Configuration Types
+### Configuration And Text Embedding Types
 
 | Class | Key Members |
 |---|---|
 | `GraphParams` | `max_connections: int`, `ef_construction: int`, `ef_search: int` |
-| `Config` | Fluent builder with `.dimension(dim)`, `.metric(str)`, `.index(str)`, `.graph_params(GraphParams)`, `.durability(str)`, `.gpu(GpuConfig)`. Properties: `dimension_val`, `metric_val`, `metric_enum`, `index_val`, `index_enum`, `graph_params_val`, `durability_enum`, `gpu_val` |
+| `LocalEmbedderConfig` | `model`, `revision`, `storage_path`, `dimension` |
+| `TextEmbedderInfo` | `kind`, `provider`, `model`, `revision`, `backend`, `dimension`, `fingerprint`, `storage_path`, `rehydratable`, `loaded`, `auto_attached` |
+| `Config` | Fluent builder with `.dimension(dim)`, `.metric(str)`, `.index(str)`, `.graph_params(GraphParams)`, `.durability(str)`, `.access_mode(str)`, `.segmented_storage(bool)`, `.metadata_acceleration(bool)`, `.auto_text_embedder(bool)`, `.local_text_embedder(LocalEmbedderConfig)`, `.text_embedder(callable, ...)`, `.gpu(GpuConfig)`. Properties include `has_text_embedder`, `text_embedder_info`, and `auto_text_embedder_enabled`. |
 
 ### GPU Types (7 enums, 7 classes) — Conditional
 
@@ -175,17 +180,32 @@ GPU types are defined in the stub unconditionally (type checkers see them regard
 | `GpuDeviceInfo` | Class | 25 fields including `name`, `vendor`, `backend`, `memory_gb`, `peak_tflops_fp32`, `supports_cagra`, etc. |
 | `GpuMetricsSnapshot` | Class | 17 fields including `device_memory_used_bytes`, `search_p50_latency_us`, `batch_avg_size`, `fp16_search_enabled`, etc. |
 
-### Core Classes
+### Document, Planning, And Core Classes
 
 | Class | Key Methods and Properties |
 |---|---|
+| `DocumentAttachment` | `text`, `uri`, `mime_type` |
+| `ChunkInfo` | `document_key`, `ordinal`, `char_start`, `char_end` |
+| `EmbeddingLineage` | `provider`, `model`, `revision`, `attributes` |
+| `QueryPlan` | `strategy`, `candidate_count`, `metadata_accelerated`, `gpu_index`, `index_type` |
 | `VaultInfo` | Properties: `count: int`, `dimension: int`, `metric: str` |
 | `Result` | Properties: `id: str`, `distance: float`, `data: dict[str, MetaValue]` |
 | `Filter` | Methods: `.field(name)`, `.equals(v)`, `.not_equals(v)`, `.lt(v)`, `.le(v)`, `.gt(v)`, `.gte(v)`, `.one_of(values)`, `.contains(substring)`, `.and_(other)`, `.or_(other)`, `Filter.not_(inner)` (static) |
 | `TransactionVault` | Methods: `.place(vector, data, id) -> str`, `.erase(id) -> None` |
 | `Transaction` | Methods: `.vault(name) -> TransactionVault`, `.commit()`, `.rollback()`, context manager ( `__enter__`, `__exit__` ) |
-| `Vault` | Properties: `name: str`. Methods: `.place(...)`, `.place_many(...)`, `.seek(...)`, `.fetch(id)`, `.erase(id)`, `.scan(...)`, `.info()`, `.count()` |
+| `Vault` | Properties: `name: str`. Methods: `.place(...)`, `.place_document(...)`, `.place_many(...)`, `.seek(...)`, `.seek_text(...)`, `.seek_hybrid(...)`, `.explain_seek(...)`, `.fetch(id)`, `.erase(id)`, `.scan(...)`, `.info()`, `.count()` |
 | `Database` | Methods: `.vault(name) -> Vault`, `.list_vaults()`, `.begin_transaction()`, `.checkpoint()`, `.close()`, `.abandon()`, `.query(eql, bindings)`, `.gpu_info()`, `.gpu_stats()`. Properties: `config: Config`. Context manager. |
+
+### Modern Python Types
+
+The `modern.py` layer is not part of `_core.pyi`; it is regular Python code
+with inline annotations. IDEs still provide full completion for:
+
+- `Engine`
+- `Arena`
+- `Row`
+- `Hit`
+- `Embedder`
 
 ### Module-Level Functions
 

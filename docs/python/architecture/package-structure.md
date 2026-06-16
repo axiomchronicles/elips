@@ -8,9 +8,10 @@ The `elips` Python package is a hybrid of pure-Python modules and a compiled C++
 bindings/python/
 ├── setup.py                           # pip / cibuildwheel entry point
 └── elips/
-    ├── __init__.py                    # Public API — re-exports everything from _core
-    ├── _core.pyi                      # Type stubs (698 lines) — consumed by IDEs & type checkers
+    ├── __init__.py                    # Public API facade over _core + modern.py
+    ├── _core.pyi                      # Type stubs (924 lines) — consumed by IDEs & type checkers
     ├── _core.cpython-3XX-<arch>.so    # Compiled pybind11 extension (macOS: .dylib, Linux: .so)
+    ├── modern.py                      # Typed higher-level Engine/Arena wrapper
     ├── py.typed                       # PEP 561 marker — empty file, signals presence of inline types
     ├── errors.py                      # Error hierarchy re-exports (convenience submodule)
     └── types.py                       # Type alias re-exports (convenience submodule)
@@ -54,7 +55,11 @@ from ._core import (
 )
 ```
 
-Every public name in the `elips` namespace is imported from the compiled `_core` extension module. The `__init__.py` serves as a controlled facade: the extension may expose additional internal symbols, but only those explicitly re-exported here are part of the public API.
+The `__init__.py` facade re-exports both the compiled `_core` surface and the
+typed helpers from `modern.py` (`connect()`, `connect_with_config()`,
+`Engine`, `Arena`, `Row`, `Hit`, and the `Embedder` protocol). The extension
+may expose additional internal symbols, but only those explicitly re-exported
+here are part of the public API.
 
 ### GPU Conditional Imports
 
@@ -154,7 +159,9 @@ __all__ = [
 ]
 ```
 
-`__all__` controls what `from elips import *` exposes. Note that GPU types appear in `__all__` unconditionally — if the extension lacks them, importing those names raises `ImportError` regardless.
+`__all__` controls what `from elips import *` exposes. GPU types are appended
+only when the extension was built with GPU support, so CPU-only installs keep a
+stable import surface without dangling GPU names.
 
 ## `_core.cpython-XXX.so` — The Compiled Extension
 
@@ -174,7 +181,10 @@ The output filename follows Python's extension module naming convention:
 
 ## `_core.pyi` — Type Stubs
 
-A 698-line type stub file that provides static type information for every class, enum, and function exposed by the `_core` extension. This file is consumed by IDEs (PyCharm, VSCode/Pylance) and type checkers (MyPy, Pyright) to enable autocompletion, inline documentation, and type validation.
+A 924-line type stub file that provides static type information for every
+class, enum, and function exposed by the `_core` extension. This file is
+consumed by IDEs (PyCharm, VSCode/Pylance) and type checkers (MyPy, Pyright) to
+enable autocompletion, inline documentation, and type validation.
 
 The stub is declared as package data in `setup.py`:
 

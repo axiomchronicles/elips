@@ -70,7 +70,9 @@ std::vector<SearchResult> seek_text(std::string_view text,
 ```
 
 Text-first query surface. Uses the native text embedder when configured,
-otherwise lexical overlap over stored documents.
+otherwise raises `ConfigError` with guidance to configure or reattach a text
+embedder. Use `seek_hybrid()` when you already have the query vector and want
+to blend it with lexical overlap from attached documents.
 
 ### `seek_hybrid()`
 

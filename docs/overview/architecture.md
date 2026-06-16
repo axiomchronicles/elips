@@ -34,10 +34,12 @@ Text-first queries use the same vault-level planner path through
 ## Persistence Flow
 
 1. Append to the WAL before mutating in-memory state.
-2. Keep either segmented state (`elips.manifest` + `segments/`) or a snapshot
+2. Resolve `TEXT_EMBEDDER.manifest` and the built-in local artifact when the
+   database uses native text embedding.
+3. Keep either segmented state (`elips.manifest` + `segments/`) or a snapshot
    file depending on configuration.
-3. Replay the valid WAL prefix on open.
-4. `compact()` rebuilds indexes and rewrites the persistent layout.
+4. Replay the valid WAL prefix on open.
+5. `compact()` rebuilds indexes and rewrites the persistent layout.
 
 ## Concurrency
 
@@ -50,3 +52,6 @@ Text-first queries use the same vault-level planner path through
 - C++: `open()`, `Config`, `ElipsInstance`, `Vault`
 - Python low-level: `open()`, `open_with_config()`, `Database`, `Vault`
 - Python modern: `connect()`, `Engine`, `Arena`
+
+New databases default to a built-in local text embedder, so Python and C++
+text-first APIs can be used without explicitly supplying an embedder object.

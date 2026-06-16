@@ -30,6 +30,15 @@ This document describes how the Python SDK maps to the C++ core library via PyBi
 
 The binding module is compiled as `_core` and placed in `bindings/python/elips/` so that the Python package `elips` can do `from elips._core import ...`.
 
+Text-first flows can enter this binding layer in three ways:
+
+- `elips.open(..., embedder=callable)` wraps the callable as a native
+  `TextEmbedderPort`.
+- `elips.open(..., embedder=LocalEmbedderConfig(...))` forwards an explicit
+  local embedder config.
+- `elips.open(..., use_default_text_embedder=True)` lets the C++ resolver
+  attach the built-in local embedder automatically for new databases.
+
 ## Type Conversion: Python → C++
 
 ### Python list → Vector
@@ -69,7 +78,7 @@ elips::Payload to_payload(const py::dict& data) {
 ```
 
 - Check order: `bool` before `int` (Python `bool` is a subclass of `int`).
-- Supported types: `bool` → `std::int64_t`, `int` → `std::int64_t`, `float` → `double`, `str` → `std::string`.
+- Supported types: `bool` → `bool`, `int` → `std::int64_t`, `float` → `double`, `str` → `std::string`.
 - Uses `py::isinstance<T>()` + `py::cast<T>()` for type-safe dispatch.
 
 ### Python str/none → optional<RecordID>

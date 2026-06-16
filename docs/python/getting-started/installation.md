@@ -111,8 +111,9 @@ The installed package should contain:
 ```
 elips/
 ├── __init__.py       # Public API re-exports
-├── _core.pyi          # Type stubs (698 lines)
+├── _core.pyi         # Type stubs (924 lines)
 ├── _core.so           # or _core.cpython-314-darwin.so, _core.cpython-314-x86_64-linux-gnu.so
+├── modern.py         # Typed high-level wrapper
 ├── py.typed           # PEP 561 marker
 ├── errors.py          # Error hierarchy re-exports
 └── types.py           # Type alias re-exports

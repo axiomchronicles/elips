@@ -32,27 +32,22 @@ db = elips.open(":memory:", dimension=2, metric="cosine")
 Full configuration:
 
 ```python
-def toy_embed(texts: list[str]) -> list[list[float]]:
-    return [
-        [
-            1.0 if "alpha" in text.lower() else 0.0,
-            1.0 if "beta" in text.lower() else 0.0,
-        ]
-        for text in texts
-    ]
-
-
 config = (
     elips.Config()
     .dimension(2)
     .metric("cosine")
     .segmented_storage(True)
     .metadata_acceleration(True)
-    .text_embedder(toy_embed, provider="demo", model="toy")
+    .auto_text_embedder(True)
 )
 
 db = elips.open_with_config("/tmp/elips-quickstart", config)
 ```
+
+New databases attach the built-in local embedder automatically when
+`auto_text_embedder(True)` is left enabled. Use `LocalEmbedderConfig` when you
+want to pin the model name, revision, or storage path explicitly, or
+`Config.text_embedder(...)` when you want to attach a live Python callable.
 
 ## 3. Optional GPU Configuration
 
@@ -234,7 +229,6 @@ engine = elips.connect(
     "/tmp/elips-modern",
     dimension=2,
     metric="cosine",
-    embedder=toy_embed,
 )
 arena = engine.arena("documents")
 
@@ -247,7 +241,9 @@ hybrid = arena.probe_hybrid([0.0, 1.0], "alpha", top=2)
 ```
 
 `Arena` maps directly onto the same core APIs and supports typed `Row` and
-`Hit` objects.
+`Hit` objects. By default it reuses the database's native local embedder, so
+you only need to pass `embedder=...` when you want a custom Python callable or
+an explicit `LocalEmbedderConfig`.
 
 ## Next
 

@@ -33,6 +33,7 @@ elips::Config{}
     .access_mode(elips::AccessMode::read_write)
     .segmented_storage(true)
     .metadata_acceleration(true)
+    .auto_text_embedder(true)
     .text_embedder(embedder);
 ```
 
@@ -46,6 +47,8 @@ Available setters:
 - `access_mode(AccessMode)`
 - `segmented_storage(bool)`
 - `metadata_acceleration(bool)`
+- `auto_text_embedder(bool)`
+- `local_text_embedder(LocalTextEmbedderOptions)`
 - `text_embedder(TextEmbedderPtr)`
 - `gpu(gpu::GpuConfig)` when GPU support is compiled in
 
@@ -59,8 +62,10 @@ Available setters:
 - `access_mode()`
 - `segmented_storage()`
 - `metadata_acceleration()`
+- `auto_text_embedder()`
 - `text_embedder()`
 - `has_text_embedder()`
+- `text_embedder_info()`
 - `gpu()` / `has_gpu()` when GPU support is available
 
 ## Behavioral Notes
@@ -72,10 +77,22 @@ Available setters:
 - `segmented_storage(true)` is the default and enables manifest + segment files.
 - `metadata_acceleration(true)` enables exact-match candidate narrowing through
   `MetadataIndex`.
+- `auto_text_embedder(true)` provisions the built-in local embedder for new
+  databases when no explicit embedder is supplied.
+- `local_text_embedder(...)` activates the built-in rehydratable local embedder.
 - `text_embedder()` activates `Vault::place_document()` and native
-  `Vault::seek_text()` embedding.
+  `Vault::seek_text()` embedding for custom runtime embedders.
 
 ## Text Embedding
+
+`local_text_embedder()` accepts `LocalTextEmbedderOptions` for the built-in
+offline-safe local embedder:
+
+```cpp
+elips::Config{}
+    .dimension(128)
+    .local_text_embedder({});
+```
 
 `text_embedder()` accepts `elips::TextEmbedderPtr`, typically a
 `std::shared_ptr` to a user implementation of `TextEmbedderPort`:
@@ -89,8 +106,11 @@ public:
         const std::vector<std::string>& texts) const;
     virtual std::string_view provider_name() const noexcept = 0;
     virtual std::string_view model_name() const noexcept = 0;
+    virtual std::string_view revision_name() const noexcept;
+    virtual std::string_view backend_name() const noexcept;
+    virtual std::uint16_t output_dimension() const noexcept;
 };
 ```
 
 When lineage is omitted during `place_document()`, ELIPS derives provider/model
-from this interface.
+plus revision/backend/fingerprint metadata from this interface.

@@ -30,7 +30,8 @@ database. Each record can carry:
 The core APIs are:
 
 - `place()` for explicit vectors
-- `place_document()` for text ingestion through a configured embedder
+- `place_document()` for text ingestion through a configured or auto-attached
+  text embedder
 - `seek()`, `seek_text()`, and `seek_hybrid()`
 - `fetch()` and `scan()`
 - `checkpoint()` and `compact()`
@@ -40,21 +41,7 @@ The core APIs are:
 ```python
 import elips
 
-
-def toy_embed(texts: list[str]) -> list[list[float]]:
-    return [
-        [
-            1.0 if "alpha" in text.lower() else 0.0,
-            1.0 if "beta" in text.lower() else 0.0,
-        ]
-        for text in texts
-    ]
-
-
-db = elips.open_with_config(
-    ":memory:",
-    elips.Config().dimension(2).text_embedder(toy_embed, provider="demo", model="toy"),
-)
+db = elips.open(":memory:", dimension=128, metric="cosine")
 docs = db.vault("documents")
 docs.place_document("alpha design note", {"kind": "design"})
 print(docs.seek_text("alpha", top=1)[0].document.text)

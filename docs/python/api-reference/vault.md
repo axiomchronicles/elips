@@ -73,9 +73,10 @@ Vector similarity search.
 
 ### `seek_text(text, top=10, where=Filter(), threshold=None)`
 
-Text-first query surface. If a native text embedder is configured, the text is
-embedded and routed through the planner. Otherwise ELIPS falls back to lexical
-overlap scoring over attached documents.
+Text-first query surface. ELIPS embeds the text through the configured text
+embedder and routes the resulting vector through the planner. If no text
+embedder is configured, `seek_text()` raises `ConfigError` with guidance to
+configure a local embedder or use vector-first APIs.
 
 ### `seek_hybrid(vector, text, top=10, where=Filter(), threshold=None, lexical_weight=0.25)`
 
@@ -143,5 +144,5 @@ query hits, not only through `fetch()`.
 
 - `DimensionMismatch`
 - `InvalidVector`
-- `ConfigError` when `place_document()` is used without a text embedder
+- `ConfigError` when `place_document()` or `seek_text()` is used without a text embedder
 - `StorageError` when mutating a read-only vault

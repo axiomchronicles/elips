@@ -2,44 +2,22 @@
 // Build with the project and run the compiled example binary.
 
 #include <iostream>
-#include <memory>
 #include <optional>
-#include <string_view>
 
 #include "elips/elips.hpp"
-#include "elips/text_engine/TextEmbedderPort.hpp"
-
-namespace {
-
-class ToyEmbedder final : public elips::TextEmbedderPort {
-public:
-    [[nodiscard]] elips::Vector embed(std::string_view text) const override {
-        const bool has_alpha = text.find("alpha") != std::string_view::npos;
-        const bool has_beta = text.find("beta") != std::string_view::npos;
-        return elips::Vector{{has_alpha ? 1.0F : 0.0F,
-                              has_beta ? 1.0F : 0.0F}};
-    }
-
-    [[nodiscard]] std::string_view provider_name() const noexcept override {
-        return "example";
-    }
-
-    [[nodiscard]] std::string_view model_name() const noexcept override {
-        return "toy";
-    }
-};
-
-}  // namespace
 
 int main() {
     auto db = elips::open(
         ":memory:",
         elips::Config{}
-            .dimension(2)
-            .metric(elips::Metric::cosine)
-            .text_embedder(std::make_shared<ToyEmbedder>()));
+            .dimension(128)
+            .metric(elips::Metric::cosine));
 
     auto& docs = db->vault("documents");
+    if (const auto info = db->config().text_embedder_info(); info.has_value()) {
+        std::cout << "text embedder: " << info->provider << "/"
+                  << info->model << "@" << info->revision << '\n';
+    }
 
     elips::ChunkInfo chunk;
     chunk.document_key = "doc-alpha";

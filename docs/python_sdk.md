@@ -10,6 +10,10 @@ Use the low-level API when you want full control over configuration and exact
 parity with the C++ runtime. Use the modern wrapper when you want typed,
 text-first ingestion and retrieval ergonomics.
 
+New databases attach the built-in local text embedder automatically unless you
+disable it with `use_default_text_embedder=False` or
+`Config.auto_text_embedder(False)`.
+
 ## Build
 
 ```bash
@@ -23,34 +27,13 @@ export PYTHONPATH=$PWD/bindings/python
 ```python
 import elips
 
-
-def toy_embed(texts: list[str]) -> list[list[float]]:
-    return [
-        [
-            1.0 if "alpha" in text.lower() else 0.0,
-            1.0 if "beta" in text.lower() else 0.0,
-        ]
-        for text in texts
-    ]
-
-
-config = (
-    elips.Config()
-    .dimension(2)
-    .metric("cosine")
-    .index("graph")
-    .segmented_storage(True)
-    .metadata_acceleration(True)
-    .text_embedder(toy_embed, provider="demo", model="toy")
-)
-
-db = elips.open_with_config("/tmp/elips-sdk", config)
+db = elips.open("/tmp/elips-sdk", dimension=128, metric="cosine")
 docs = db.vault("documents")
 docs.place_document("alpha design note", {"kind": "design"})
 docs.place_document("beta runbook", {"kind": "ops"})
 
 hits = docs.seek_text("alpha", top=2)
-print(hits[0].document.text, hits[0].lineage.model)
+print(hits[0].document.text, db.config.text_embedder_info.model)
 
 plan = docs.explain_seek(
     [1.0, 0.0],
@@ -79,14 +62,22 @@ print(plan.strategy, plan.metadata_accelerated)
 EQL remains the declarative vector/query DSL. Text-first retrieval currently
 lives on the vault and modern wrapper APIs.
 
+### Explicit local vs explicit external embedders
+
+- `LocalEmbedderConfig` / `Config.local_text_embedder(...)` creates a
+  rehydratable local embedder that ELIPS restores automatically on reopen.
+- `Config.text_embedder(callable, ...)` attaches a Python callable embedder.
+  ELIPS persists its metadata but cannot recreate the callable automatically, so
+  reopening without the same callable makes `place_document()` and `seek_text()`
+  fail with an actionable `ConfigError`.
+
 ## Modern Python API
 
 ```python
 engine = elips.connect(
     "/tmp/elips-modern",
-    dimension=2,
+    dimension=128,
     metric="cosine",
-    embedder=toy_embed,
 )
 arena = engine.arena("documents")
 
@@ -101,8 +92,9 @@ hybrid = arena.probe_hybrid([0.0, 1.0], "alpha", top=2)
 ```
 
 `Arena` automatically uses native core text APIs when the database config has a
-text embedder. If not, it falls back to Python-side embedding plus
-`seek_hybrid()`.
+resolved text embedder, including the default local embedder. If not, but the
+wrapper is given a Python callable embedder, it falls back to Python-side
+embedding plus `seek_hybrid()`.
 
 ## Persistence & Lifecycle
 

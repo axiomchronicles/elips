@@ -14,16 +14,6 @@ from pathlib import Path
 import elips
 
 
-def toy_embed(texts: list[str]) -> list[list[float]]:
-    return [
-        [
-            1.0 if "alpha" in text.lower() else 0.0,
-            1.0 if "beta" in text.lower() else 0.0,
-        ]
-        for text in texts
-    ]
-
-
 def build_chunk(key: str, ordinal: int, start: int, end: int) -> elips.ChunkInfo:
     chunk = elips.ChunkInfo()
     chunk.document_key = key
@@ -33,28 +23,20 @@ def build_chunk(key: str, ordinal: int, start: int, end: int) -> elips.ChunkInfo
     return chunk
 
 
-def build_lineage() -> elips.EmbeddingLineage:
-    lineage = elips.EmbeddingLineage()
-    lineage.provider = "example"
-    lineage.model = "toy"
-    lineage.revision = "v1"
-    lineage.attributes = {"stage": "getting-started"}
-    return lineage
-
-
 def main() -> None:
     with tempfile.TemporaryDirectory() as td:
         db_path = Path(td) / "demo"
 
         engine = elips.connect(
             str(db_path),
-            dimension=2,
+            dimension=128,
             metric="cosine",
-            embedder=toy_embed,
             segmented_storage=True,
             metadata_acceleration=True,
         )
         arena = engine.arena("documents")
+        embedder = engine.raw.config.text_embedder_info
+        print(f"text embedder: {embedder.provider}/{embedder.model}@{embedder.revision}")
 
         arena.ingest(
             texts=["alpha design note", "beta incident runbook"],
@@ -63,7 +45,6 @@ def main() -> None:
                 build_chunk("doc-alpha", 0, 0, 17),
                 build_chunk("doc-beta", 0, 0, 21),
             ],
-            lineages=[build_lineage(), build_lineage()],
         )
 
         print("text probe:")

@@ -12,18 +12,7 @@ from __future__ import annotations
 
 import elips
 
-
-def toy_embed(texts: list[str]) -> list[list[float]]:
-    return [
-        [
-            1.0 if "alpha" in text.lower() else 0.0,
-            1.0 if "beta" in text.lower() else 0.0,
-        ]
-        for text in texts
-    ]
-
-
-engine = elips.connect(":memory:", dimension=2, embedder=toy_embed)
+engine = elips.connect(":memory:", dimension=128)
 arena = engine.arena("documents")
 arena.ingest(
     texts=["alpha design note", "beta incident runbook"],
@@ -40,6 +29,7 @@ for hit in arena.probe_text("alpha", top=2):
 - GPU index selection through the main `open()` / index factory path
 - First-class `DocumentAttachment`, `ChunkInfo`, and `EmbeddingLineage`
 - Native `place_document()`, `seek_text()`, `seek_hybrid()`, and `explain_seek()`
+- Built-in local text embedding with automatic default provisioning for new databases
 - Metadata acceleration for equality filters via `MetadataIndex`
 - Segmented persistence with `elips.manifest` plus per-vault segment files
 - `compact()` to rebuild indexes and rewrite the segment set
@@ -62,22 +52,23 @@ Minimal low-level Python usage:
 ```python
 import elips
 
-config = (
-    elips.Config()
-    .dimension(2)
-    .metric("cosine")
-    .segmented_storage(True)
-    .metadata_acceleration(True)
-    .text_embedder(toy_embed, provider="demo", model="toy")
-)
-
-db = elips.open_with_config("/tmp/elips-demo", config)
+db = elips.open("/tmp/elips-demo", dimension=128, metric="cosine")
 docs = db.vault("documents")
 docs.place_document("alpha design note", {"kind": "design"})
 docs.place_document("beta runbook", {"kind": "ops"})
+print(db.config.text_embedder_info.provider, db.config.text_embedder_info.model)
 print(docs.seek_text("alpha", top=1)[0].document.text)
 db.compact()
 db.close()
+```
+
+Vector-first ingestion still works unchanged:
+
+```python
+docs.place(
+    embedding_vector,
+    document=elips.DocumentAttachment(text="source document"),
+)
 ```
 
 ## Storage Model
@@ -88,8 +79,11 @@ Persistent databases use:
 /my_db/
 ├── LOCK
 ├── IDENTITY
+├── TEXT_EMBEDDER.manifest
 ├── wal.log
 ├── elips.manifest          # when segmented storage is enabled
+├── text_embedder/
+│   └── default_v1_<dim>.localembed
 ├── segments/
 │   ├── vault_0_<epoch>.segment
 │   └── vault_1_<epoch>.segment
@@ -102,6 +96,7 @@ and reject writes.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Local Embedding Architecture](docs/architecture/local-embedding-system.md)
 - [Storage](docs/storage.md)
 - [Python SDK](docs/python_sdk.md)
 - [C++ SDK](docs/cpp_sdk.md)

@@ -6,35 +6,13 @@ document-aware records, hybrid retrieval, and read-only reopen.
 ## Minimal Example
 
 ```cpp
-#include <memory>
-#include <optional>
-#include <string_view>
-
 #include "elips/elips.hpp"
-#include "elips/text_engine/TextEmbedderPort.hpp"
-
-class ToyEmbedder final : public elips::TextEmbedderPort {
-public:
-    [[nodiscard]] elips::Vector embed(std::string_view text) const override {
-        return elips::Vector{{text.find("alpha") != std::string_view::npos ? 1.0F : 0.0F,
-                              text.find("beta") != std::string_view::npos ? 1.0F : 0.0F}};
-    }
-
-    [[nodiscard]] std::string_view provider_name() const noexcept override {
-        return "demo";
-    }
-
-    [[nodiscard]] std::string_view model_name() const noexcept override {
-        return "toy";
-    }
-};
 
 auto db = elips::open(
     ":memory:",
     elips::Config{}
         .dimension(2)
-        .metric(elips::Metric::cosine)
-        .text_embedder(std::make_shared<ToyEmbedder>()));
+        .metric(elips::Metric::cosine));
 
 auto& docs = db->vault("documents");
 docs.place_document("alpha design note", {{"kind", std::string{"design"}}});
@@ -42,6 +20,11 @@ docs.place_document("beta incident runbook", {{"kind", std::string{"ops"}}});
 
 const auto hits = docs.seek_text("alpha", 2);
 ```
+
+New databases attach ELIPS' built-in local embedder automatically. Use
+`Config::local_text_embedder(...)` when you want to pin model/revision or
+artifact location explicitly, and `Config::text_embedder(...)` when you want to
+attach a custom runtime `TextEmbedderPort`.
 
 ## Open Persistent Storage
 

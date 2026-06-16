@@ -9,8 +9,11 @@ storage and the original snapshot format.
 /my_db/
 ├── LOCK
 ├── IDENTITY
+├── TEXT_EMBEDDER.manifest
 ├── wal.log
 ├── elips.manifest        # segmented mode
+├── text_embedder/
+│   └── default_v1_<dim>.localembed
 ├── segments/
 │   └── vault_<n>_<epoch>.segment
 └── elips.snapshot        # snapshot mode or older databases
@@ -26,6 +29,23 @@ storage and the original snapshot format.
 
 Existing databases always reopen with the persisted identity. Passing a
 conflicting dimension on reopen raises `ConfigError`.
+
+## Text Embedder Manifest
+
+`TEXT_EMBEDDER.manifest` records the database-level text embedding identity:
+
+- provider / model / revision
+- output dimension
+- fingerprint
+- whether the embedder is rehydratable
+- whether it was auto-attached as the default local embedder
+- the local artifact path (relative to the database when possible)
+
+For the built-in local embedder, ELIPS also stores a deterministic artifact
+under `text_embedder/`. On reopen, the manifest is used to restore the same
+embedder automatically. For non-rehydratable external embedders, the manifest
+stores metadata only; reopening without the same embedder causes text-first
+APIs to fail with an actionable `ConfigError`.
 
 ## WAL
 
@@ -65,10 +85,12 @@ then checkpoints.
 
 1. Acquire advisory lock.
 2. Read `IDENTITY`.
-3. Load `elips.manifest` + segments if present, otherwise load
+3. Resolve `TEXT_EMBEDDER.manifest` and attach the matching text embedder when
+   possible.
+4. Load `elips.manifest` + segments if present, otherwise load
    `elips.snapshot` if present.
-4. Replay the valid WAL prefix.
-5. Attach a live WAL unless the open is read-only or `ephemeral`.
+5. Replay the valid WAL prefix.
+6. Attach a live WAL unless the open is read-only or `ephemeral`.
 
 Corrupt or truncated WAL tails are tolerated: replay stops at the first invalid
 record and preserves the valid prefix.
