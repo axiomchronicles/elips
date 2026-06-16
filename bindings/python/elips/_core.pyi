@@ -75,6 +75,11 @@ class QueryStrategy(IntEnum):
     text_probe: int
     hybrid_fusion: int
 
+class TextEmbedderKind(IntEnum):
+    """Runtime kind of text embedder attached to the database."""
+    external: int
+    local_builtin: int
+
 # -- EQL token types ----------------------------------------------------------
 
 class TokenKind(IntEnum):
@@ -117,6 +122,41 @@ class GraphParams:
 
     def __repr__(self) -> str: ...
 
+class LocalEmbedderConfig:
+    """Configuration for the built-in local text embedder."""
+
+    def __init__(
+        self,
+        model: str = ...,
+        revision: str = ...,
+        storage_path: str = ...,
+        dimension: int = ...,
+    ) -> None: ...
+
+    model: str
+    revision: str
+    storage_path: str
+    dimension: int
+
+    def __repr__(self) -> str: ...
+
+class TextEmbedderInfo:
+    """Resolved metadata for the configured or expected text embedder."""
+
+    kind: TextEmbedderKind
+    provider: str
+    model: str
+    revision: str
+    backend: str
+    dimension: int
+    fingerprint: str
+    storage_path: str
+    rehydratable: bool
+    loaded: bool
+    auto_attached: bool
+
+    def __repr__(self) -> str: ...
+
 # -- Config -------------------------------------------------------------------
 
 class Config:
@@ -136,11 +176,18 @@ class Config:
     def access_mode(self, mode: str) -> "Config": ...
     def segmented_storage(self, enabled: bool) -> "Config": ...
     def metadata_acceleration(self, enabled: bool) -> "Config": ...
+    def auto_text_embedder(self, enabled: bool) -> "Config": ...
+    def local_text_embedder(
+        self,
+        config: LocalEmbedderConfig = ...,
+    ) -> "Config": ...
     def text_embedder(
         self,
         embedder: Callable[[Sequence[str]], Sequence[Vector]],
         provider: str = ...,
         model: str = ...,
+        revision: str = ...,
+        dimension: int = ...,
     ) -> "Config": ...
     def gpu(self, config: "GpuConfig") -> "Config": ...
 
@@ -178,8 +225,14 @@ class Config:
     def metadata_acceleration_enabled(self) -> bool:
         """Return whether metadata acceleration is enabled."""
     @property
+    def auto_text_embedder_enabled(self) -> bool:
+        """Return whether automatic default local embedding is enabled."""
+    @property
     def has_text_embedder(self) -> bool:
         """Return whether a text embedder is configured."""
+    @property
+    def text_embedder_info(self) -> Optional[TextEmbedderInfo]:
+        """Return resolved metadata for the current or expected text embedder."""
     @property
     def gpu_val(self) -> Optional["GpuConfig"]:
         """Get the GPU configuration if set, else None."""
@@ -625,7 +678,7 @@ class Vault:
         where: Filter = ...,
         threshold: Optional[float] = ...,
     ) -> list[Result]:
-        """Query using text directly."""
+        """Query using text directly. Requires a configured text embedder."""
 
     def seek_hybrid(
         self,
@@ -832,6 +885,11 @@ def open(
     index: str = ...,
     access_mode: str = ...,
     gpu: Optional[GpuConfig] = ...,
+    embedder: Optional[Union[Callable[[Sequence[str]], Sequence[Vector]], LocalEmbedderConfig]] = ...,
+    embedder_provider: str = ...,
+    embedder_model: str = ...,
+    embedder_revision: str = ...,
+    use_default_text_embedder: bool = ...,
 ) -> Database:
     """Open (or create) a database with simple parameters.
 
@@ -843,6 +901,12 @@ def open(
         index: Index backend (``\"graph\"`` for HNSW, ``\"exact\"`` for brute-force).
         access_mode: ``\"read_write\"`` or ``\"read_only\"``.
         gpu: Optional GPU runtime configuration applied before open.
+        embedder: Optional Python callable embedder or ``LocalEmbedderConfig``.
+        embedder_provider: Provider metadata for Python callable embedders.
+        embedder_model: Model metadata for Python callable embedders.
+        embedder_revision: Revision metadata for Python callable embedders.
+        use_default_text_embedder: Attach the built-in local embedder automatically
+            for new databases when no explicit embedder is supplied.
 
     Returns:
         A Database handle.

@@ -14,6 +14,7 @@ cmake --build build --target elips_pymodule -j
 
 ```bash
 PYTHONPATH=bindings/python python3 tests/python/test_bindings.py
+PYTHONPATH=bindings/python python3 tests/python/test_local_embedder.py
 ```
 
 The suite currently covers 26 binding and wrapper scenarios, including:
@@ -24,6 +25,7 @@ The suite currently covers 26 binding and wrapper scenarios, including:
 - CRUD, filters, transactions, and context-manager behavior
 - native document ingestion with `place_document()`
 - `place_many()` for vector and text-first batches
+- local/default embedder provisioning, persistence, and explicit-reopen rules
 - planner output via `QueryPlan`
 - modern `Engine` / `Arena` text, vector, and hybrid flows
 - segmented persistence, `compact()`, `rebuild_index()`, and read-only reopen

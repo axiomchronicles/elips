@@ -6,22 +6,22 @@ Quick start::
 
     import elips
 
-    db = elips.open(":memory:", dimension=1536, metric="cosine")
+    db = elips.open(":memory:", dimension=128, metric="cosine")
     docs = db.vault("documents")
-    docs.place(vector=embedding, data={"title": "Example", "year": 2024})
+    docs.place_document("alpha design note", {"kind": "design"})
 
-    for hit in docs.seek(vector=query, top=10):
-        print(hit.id, hit.distance, hit.data)
+    print(docs.seek_text("alpha", top=1)[0].document.text)
 
 Advanced configuration::
 
-    from elips import Config, GraphParams
+    from elips import Config, GraphParams, LocalEmbedderConfig
 
     config = (Config()
-        .dimension(1536)
+        .dimension(768)
         .metric("cosine")
         .index("graph")
         .graph_params(GraphParams(max_connections=32, ef_construction=400))
+        .local_text_embedder(LocalEmbedderConfig(model="compact", revision="v1"))
         .durability("standard"))
 
     db = elips.open_with_config("/data/vectors", config)
@@ -57,6 +57,7 @@ from ._core import (
     GraphParams,
     IndexType,
     InvalidVector,
+    LocalEmbedderConfig,
     LockConflict,
     Metric,
     NotFound,
@@ -65,6 +66,8 @@ from ._core import (
     QueryStrategy,
     Result,
     StorageError,
+    TextEmbedderInfo,
+    TextEmbedderKind,
     Token,
     TokenKind,
     Transaction,
@@ -136,6 +139,7 @@ __all__ = [
     "Result",
     "Config",
     "GraphParams",
+    "LocalEmbedderConfig",
     "Transaction",
     "TransactionVault",
     "Engine",
@@ -143,6 +147,7 @@ __all__ = [
     "Row",
     "Hit",
     "Embedder",
+    "TextEmbedderInfo",
     # enums
     "Metric",
     "IndexType",
@@ -150,6 +155,7 @@ __all__ = [
     "AccessMode",
     "Comparator",
     "QueryStrategy",
+    "TextEmbedderKind",
     # EQL
     "Token",
     "TokenKind",

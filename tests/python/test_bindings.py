@@ -1003,10 +1003,9 @@ def test_segmented_persistence_and_read_only_mode():
     with tempfile.TemporaryDirectory() as td:
         db_path = os.path.join(td, "segmented")
         config = (elips.Config()
-                  .dimension(2)
+                  .dimension(64)
                   .metric("cosine")
-                  .segmented_storage(True)
-                  .text_embedder(toy_embed, provider="pytest", model="toy"))
+                  .segmented_storage(True))
 
         db = elips.open_with_config(db_path, config)
         docs = db.vault("docs")
@@ -1043,10 +1042,9 @@ def test_compact_and_rebuild_index_python_api():
     with tempfile.TemporaryDirectory() as td:
         db_path = os.path.join(td, "compact")
         config = (elips.Config()
-                  .dimension(2)
+                  .dimension(64)
                   .metric("cosine")
-                  .segmented_storage(True)
-                  .text_embedder(toy_embed, provider="pytest", model="toy"))
+                  .segmented_storage(True))
 
         db = elips.open_with_config(db_path, config)
         docs = db.vault("docs")

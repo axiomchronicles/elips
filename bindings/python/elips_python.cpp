@@ -103,10 +103,13 @@ struct TransactionHolder {
 class PythonTextEmbedder final : public elips::TextEmbedderPort {
 public:
     PythonTextEmbedder(py::object callable, std::string provider,
-                       std::string model)
+                       std::string model, std::string revision,
+                       std::uint16_t expected_dimension)
         : callable_(std::move(callable)),
           provider_(std::move(provider)),
-          model_(std::move(model)) {}
+          model_(std::move(model)),
+          revision_(std::move(revision)),
+          expected_dimension_(expected_dimension) {}
 
     [[nodiscard]] elips::Vector embed(std::string_view text) const override {
         const auto batch = embed_batch({std::string(text)});
@@ -134,8 +137,13 @@ public:
         std::vector<elips::Vector> vectors;
         vectors.reserve(texts.size());
         for (const auto& row : embedded) {
-            vectors.push_back(
-                to_vector(py::reinterpret_borrow<py::iterable>(row)));
+            auto vector = to_vector(py::reinterpret_borrow<py::iterable>(row));
+            if (expected_dimension_ != 0 &&
+                vector.dimension() != expected_dimension_) {
+                throw py::value_error(
+                    "text embedder returned a vector with the wrong dimension");
+            }
+            vectors.push_back(std::move(vector));
         }
         return vectors;
     }
@@ -148,10 +156,30 @@ public:
         return model_;
     }
 
+    [[nodiscard]] std::string_view revision_name() const noexcept override {
+        return revision_;
+    }
+
+    [[nodiscard]] std::string_view backend_name() const noexcept override {
+        return "python-callable";
+    }
+
+    [[nodiscard]] std::uint16_t output_dimension() const noexcept override {
+        return expected_dimension_;
+    }
+
+    void set_output_dimension(const std::uint16_t dimension) noexcept override {
+        if (expected_dimension_ == 0) {
+            expected_dimension_ = dimension;
+        }
+    }
+
 private:
     py::object callable_;
     std::string provider_;
     std::string model_;
+    std::string revision_;
+    std::uint16_t expected_dimension_{0};
 };
 
 py::dict record_to_dict(const elips::Record& record) {
@@ -286,6 +314,11 @@ PYBIND11_MODULE(_core, m) {
         .value("hybrid_fusion", elips::QueryStrategy::hybrid_fusion)
         .export_values();
 
+    py::enum_<elips::TextEmbedderKind>(m, "TextEmbedderKind")
+        .value("external", elips::TextEmbedderKind::external)
+        .value("local_builtin", elips::TextEmbedderKind::local_builtin)
+        .export_values();
+
     // =====================  Utility functions  =====================
 
     m.def("distance",
@@ -379,6 +412,41 @@ PYBIND11_MODULE(_core, m) {
                    " ef_s=" + std::to_string(p.ef_search) + ">";
         });
 
+    py::class_<elips::LocalTextEmbedderOptions>(m, "LocalEmbedderConfig")
+        .def(py::init<>())
+        .def(py::init<std::string, std::string, std::string, std::uint16_t>(),
+             py::arg("model") = "default", py::arg("revision") = "v1",
+             py::arg("storage_path") = "", py::arg("dimension") = 0)
+        .def_readwrite("model", &elips::LocalTextEmbedderOptions::model)
+        .def_readwrite("revision", &elips::LocalTextEmbedderOptions::revision)
+        .def_readwrite("storage_path",
+                       &elips::LocalTextEmbedderOptions::storage_path)
+        .def_readwrite("dimension", &elips::LocalTextEmbedderOptions::dimension)
+        .def("__repr__", [](const elips::LocalTextEmbedderOptions& options) {
+            return "<LocalEmbedderConfig model='" + options.model +
+                   "' revision='" + options.revision +
+                   "' dimension=" + std::to_string(options.dimension) + ">";
+        });
+
+    py::class_<elips::TextEmbedderInfo>(m, "TextEmbedderInfo")
+        .def(py::init<>())
+        .def_readonly("kind", &elips::TextEmbedderInfo::kind)
+        .def_readonly("provider", &elips::TextEmbedderInfo::provider)
+        .def_readonly("model", &elips::TextEmbedderInfo::model)
+        .def_readonly("revision", &elips::TextEmbedderInfo::revision)
+        .def_readonly("backend", &elips::TextEmbedderInfo::backend)
+        .def_readonly("dimension", &elips::TextEmbedderInfo::dimension)
+        .def_readonly("fingerprint", &elips::TextEmbedderInfo::fingerprint)
+        .def_readonly("storage_path", &elips::TextEmbedderInfo::storage_path)
+        .def_readonly("rehydratable", &elips::TextEmbedderInfo::rehydratable)
+        .def_readonly("loaded", &elips::TextEmbedderInfo::loaded)
+        .def_readonly("auto_attached", &elips::TextEmbedderInfo::auto_attached)
+        .def("__repr__", [](const elips::TextEmbedderInfo& info) {
+            return "<TextEmbedderInfo provider='" + info.provider +
+                   "' model='" + info.model +
+                   "' dimension=" + std::to_string(info.dimension) + ">";
+        });
+
     // =====================  Config  =====================
 
     py::class_<elips::Config>(m, "Config")
@@ -451,18 +519,34 @@ PYBIND11_MODULE(_core, m) {
              },
              py::arg("enabled"),
              py::return_value_policy::reference_internal)
+        .def("auto_text_embedder",
+             [](elips::Config& c, bool enabled) -> elips::Config& {
+                 return c.auto_text_embedder(enabled);
+             },
+             py::arg("enabled"),
+             py::return_value_policy::reference_internal)
+        .def("local_text_embedder",
+             [](elips::Config& c,
+                const elips::LocalTextEmbedderOptions& options)
+                 -> elips::Config& { return c.local_text_embedder(options); },
+             py::arg("config") = elips::LocalTextEmbedderOptions{},
+             py::return_value_policy::reference_internal)
         .def("text_embedder",
              [](elips::Config& c, const py::object& embedder,
                 const std::string& provider,
-                const std::string& model) -> elips::Config& {
+                const std::string& model, const std::string& revision,
+                std::uint16_t dimension) -> elips::Config& {
                  if (embedder.is_none()) {
                      return c.text_embedder(elips::TextEmbedderPtr{});
                  }
                  return c.text_embedder(std::make_shared<PythonTextEmbedder>(
-                     embedder, provider, model));
+                     embedder, provider, model, revision,
+                     dimension == 0 ? c.dimension() : dimension));
              },
              py::arg("embedder"), py::arg("provider") = "python",
              py::arg("model") = "callable",
+             py::arg("revision") = "",
+             py::arg("dimension") = 0,
              py::return_value_policy::reference_internal)
 #ifdef ELIPS_GPU_ENABLED
         .def("gpu",
@@ -520,9 +604,21 @@ PYBIND11_MODULE(_core, m) {
                                [](const elips::Config& c) {
                                    return c.metadata_acceleration();
                                })
+        .def_property_readonly("auto_text_embedder_enabled",
+                               [](const elips::Config& c) {
+                                   return c.auto_text_embedder();
+                               })
         .def_property_readonly("has_text_embedder",
                                [](const elips::Config& c) {
                                    return c.has_text_embedder();
+                               })
+        .def_property_readonly("text_embedder_info",
+                               [](const elips::Config& c) -> py::object {
+                                   const auto info = c.text_embedder_info();
+                                   if (!info.has_value()) {
+                                       return py::none();
+                                   }
+                                   return py::cast(*info);
                                })
         .def("__repr__", [](const elips::Config& c) {
             return "<Config dimension=" + std::to_string(c.dimension()) +
@@ -1178,10 +1274,15 @@ PYBIND11_MODULE(_core, m) {
     m.def("open",
           [](const std::string& path, std::uint16_t dimension,
              const std::string& metric, const std::string& index,
-             const std::string& access_mode, const py::object& gpu_config) {
+             const std::string& access_mode, const py::object& gpu_config,
+             const py::object& embedder, const std::string& embedder_provider,
+             const std::string& embedder_model,
+             const std::string& embedder_revision,
+             bool use_default_text_embedder) {
               elips::Config config;
               config.dimension(dimension)
-                  .metric(elips::metric_from_string(metric));
+                  .metric(elips::metric_from_string(metric))
+                  .auto_text_embedder(use_default_text_embedder);
               if (index == "exact") config.index(elips::IndexType::exact);
               if (access_mode == "read_only") {
                   config.access_mode(elips::AccessMode::read_only);
@@ -1196,11 +1297,26 @@ PYBIND11_MODULE(_core, m) {
                       "gpu config requires ELIPS to be built with GPU bindings");
               }
 #endif
+              if (!embedder.is_none()) {
+                  if (py::isinstance<elips::LocalTextEmbedderOptions>(embedder)) {
+                      config.local_text_embedder(
+                          embedder.cast<elips::LocalTextEmbedderOptions>());
+                  } else {
+                      config.text_embedder(std::make_shared<PythonTextEmbedder>(
+                          embedder, embedder_provider, embedder_model,
+                          embedder_revision, dimension));
+                  }
+              }
               return elips::open(path, config);
           },
           py::arg("path"), py::arg("dimension") = 0,
           py::arg("metric") = "cosine", py::arg("index") = "graph",
-          py::arg("access_mode") = "read_write", py::arg("gpu") = py::none());
+          py::arg("access_mode") = "read_write", py::arg("gpu") = py::none(),
+          py::arg("embedder") = py::none(),
+          py::arg("embedder_provider") = "python",
+          py::arg("embedder_model") = "callable",
+          py::arg("embedder_revision") = "",
+          py::arg("use_default_text_embedder") = true);
 
     m.def("open_with_config",
           [](const std::string& path, const elips::Config& config) {

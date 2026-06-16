@@ -10,6 +10,9 @@ from ._core import (
     DocumentAttachment,
     EmbeddingLineage,
     Filter,
+    LocalEmbedderConfig,
+    QueryPlan,
+    Vault,
     open_with_config as _open_with_config,
 )
 from .types import MetaValue, PayloadLike, Vector as VectorLike
@@ -109,7 +112,7 @@ class Arena:
         return self._vault.name
 
     @property
-    def raw(self):
+    def raw(self) -> Vault:
         return self._vault
 
     def count(self) -> int:
@@ -310,7 +313,7 @@ class Arena:
         where: Optional[Filter] = None,
         max_distance: Optional[float] = None,
         has_text_component: bool = False,
-    ):
+    ) -> QueryPlan:
         return self._vault.explain_seek(
             vector,
             top=top,
@@ -520,9 +523,11 @@ def connect(
     access_mode: str = "read_write",
     segmented_storage: bool = True,
     metadata_acceleration: bool = True,
-    embedder: Optional[Embedder] = None,
+    embedder: Optional[Embedder | LocalEmbedderConfig] = None,
     embedder_provider: str = "python",
     embedder_model: str = "callable",
+    embedder_revision: str = "",
+    use_default_text_embedder: bool = True,
     gpu: Optional["GpuConfig"] = None,
 ) -> Engine:
     config = (
@@ -533,32 +538,47 @@ def connect(
         .access_mode(access_mode)
         .segmented_storage(segmented_storage)
         .metadata_acceleration(metadata_acceleration)
+        .auto_text_embedder(use_default_text_embedder)
     )
     if gpu is not None:
         if not hasattr(config, "gpu"):
             raise ValueError("gpu config requires ELIPS to be built with GPU bindings")
         config.gpu(gpu)
-    if embedder is not None:
+    runtime_embedder: Optional[Embedder] = None
+    if isinstance(embedder, LocalEmbedderConfig):
+        config.local_text_embedder(embedder)
+    elif embedder is not None:
         config.text_embedder(
             embedder,
             provider=embedder_provider,
             model=embedder_model,
+            revision=embedder_revision,
+            dimension=dimension,
         )
-    return Engine(_open_with_config(path, config), default_embedder=embedder)
+        runtime_embedder = embedder
+    return Engine(_open_with_config(path, config), default_embedder=runtime_embedder)
 
 
 def connect_with_config(
     path: str,
     config: Config,
     *,
-    embedder: Optional[Embedder] = None,
+    embedder: Optional[Embedder | LocalEmbedderConfig] = None,
     embedder_provider: str = "python",
     embedder_model: str = "callable",
+    embedder_revision: str = "",
 ) -> Engine:
     if embedder is not None and not config.has_text_embedder:
-        config.text_embedder(
-            embedder,
-            provider=embedder_provider,
-            model=embedder_model,
-        )
-    return Engine(_open_with_config(path, config), default_embedder=embedder)
+        if isinstance(embedder, LocalEmbedderConfig):
+            config.local_text_embedder(embedder)
+        else:
+            config.text_embedder(
+                embedder,
+                provider=embedder_provider,
+                model=embedder_model,
+                revision=embedder_revision,
+            )
+    return Engine(
+        _open_with_config(path, config),
+        default_embedder=embedder if callable(embedder) else None,
+    )
