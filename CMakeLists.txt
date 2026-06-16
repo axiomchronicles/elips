@@ -36,6 +36,7 @@ endif()
 
 # ----------------------------- core library ------------------------------
 add_library(elips_core
+    src/LocalTextEmbedder.cpp
     src/RecordID.cpp
     src/Metrics.cpp
     src/ExactIndex.cpp
@@ -112,6 +113,7 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/durability_test.cpp
         tests/unit/eql_edge_test.cpp
         tests/integration/roundtrip_test.cpp
+        tests/integration/local_text_embedder_test.cpp
         tests/integration/transaction_filter_test.cpp
         tests/recovery/wal_recovery_test.cpp
         tests/concurrency/single_writer_test.cpp

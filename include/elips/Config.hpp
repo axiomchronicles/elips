@@ -8,6 +8,7 @@
 #include <string_view>
 #include <variant>
 
+#include "elips/text_engine/LocalTextEmbedder.hpp"
 #include "elips/text_engine/TextEmbedderPort.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
@@ -15,6 +16,11 @@
 #endif
 
 namespace elips {
+
+class Config;
+class ElipsInstance;
+[[nodiscard]] std::unique_ptr<ElipsInstance> open(
+    const std::string& path, const Config& config);
 
 // Similarity metrics supported in v1.0. Scoped enum (Enum.3).
 enum class Metric { cosine, euclidean, dot_product };
@@ -79,6 +85,18 @@ public:
     }
     Config& text_embedder(TextEmbedderPtr embedder) noexcept {
         text_embedder_ = std::move(embedder);
+        local_text_embedder_.reset();
+        expected_text_embedder_.reset();
+        return *this;
+    }
+    Config& local_text_embedder(LocalTextEmbedderOptions options = {}) {
+        local_text_embedder_ = std::move(options);
+        text_embedder_ = {};
+        expected_text_embedder_.reset();
+        return *this;
+    }
+    Config& auto_text_embedder(bool enabled) noexcept {
+        auto_text_embedder_ = enabled;
         return *this;
     }
 #ifdef ELIPS_GPU_ENABLED
@@ -100,14 +118,53 @@ public:
         return text_embedder_;
     }
     [[nodiscard]] bool has_text_embedder() const noexcept {
-        return static_cast<bool>(text_embedder_);
+        return static_cast<bool>(text_embedder_) || local_text_embedder_.has_value();
+    }
+    [[nodiscard]] bool auto_text_embedder() const noexcept {
+        return auto_text_embedder_;
+    }
+    [[nodiscard]] bool has_pending_local_text_embedder() const noexcept {
+        return local_text_embedder_.has_value();
+    }
+    [[nodiscard]] const std::optional<LocalTextEmbedderOptions>&
+    local_text_embedder_options() const noexcept {
+        return local_text_embedder_;
+    }
+    [[nodiscard]] std::optional<TextEmbedderInfo> text_embedder_info() const {
+        if (text_embedder_ != nullptr) {
+            const bool auto_attached =
+                expected_text_embedder_.has_value() &&
+                expected_text_embedder_->auto_attached;
+            return text_embedder_->info(auto_attached);
+        }
+        if (local_text_embedder_.has_value()) {
+            return describe_local_text_embedder(
+                *local_text_embedder_, dimension_, false);
+        }
+        return expected_text_embedder_;
     }
 #ifdef ELIPS_GPU_ENABLED
     [[nodiscard]] const gpu::GpuConfig& gpu() const noexcept { return gpu_; }
     [[nodiscard]] bool has_gpu() const noexcept { return gpu_.policy != gpu::GpuPolicy::CpuOnly; }
 #endif
 
+    // Runtime resolver hooks used by open() to attach or remember the effective
+    // text embedder after persisted identity has been reconciled.
+    void attach_runtime_text_embedder(
+        TextEmbedderPtr embedder,
+        std::optional<TextEmbedderInfo> info = std::nullopt) noexcept {
+        text_embedder_ = std::move(embedder);
+        local_text_embedder_.reset();
+        expected_text_embedder_ = std::move(info);
+    }
+    void remember_expected_text_embedder(TextEmbedderInfo info) noexcept {
+        expected_text_embedder_ = std::move(info);
+    }
+
 private:
+    friend std::unique_ptr<ElipsInstance> open(
+        const std::string& path, const Config& config);
+
     std::uint16_t dimension_{0};
     Metric metric_{Metric::cosine};
     IndexType index_{IndexType::graph};
@@ -116,7 +173,10 @@ private:
     AccessMode access_mode_{AccessMode::read_write};
     bool segmented_storage_{true};
     bool metadata_acceleration_{true};
+    bool auto_text_embedder_{true};
     TextEmbedderPtr text_embedder_{};
+    std::optional<LocalTextEmbedderOptions> local_text_embedder_{};
+    std::optional<TextEmbedderInfo> expected_text_embedder_{};
 #ifdef ELIPS_GPU_ENABLED
     gpu::GpuConfig gpu_{};
 #endif

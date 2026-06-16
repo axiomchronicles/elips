@@ -42,12 +42,15 @@ using detail::put_string;
 constexpr std::uint32_t snapshot_magic = 0xE1105E01U;
 constexpr std::uint32_t snapshot_version = 2U;
 constexpr std::uint32_t identity_magic = 0xE11D0001U;
+constexpr std::uint32_t text_embedder_magic = 0xE11D0002U;
 constexpr const char* snapshot_file = "elips.snapshot";
 constexpr const char* manifest_file = "elips.manifest";
 constexpr const char* segment_dir = "segments";
 constexpr std::uint32_t manifest_magic = 0xE1105E02U;
 constexpr std::uint32_t segment_magic = 0xE1105E03U;
 constexpr const char* identity_file = "IDENTITY";
+constexpr const char* text_embedder_file = "TEXT_EMBEDDER.manifest";
+constexpr const char* text_embedder_dir = "text_embedder";
 constexpr const char* lock_file = "LOCK";
 constexpr const char* wal_file = "wal.log";
 
@@ -60,6 +63,11 @@ struct Identity {
 struct SegmentManifestEntry {
     std::string vault_name;
     std::string file_name;
+};
+
+struct PersistedTextEmbedder {
+    TextEmbedderInfo info;
+    bool storage_path_relative{false};
 };
 
 bool all_finite(std::span<const float> values) noexcept {
@@ -118,6 +126,286 @@ bool begins_with(std::string_view text, std::string_view prefix) noexcept {
 SearchResult make_result(const Record& record, float distance_value) {
     return SearchResult{record.id, distance_value, record.payload, record.document,
                         record.chunk, record.lineage};
+}
+
+bool same_text_embedder_identity(const TextEmbedderInfo& lhs,
+                                 const TextEmbedderInfo& rhs) {
+    if (lhs.kind != rhs.kind || lhs.dimension != rhs.dimension ||
+        lhs.provider != rhs.provider || lhs.model != rhs.model ||
+        lhs.revision != rhs.revision) {
+        return false;
+    }
+    if (!lhs.fingerprint.empty() && !rhs.fingerprint.empty()) {
+        return lhs.fingerprint == rhs.fingerprint;
+    }
+    return true;
+}
+
+std::string storage_path_in_root(const fs::path& root, std::string_view model,
+                                 std::string_view revision,
+                                 const std::uint16_t dimension) {
+    return (root / text_embedder_dir /
+            (std::string(model) + "_" + std::string(revision) + "_" +
+             std::to_string(dimension) + ".localembed"))
+        .string();
+}
+
+PersistedTextEmbedder to_persisted_text_embedder(const fs::path& root,
+                                                 TextEmbedderInfo info) {
+    PersistedTextEmbedder persisted{.info = std::move(info)};
+    if (!persisted.info.storage_path.empty()) {
+        std::error_code absolute_ec;
+        const fs::path absolute_storage =
+            fs::absolute(persisted.info.storage_path, absolute_ec);
+        const fs::path absolute_root = fs::absolute(root, absolute_ec);
+        if (!absolute_ec) {
+            std::error_code relative_ec;
+            const fs::path relative_storage =
+                fs::relative(absolute_storage, absolute_root, relative_ec);
+            const auto candidate = relative_storage.generic_string();
+            if (!relative_ec && !candidate.empty() &&
+                !begins_with(candidate, "..")) {
+                persisted.info.storage_path = candidate;
+                persisted.storage_path_relative = true;
+            }
+        }
+    }
+    persisted.info.loaded = false;
+    return persisted;
+}
+
+std::string resolve_persisted_storage_path(const fs::path& root,
+                                          const PersistedTextEmbedder& persisted) {
+    if (persisted.info.storage_path.empty()) {
+        return {};
+    }
+    if (!persisted.storage_path_relative) {
+        return persisted.info.storage_path;
+    }
+    return (root / persisted.info.storage_path).string();
+}
+
+void write_text_embedder_manifest(const fs::path& path,
+                                  const PersistedTextEmbedder& persisted) {
+    const fs::path tmp = path / (std::string(text_embedder_file) + ".tmp");
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            throw StorageError{"cannot open text embedder manifest for writing"};
+        }
+        put<std::uint32_t>(out, text_embedder_magic);
+        put<std::uint32_t>(out, snapshot_version);
+        put<std::uint8_t>(out, static_cast<std::uint8_t>(persisted.info.kind));
+        put<std::uint8_t>(out, persisted.storage_path_relative ? 1U : 0U);
+        put<std::uint8_t>(out, persisted.info.rehydratable ? 1U : 0U);
+        put<std::uint8_t>(out, persisted.info.auto_attached ? 1U : 0U);
+        put<std::uint16_t>(out, persisted.info.dimension);
+        put_string(out, persisted.info.provider);
+        put_string(out, persisted.info.model);
+        put_string(out, persisted.info.revision);
+        put_string(out, persisted.info.backend);
+        put_string(out, persisted.info.fingerprint);
+        put_string(out, persisted.info.storage_path);
+        if (!out) {
+            throw StorageError{"error while writing text embedder manifest"};
+        }
+    }
+
+    fs::rename(tmp, path / text_embedder_file);
+}
+
+std::optional<PersistedTextEmbedder> read_text_embedder_manifest(
+    const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+    if (get<std::uint32_t>(in) != text_embedder_magic) {
+        throw StorageError{"text embedder manifest magic mismatch"};
+    }
+    const auto version = get<std::uint32_t>(in);
+    if (version != snapshot_version) {
+        throw StorageError{"unsupported text embedder manifest version"};
+    }
+
+    PersistedTextEmbedder persisted;
+    persisted.info.kind =
+        static_cast<TextEmbedderKind>(get<std::uint8_t>(in));
+    persisted.storage_path_relative = get<std::uint8_t>(in) != 0U;
+    persisted.info.rehydratable = get<std::uint8_t>(in) != 0U;
+    persisted.info.auto_attached = get<std::uint8_t>(in) != 0U;
+    persisted.info.dimension = get<std::uint16_t>(in);
+    persisted.info.provider = get_string(in);
+    persisted.info.model = get_string(in);
+    persisted.info.revision = get_string(in);
+    persisted.info.backend = get_string(in);
+    persisted.info.fingerprint = get_string(in);
+    persisted.info.storage_path = get_string(in);
+    persisted.info.loaded = false;
+    if (!in) {
+        throw StorageError{"truncated text embedder manifest"};
+    }
+    return persisted;
+}
+
+std::string missing_text_embedder_message(const Config& config) {
+    if (const auto info = config.text_embedder_info(); info.has_value()) {
+        if (!info->rehydratable) {
+            return "text embedder is not configured. This database expects '" +
+                   info->provider + "/" + info->model +
+                   "' but it cannot be rehydrated automatically. Reopen with "
+                   "a matching embedder, configure a local embedder, or use "
+                   "vector-first APIs such as place() and seek().";
+        }
+        return "text embedder is not configured. Configure a local text "
+               "embedder or reopen with automatic text embedding enabled, or "
+               "use vector-first APIs such as place() and seek().";
+    }
+    return "text embedder is not configured. Configure a local text embedder "
+           "first, or use vector-first APIs such as place() and seek().";
+}
+
+std::optional<PersistedTextEmbedder> resolve_text_embedder_for_open(
+    const fs::path& root, const bool persistent, const bool new_database,
+    Config& effective) {
+    const auto persisted =
+        persistent ? read_text_embedder_manifest(root / text_embedder_file)
+                   : std::optional<PersistedTextEmbedder>{};
+
+    if (effective.text_embedder() != nullptr) {
+        effective.text_embedder()->set_output_dimension(effective.dimension());
+        TextEmbedderInfo info = effective.text_embedder()->info(false);
+        if (info.dimension == 0U) {
+            info.dimension = effective.dimension();
+        }
+        if (info.dimension != effective.dimension()) {
+            throw ConfigError{
+                "configured text embedder dimension conflicts with database"};
+        }
+
+        if (persisted.has_value()) {
+            TextEmbedderInfo persisted_info = persisted->info;
+            persisted_info.storage_path =
+                resolve_persisted_storage_path(root, *persisted);
+            if (!same_text_embedder_identity(info, persisted_info)) {
+                throw ConfigError{
+                    "configured text embedder conflicts with database"};
+            }
+            info.auto_attached = persisted_info.auto_attached;
+            if (info.storage_path.empty()) {
+                info.storage_path = persisted_info.storage_path;
+            }
+        }
+
+        effective.attach_runtime_text_embedder(effective.text_embedder(), info);
+        if (!persistent || persisted.has_value() ||
+            effective.access_mode() == AccessMode::read_only) {
+            return std::nullopt;
+        }
+        return to_persisted_text_embedder(root, info);
+    }
+
+    if (effective.has_pending_local_text_embedder()) {
+        auto options = *effective.local_text_embedder_options();
+        if (options.dimension == 0U) {
+            options.dimension = effective.dimension();
+        }
+        if (options.storage_path.empty() && persistent) {
+            options.storage_path =
+                storage_path_in_root(root, options.model, options.revision,
+                                     options.dimension);
+        }
+
+        TextEmbedderInfo info =
+            describe_local_text_embedder(options, effective.dimension(), false);
+        if (info.dimension != effective.dimension()) {
+            throw ConfigError{
+                "configured local text embedder dimension conflicts with database"};
+        }
+
+        if (persisted.has_value()) {
+            TextEmbedderInfo persisted_info = persisted->info;
+            persisted_info.storage_path =
+                resolve_persisted_storage_path(root, *persisted);
+            if (!same_text_embedder_identity(info, persisted_info) ||
+                persisted_info.kind != TextEmbedderKind::local_builtin) {
+                throw ConfigError{
+                    "configured local text embedder conflicts with database"};
+            }
+            if (!options.storage_path.empty() &&
+                options.storage_path != persisted_info.storage_path) {
+                throw ConfigError{
+                    "configured local text embedder storage path conflicts "
+                    "with database"};
+            }
+            options.storage_path = persisted_info.storage_path;
+            if (!fs::exists(options.storage_path)) {
+                throw StorageError{"local text embedder artifact is missing: " +
+                                   options.storage_path};
+            }
+        }
+
+        auto runtime = make_local_text_embedder(options);
+        info = runtime->info(false);
+        effective.attach_runtime_text_embedder(std::move(runtime), info);
+        if (!persistent || persisted.has_value() ||
+            effective.access_mode() == AccessMode::read_only) {
+            return std::nullopt;
+        }
+        return to_persisted_text_embedder(root, info);
+    }
+
+    if (persisted.has_value()) {
+        TextEmbedderInfo persisted_info = persisted->info;
+        persisted_info.storage_path =
+            resolve_persisted_storage_path(root, *persisted);
+
+        if (effective.auto_text_embedder() &&
+            persisted_info.kind == TextEmbedderKind::local_builtin &&
+            persisted_info.rehydratable) {
+            if (persisted_info.dimension != effective.dimension()) {
+                throw ConfigError{
+                    "database text embedder dimension conflicts with database"};
+            }
+            if (!fs::exists(persisted_info.storage_path)) {
+                throw StorageError{"local text embedder artifact is missing: " +
+                                   persisted_info.storage_path};
+            }
+            auto runtime = make_local_text_embedder(LocalTextEmbedderOptions{
+                .model = persisted_info.model,
+                .revision = persisted_info.revision,
+                .storage_path = persisted_info.storage_path,
+                .dimension = persisted_info.dimension,
+            });
+            TextEmbedderInfo info = runtime->info(persisted_info.auto_attached);
+            effective.attach_runtime_text_embedder(std::move(runtime), info);
+            return std::nullopt;
+        }
+
+        effective.remember_expected_text_embedder(std::move(persisted_info));
+        return std::nullopt;
+    }
+
+    if ((persistent && !new_database) || !effective.auto_text_embedder()) {
+        return std::nullopt;
+    }
+
+    LocalTextEmbedderOptions options{
+        .model = "default",
+        .revision = "v1",
+        .storage_path = persistent
+                            ? storage_path_in_root(root, "default", "v1",
+                                                   effective.dimension())
+                            : std::string{},
+        .dimension = effective.dimension(),
+    };
+    auto runtime = make_local_text_embedder(options);
+    TextEmbedderInfo info = runtime->info(true);
+    effective.attach_runtime_text_embedder(std::move(runtime), info);
+    if (!persistent || effective.access_mode() == AccessMode::read_only) {
+        return std::nullopt;
+    }
+    return to_persisted_text_embedder(root, info);
 }
 
 void put_record(std::ostream& out, const Record& record, bool with_extras = true) {
@@ -477,7 +765,7 @@ RecordID Vault::place_document(std::string text, Payload payload,
                                std::optional<ChunkInfo> chunk,
                                std::optional<EmbeddingLineage> lineage) {
     if (!config_.has_text_embedder()) {
-        throw ConfigError{"text embedder is not configured"};
+        throw ConfigError{missing_text_embedder_message(config_)};
     }
 
     const RecordID record_id = id.value_or(RecordID::generate());
@@ -494,11 +782,19 @@ RecordID Vault::place_document(std::string text, Payload payload,
     }
 
     if (!lineage.has_value()) {
+        auto info = config_.text_embedder()->info();
+        Payload attributes;
+        if (!info.backend.empty()) {
+            attributes.emplace("backend", info.backend);
+        }
+        if (!info.fingerprint.empty()) {
+            attributes.emplace("fingerprint", info.fingerprint);
+        }
         lineage = EmbeddingLineage{
-            .provider = std::string(config_.text_embedder()->provider_name()),
-            .model = std::string(config_.text_embedder()->model_name()),
-            .revision = {},
-            .attributes = {},
+            .provider = std::move(info.provider),
+            .model = std::move(info.model),
+            .revision = std::move(info.revision),
+            .attributes = std::move(attributes),
         };
     }
 
@@ -678,41 +974,13 @@ std::vector<SearchResult> Vault::seek(const Vector& query, std::size_t top,
 std::vector<SearchResult> Vault::seek_text(std::string_view text, std::size_t top,
                                            const Filter& filter,
                                            std::optional<float> threshold) const {
+    if (!config_.has_text_embedder()) {
+        throw ConfigError{missing_text_embedder_message(config_)};
+    }
     if (top == 0 || records_.empty()) {
         return {};
     }
-
-    if (config_.has_text_embedder()) {
-        return seek(config_.text_embedder()->embed(text), top, filter, threshold);
-    }
-
-    std::vector<SearchResult> results;
-    results.reserve(std::min<std::size_t>(records_.size(), top * 4));
-    for (const auto& [id, record] : records_) {
-        (void)id;
-        if (!record.document.has_value() || !filter.matches(record.payload)) {
-            continue;
-        }
-        const float distance_value =
-            1.0F - lexical_overlap_score(text, record.document->text);
-        if (threshold.has_value() && distance_value > *threshold) {
-            continue;
-        }
-        results.push_back(make_result(record, distance_value));
-    }
-
-    const auto ordering = [](const SearchResult& lhs, const SearchResult& rhs) {
-        return lhs.distance < rhs.distance;
-    };
-    if (results.size() > top) {
-        std::partial_sort(results.begin(),
-                          results.begin() + static_cast<std::ptrdiff_t>(top),
-                          results.end(), ordering);
-        results.resize(top);
-    } else {
-        std::sort(results.begin(), results.end(), ordering);
-    }
-    return results;
+    return seek(config_.text_embedder()->embed(text), top, filter, threshold);
 }
 
 std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
@@ -1007,15 +1275,20 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
             throw ConfigError{"in-memory database requires a dimension"};
         }
 
+        Config effective = config;
+        (void)resolve_text_embedder_for_open(fs::path{}, /*persistent=*/false,
+                                             /*new_database=*/true, effective);
         auto instance =
-            std::make_unique<ElipsInstance>(path, config, /*persistent=*/false);
-        configure_gpu_backend(*instance, config);
-        if (config.access_mode() == AccessMode::read_only) {
+            std::make_unique<ElipsInstance>(path, effective, /*persistent=*/false);
+        configure_gpu_backend(*instance, effective);
+        if (effective.access_mode() == AccessMode::read_only) {
             apply_read_only_mode(*instance);
         }
         return instance;
     }
 
+    const bool existing_database =
+        fs::exists(fs::path(path) / identity_file);
     fs::create_directories(path);
     const LockMode lock_mode =
         config.access_mode() == AccessMode::read_only ? LockMode::shared
@@ -1024,7 +1297,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
 
     const fs::path identity = fs::path(path) / identity_file;
     Config effective = config;
-    if (fs::exists(identity)) {
+    if (existing_database) {
         const Identity id = read_identity(identity);
         if (config.dimension() != 0 && config.dimension() != id.dimension) {
             throw ConfigError{"configured dimension conflicts with database"};
@@ -1038,6 +1311,14 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
             throw ConfigError{"new database requires a dimension"};
         }
         write_identity(identity, config);
+    }
+
+    const auto embedder_manifest =
+        resolve_text_embedder_for_open(fs::path(path), /*persistent=*/true,
+                                       !existing_database, effective);
+    if (embedder_manifest.has_value() &&
+        effective.access_mode() != AccessMode::read_only) {
+        write_text_embedder_manifest(fs::path(path), *embedder_manifest);
     }
 
     auto instance = std::make_unique<ElipsInstance>(path, effective,
