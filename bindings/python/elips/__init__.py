@@ -97,6 +97,7 @@ try:
         IndexBuildMode,
         IvfPqBuildParams,
         KernelTiming,
+        gpu_devices,
     )
     _has_gpu = True
     _gpu_exports = [
@@ -113,6 +114,7 @@ try:
         "IndexBuildMode",
         "IvfPqBuildParams",
         "KernelTiming",
+        "gpu_devices",
     ]
 except ImportError:
     _has_gpu = False

@@ -286,6 +286,7 @@ class GpuConfig:
     build_mode: IndexBuildMode
     algorithm: GpuIndexAlgorithm
     device_memory_pool_mb: int
+    pinned_host_pool_mb: int
     fp16_search: bool
     unified_memory: bool
     batch_window_us: int
@@ -293,6 +294,9 @@ class GpuConfig:
     ef_search: int
     precision: GpuPrecision
     profiling: bool
+    auto_rebuild_on_startup: bool
+    rebuild_threshold_ratio: float
+    emit_kernel_timings: bool
     graph_params: GraphIndexBuildParams
     ivf_pq_params: IvfPqBuildParams
 
@@ -816,6 +820,9 @@ def tokenize_eql(source: str) -> list[Token]:
         A list of Token objects.
     """
 
+def gpu_devices() -> list[GpuDeviceInfo]:
+    """Probe all compile-time-enabled GPU backends and return detected devices."""
+
 # -- Module-level factory functions -------------------------------------------
 
 def open(
@@ -824,6 +831,7 @@ def open(
     metric: str = ...,
     index: str = ...,
     access_mode: str = ...,
+    gpu: Optional[GpuConfig] = ...,
 ) -> Database:
     """Open (or create) a database with simple parameters.
 
@@ -834,6 +842,7 @@ def open(
             ``\"dot_product\"``).
         index: Index backend (``\"graph\"`` for HNSW, ``\"exact\"`` for brute-force).
         access_mode: ``\"read_write\"`` or ``\"read_only\"``.
+        gpu: Optional GPU runtime configuration applied before open.
 
     Returns:
         A Database handle.

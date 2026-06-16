@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Optional, Protocol, Sequence
 
 from ._core import (
     ChunkInfo,
@@ -13,6 +13,9 @@ from ._core import (
     open_with_config as _open_with_config,
 )
 from .types import MetaValue, PayloadLike, Vector as VectorLike
+
+if TYPE_CHECKING:
+    from ._core import GpuConfig
 
 TEXT_SLOT = "__elips_text__"
 
@@ -520,6 +523,7 @@ def connect(
     embedder: Optional[Embedder] = None,
     embedder_provider: str = "python",
     embedder_model: str = "callable",
+    gpu: Optional["GpuConfig"] = None,
 ) -> Engine:
     config = (
         Config()
@@ -530,6 +534,10 @@ def connect(
         .segmented_storage(segmented_storage)
         .metadata_acceleration(metadata_acceleration)
     )
+    if gpu is not None:
+        if not hasattr(config, "gpu"):
+            raise ValueError("gpu config requires ELIPS to be built with GPU bindings")
+        config.gpu(gpu)
     if embedder is not None:
         config.text_embedder(
             embedder,

@@ -7,6 +7,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "elips/elips.hpp"
@@ -165,6 +166,59 @@ py::dict record_to_dict(const elips::Record& record) {
 }
 
 }  // namespace
+
+#ifdef ELIPS_GPU_ENABLED
+namespace {
+
+[[nodiscard]] std::string_view gpu_policy_name(
+    const elips::gpu::GpuPolicy policy) noexcept {
+    switch (policy) {
+        case elips::gpu::GpuPolicy::Auto:
+            return "auto";
+        case elips::gpu::GpuPolicy::PreferGpu:
+            return "prefer_gpu";
+        case elips::gpu::GpuPolicy::RequireGpu:
+            return "require_gpu";
+        case elips::gpu::GpuPolicy::CpuOnly:
+            return "cpu_only";
+        case elips::gpu::GpuPolicy::Specific:
+            return "specific";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view gpu_build_mode_name(
+    const elips::gpu::IndexBuildMode mode) noexcept {
+    switch (mode) {
+        case elips::gpu::IndexBuildMode::GpuBuild_CpuServe:
+            return "gpu_build_cpu_serve";
+        case elips::gpu::IndexBuildMode::GpuBuild_GpuServe:
+            return "gpu_build_gpu_serve";
+        case elips::gpu::IndexBuildMode::Hybrid:
+            return "hybrid";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view gpu_algorithm_name(
+    const elips::gpu::GpuIndexAlgorithm algorithm) noexcept {
+    switch (algorithm) {
+        case elips::gpu::GpuIndexAlgorithm::Auto:
+            return "auto";
+        case elips::gpu::GpuIndexAlgorithm::CagraGraph:
+            return "cagra";
+        case elips::gpu::GpuIndexAlgorithm::IvfFlat:
+            return "ivf_flat";
+        case elips::gpu::GpuIndexAlgorithm::IvfPq:
+            return "ivf_pq";
+        case elips::gpu::GpuIndexAlgorithm::BruteForce:
+            return "brute_force";
+    }
+    return "unknown";
+}
+
+}  // namespace
+#endif
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "ELIPS — embedded local vector database (C extension)";
@@ -588,6 +642,13 @@ PYBIND11_MODULE(_core, m) {
              [](elips::gpu::GpuConfig& c, size_t mb) {
                  c.device_memory_pool_bytes = mb * 1024 * 1024;
              })
+        .def_property("pinned_host_pool_mb",
+             [](const elips::gpu::GpuConfig& c) -> size_t {
+                 return c.pinned_host_pool_bytes / (1024 * 1024);
+             },
+             [](elips::gpu::GpuConfig& c, size_t mb) {
+                 c.pinned_host_pool_bytes = mb * 1024 * 1024;
+             })
         .def_readwrite("fp16_search", &elips::gpu::GpuConfig::enable_fp16_search)
         .def_readwrite("unified_memory", &elips::gpu::GpuConfig::use_unified_memory)
         .def_readwrite("batch_window_us", &elips::gpu::GpuConfig::dynamic_batch_window_us)
@@ -595,10 +656,16 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("ef_search", &elips::gpu::GpuConfig::default_ef_search_gpu)
         .def_readwrite("precision", &elips::gpu::GpuConfig::search_precision)
         .def_readwrite("profiling", &elips::gpu::GpuConfig::enable_profiling)
+        .def_readwrite("auto_rebuild_on_startup", &elips::gpu::GpuConfig::auto_rebuild_on_startup)
+        .def_readwrite("rebuild_threshold_ratio", &elips::gpu::GpuConfig::rebuild_threshold_ratio)
+        .def_readwrite("emit_kernel_timings", &elips::gpu::GpuConfig::emit_kernel_timings)
         .def_readwrite("graph_params", &elips::gpu::GpuConfig::graph_params)
         .def_readwrite("ivf_pq_params", &elips::gpu::GpuConfig::ivf_pq_params)
         .def("__repr__", [](const elips::gpu::GpuConfig& c) {
-            return "<GpuConfig policy=" + std::to_string(static_cast<int>(c.policy)) + ">";
+            return "<GpuConfig policy=" + std::string(gpu_policy_name(c.policy)) +
+                   " algorithm=" + std::string(gpu_algorithm_name(c.algorithm)) +
+                   " build_mode=" + std::string(gpu_build_mode_name(c.index_build_mode)) +
+                   " device_index=" + std::to_string(c.device_index) + ">";
         });
 
     py::class_<elips::gpu::GpuDeviceInfo>(m, "GpuDeviceInfo")
@@ -634,8 +701,14 @@ PYBIND11_MODULE(_core, m) {
             return static_cast<double>(i.total_device_memory_bytes) / (1024.0 * 1024.0 * 1024.0);
         })
         .def("__repr__", [](const elips::gpu::GpuDeviceInfo& i) {
-            return "<GpuDeviceInfo name='" + i.name + "' backend=" + i.backend + ">";
+            return "<GpuDeviceInfo name='" + i.name + "' backend=" + i.backend +
+                   " device_index=" + std::to_string(i.device_index) + ">";
         });
+
+    m.def("gpu_devices", []() {
+        elips::gpu::GpuDeviceManager manager;
+        return manager.probe_all_devices();
+    });
 
     py::class_<elips::gpu::GpuMetricsSnapshot>(m, "GpuMetricsSnapshot")
         .def(py::init<>())
@@ -1105,7 +1178,7 @@ PYBIND11_MODULE(_core, m) {
     m.def("open",
           [](const std::string& path, std::uint16_t dimension,
              const std::string& metric, const std::string& index,
-             const std::string& access_mode) {
+             const std::string& access_mode, const py::object& gpu_config) {
               elips::Config config;
               config.dimension(dimension)
                   .metric(elips::metric_from_string(metric));
@@ -1113,11 +1186,21 @@ PYBIND11_MODULE(_core, m) {
               if (access_mode == "read_only") {
                   config.access_mode(elips::AccessMode::read_only);
               }
+#ifdef ELIPS_GPU_ENABLED
+              if (!gpu_config.is_none()) {
+                  config.gpu(gpu_config.cast<elips::gpu::GpuConfig>());
+              }
+#else
+              if (!gpu_config.is_none()) {
+                  throw py::value_error(
+                      "gpu config requires ELIPS to be built with GPU bindings");
+              }
+#endif
               return elips::open(path, config);
           },
           py::arg("path"), py::arg("dimension") = 0,
           py::arg("metric") = "cosine", py::arg("index") = "graph",
-          py::arg("access_mode") = "read_write");
+          py::arg("access_mode") = "read_write", py::arg("gpu") = py::none());
 
     m.def("open_with_config",
           [](const std::string& path, const elips::Config& config) {

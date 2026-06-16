@@ -51,6 +51,10 @@ def assert_device_info_populated(info):
     assert info.backend != "", "device backend should be populated"
 
 
+def has_runtime_gpu():
+    return elips._has_gpu and elips.GpuDeviceInfo().backend != "cpu"
+
+
 def run_binding_subprocess(script):
     bindings_dir = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "bindings", "python")
@@ -492,12 +496,21 @@ def test_gpu_config():
     gc.device_memory_pool_mb = 256
     assert gc.device_memory_pool_mb == 256
 
+    gc.pinned_host_pool_mb = 64
+    assert gc.pinned_host_pool_mb == 64
+
     gc.fp16_search = True
     assert gc.fp16_search is True
 
     gc.max_batch_size = 128
     assert gc.max_batch_size == 128
     assert gc.ef_search > 0
+    gc.auto_rebuild_on_startup = True
+    gc.rebuild_threshold_ratio = 0.2
+    gc.emit_kernel_timings = True
+    assert gc.auto_rebuild_on_startup is True
+    assert abs(gc.rebuild_threshold_ratio - 0.2) < 1e-6
+    assert gc.emit_kernel_timings is True
 
     # Graph build params
     gp = elips.GraphIndexBuildParams()
@@ -558,6 +571,25 @@ def test_database_gpu_info_matches_runtime_snapshot():
     print("  PASS test_database_gpu_info_matches_runtime_snapshot")
 
 
+def test_gpu_devices_probe():
+    """Python bindings expose full GPU device discovery."""
+    if not elips._has_gpu:
+        print("  SKIP test_gpu_devices_probe (no GPU bindings)")
+        return
+
+    devices = elips.gpu_devices()
+    assert isinstance(devices, list)
+
+    runtime_info = elips.GpuDeviceInfo()
+    if devices:
+        assert_device_info_populated(devices[0])
+        assert devices[0].name == runtime_info.name
+        assert devices[0].backend == runtime_info.backend
+        assert devices[0].device_index == runtime_info.device_index
+
+    print("  PASS test_gpu_devices_probe")
+
+
 def test_cpu_only_gpu_policy_reports_cpu_fallback():
     """CPU-only policy still returns non-empty fallback device metadata."""
     if not elips._has_gpu:
@@ -578,10 +610,45 @@ def test_cpu_only_gpu_policy_reports_cpu_fallback():
     print("  PASS test_cpu_only_gpu_policy_reports_cpu_fallback")
 
 
+def test_open_accepts_gpu_config():
+    """Convenience open() accepts a GPU config directly."""
+    if not elips._has_gpu:
+        print("  SKIP test_open_accepts_gpu_config (no GPU bindings)")
+        return
+
+    gpu = elips.GpuConfig()
+    gpu.policy = elips.GpuPolicy.cpu_only
+
+    db = elips.open(":memory:", dimension=2, index="exact", gpu=gpu)
+    assert db.gpu_info().backend == "cpu"
+    db.close()
+
+    print("  PASS test_open_accepts_gpu_config")
+
+
+def test_connect_accepts_gpu_config():
+    """Modern connect() forwards GPU config into the generated Config."""
+    if not elips._has_gpu:
+        print("  SKIP test_connect_accepts_gpu_config (no GPU bindings)")
+        return
+
+    gpu = elips.GpuConfig()
+    gpu.policy = elips.GpuPolicy.cpu_only
+
+    engine = elips.connect(":memory:", dimension=2, index="exact", gpu=gpu)
+    assert engine.raw.gpu_info().backend == "cpu"
+    engine.close()
+
+    print("  PASS test_connect_accepts_gpu_config")
+
+
 def test_gpu_database_teardown_subprocess():
     """GPU-backed database teardown should not crash the Python interpreter."""
     if not elips._has_gpu:
         print("  SKIP test_gpu_database_teardown_subprocess (no GPU bindings)")
+        return
+    if not has_runtime_gpu():
+        print("  SKIP test_gpu_database_teardown_subprocess (no runtime GPU device)")
         return
 
     script = textwrap.dedent(
@@ -627,6 +694,9 @@ def test_gpu_modern_merge_replaces_existing_key_subprocess():
     """GPU-backed modern merge should replace an existing key without crashing."""
     if not elips._has_gpu:
         print("  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no GPU bindings)")
+        return
+    if not has_runtime_gpu():
+        print("  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no runtime GPU device)")
         return
 
     script = textwrap.dedent(
@@ -791,6 +861,10 @@ def test_type_stubs():
     with open(stub_path, "r", encoding="utf-8") as f:
         stub_text = f.read()
     assert "def gpu(self, config: \"GpuConfig\") -> \"Config\": ..." in stub_text
+    assert "pinned_host_pool_mb: int" in stub_text
+    assert "auto_rebuild_on_startup: bool" in stub_text
+    assert "def gpu_devices() -> list[GpuDeviceInfo]:" in stub_text
+    assert "gpu: Optional[GpuConfig] = ..." in stub_text
     print("  PASS test_type_stubs")
 
 
@@ -1013,7 +1087,10 @@ if __name__ == "__main__":
         test_gpu_config,
         test_gpu_device_info,
         test_database_gpu_info_matches_runtime_snapshot,
+        test_gpu_devices_probe,
         test_cpu_only_gpu_policy_reports_cpu_fallback,
+        test_open_accepts_gpu_config,
+        test_connect_accepts_gpu_config,
         test_gpu_database_teardown_subprocess,
         test_gpu_modern_merge_replaces_existing_key_subprocess,
         test_thread_safety_python,
