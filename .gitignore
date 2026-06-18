@@ -20,3 +20,5 @@ dist/
 .mypy_cache/
 .pytest_cache/
 *.log
+
+bindings/python/data/
