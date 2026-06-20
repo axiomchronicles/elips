@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { docs } from "../lib/content";
 import { lessons } from "../lib/tutorial";
 
-const BASE_URL = process.env.VITE_SITE_URL || "https://ellips.dev";
+const BASE_URL = process.env.VITE_SITE_URL || "https://elips.tubox.cloud";
 
 interface SitemapEntry {
   path: string;
