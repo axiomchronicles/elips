@@ -1,0 +1,5 @@
+# Netlify Configuration for ELIPS Docs deployment (pointed directly to elips_docs/)
+
+[build]
+  command = "bun run build"
+  publish = "dist/client"
