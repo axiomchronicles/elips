@@ -2,10 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 
 type Lang = "python" | "cpp" | "bash" | "eql" | "json" | "text";
 
-const PY_KW = /\b(from|import|as|def|class|return|if|else|elif|for|in|while|with|try|except|finally|raise|pass|None|True|False|and|or|not|is|lambda|yield|await|async|print)\b/g;
-const CPP_KW = /\b(auto|const|constexpr|class|struct|namespace|public|private|protected|return|if|else|for|while|do|switch|case|break|continue|template|typename|using|true|false|nullptr|new|delete|virtual|override|final|static|enum|inline|noexcept|try|catch|throw|operator)\b/g;
-const BASH_KW = /\b(cmake|ctest|cd|export|python3?|pip|bun|brew|apt|yum|sudo|elips|git|make|ninja)\b/g;
-const EQL_KW = /\b(seek|fetch|place|erase|scan|in|from|nearest|top|threshold|where|rank_by|project|yield|and|or|not|contains|true|false|vector|data|id|limit|offset)\b/gi;
+const PY_KW =
+  /\b(from|import|as|def|class|return|if|else|elif|for|in|while|with|try|except|finally|raise|pass|None|True|False|and|or|not|is|lambda|yield|await|async|print)\b/g;
+const CPP_KW =
+  /\b(auto|const|constexpr|class|struct|namespace|public|private|protected|return|if|else|for|while|do|switch|case|break|continue|template|typename|using|true|false|nullptr|new|delete|virtual|override|final|static|enum|inline|noexcept|try|catch|throw|operator)\b/g;
+const BASH_KW =
+  /\b(cmake|ctest|cd|export|python3?|pip|bun|brew|apt|yum|sudo|elips|git|make|ninja)\b/g;
+const EQL_KW =
+  /\b(seek|fetch|place|erase|scan|in|from|nearest|top|threshold|where|rank_by|project|yield|and|or|not|contains|true|false|vector|data|id|limit|offset)\b/gi;
 
 function escape(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -36,13 +40,28 @@ function highlight(src: string, lang: Lang): string {
   }
   s = s.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, mark("tok-str"));
   s = s.replace(/\b\d+\.?\d*\b/g, mark("tok-num"));
-  const kw = lang === "python" ? PY_KW : lang === "cpp" ? CPP_KW : lang === "bash" ? BASH_KW : lang === "eql" ? EQL_KW : null;
+  const kw =
+    lang === "python"
+      ? PY_KW
+      : lang === "cpp"
+        ? CPP_KW
+        : lang === "bash"
+          ? BASH_KW
+          : lang === "eql"
+            ? EQL_KW
+            : null;
   if (kw) s = s.replace(kw, mark("tok-kw"));
   if (lang === "cpp") {
-    s = s.replace(/\b(std|elips|Config|Vector|Filter|Vault|ElipsInstance|Metric|AccessMode|DocumentAttachment|ChunkInfo|EmbeddingLineage|QueryPlan|IndexPort|GpuPort|HierarchicalGraphIndex|ExactIndex|LockManager|WAL)\b/g, mark("tok-ty"));
+    s = s.replace(
+      /\b(std|elips|Config|Vector|Filter|Vault|ElipsInstance|Metric|AccessMode|DocumentAttachment|ChunkInfo|EmbeddingLineage|QueryPlan|IndexPort|GpuPort|HierarchicalGraphIndex|ExactIndex|LockManager|WAL)\b/g,
+      mark("tok-ty"),
+    );
   }
   if (lang === "python") {
-    s = s.replace(/\b(elips|Filter|Config|RecordInput|Row|Hit|DocumentAttachment|ChunkInfo|EmbeddingLineage)\b/g, mark("tok-ty"));
+    s = s.replace(
+      /\b(elips|Filter|Config|RecordInput|Row|Hit|DocumentAttachment|ChunkInfo|EmbeddingLineage)\b/g,
+      mark("tok-ty"),
+    );
     s = s.replace(/\b([a-z_][a-z0-9_]*)(?=\()/gi, mark("tok-fn"));
   }
 
@@ -89,7 +108,11 @@ export function CodeBlock({
 }
 
 export function Inline({ children }: { children: ReactNode }) {
-  return <code className="font-mono text-[0.88em] px-1.5 py-0.5 rounded bg-canvas-soft border border-hairline">{children}</code>;
+  return (
+    <code className="font-mono text-[0.88em] px-1.5 py-0.5 rounded bg-[color-mix(in_oklch,var(--color-primary)_7%,var(--color-canvas-soft))] border border-[color-mix(in_oklch,var(--color-primary)_20%,var(--color-hairline))] text-primary">
+      {children}
+    </code>
+  );
 }
 
 export function Mermaid({ chart, caption }: { chart: string; caption?: string }) {
@@ -161,7 +184,9 @@ export function Mermaid({ chart, caption }: { chart: string; caption?: string })
         if (!cancelled) setSvg(`<pre style="color:#cf2d56">${String(e)}</pre>`);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [chart, theme]);
   return (
     <figure className="my-10 sketch-figure">
@@ -170,11 +195,16 @@ export function Mermaid({ chart, caption }: { chart: string; caption?: string })
         <span className="sketch-corner sketch-corner-tr" aria-hidden />
         <span className="sketch-corner sketch-corner-bl" aria-hidden />
         <span className="sketch-corner sketch-corner-br" aria-hidden />
-        <div className="mermaid-host" dangerouslySetInnerHTML={{ __html: svg || '<div style="height:160px"/>' }} />
+        <div
+          className="mermaid-host"
+          dangerouslySetInnerHTML={{ __html: svg || '<div style="height:160px"/>' }}
+        />
       </div>
       {caption && (
         <figcaption className="sketch-caption">
-          <span className="sketch-caption-mark" aria-hidden>✎</span>
+          <span className="sketch-caption-mark" aria-hidden>
+            ✎
+          </span>
           {caption}
         </figcaption>
       )}
