@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://elips.tubox.cloud/sitemap.xml
