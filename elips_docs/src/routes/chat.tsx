@@ -226,7 +226,10 @@ function ChatPage() {
           )}
 
           {messages.map((m: (typeof messages)[number]) => {
-            const text = m.content;
+            const text = m.parts
+              .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+              .map((p) => p.text)
+              .join("");
             const isUser = m.role === "user";
             const refs = !isUser ? relatedDocs(text) : [];
             return (
