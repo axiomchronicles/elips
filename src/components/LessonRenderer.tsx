@@ -95,7 +95,10 @@ export function LessonBlocks({ blocks }: { blocks: LessonBlock[] }) {
             );
           case "ul":
             return (
-              <ul key={i} className="my-5 list-disc pl-6 text-[16px] text-ink leading-relaxed space-y-1.5">
+              <ul
+                key={i}
+                className="my-5 list-disc pl-6 text-[16px] text-ink leading-relaxed space-y-1.5"
+              >
                 {b.items.map((it) => (
                   <li key={it}>{it}</li>
                 ))}

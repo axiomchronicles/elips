@@ -19,13 +19,17 @@ export function ShortcutsModal() {
     let lastAt = 0;
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
+        return;
       if (e.key === "?" || (e.shiftKey && e.key === "/")) {
         e.preventDefault();
         setOpen((o) => !o);
         return;
       }
-      if (e.key === "Escape") { setOpen(false); return; }
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
       if (e.key.toLowerCase() === "t" && !e.metaKey && !e.ctrlKey) {
         const root = document.documentElement;
         const next = !root.classList.contains("dark");
@@ -35,9 +39,19 @@ export function ShortcutsModal() {
       }
       const now = Date.now();
       if (last === "g" && now - lastAt < 900) {
-        const map: Record<string, string> = { h: "/", d: "/docs", a: "/docs/api", c: "/changelog", t: "/chat" };
+        const map: Record<string, string> = {
+          h: "/",
+          d: "/docs",
+          a: "/docs/api",
+          c: "/changelog",
+          t: "/chat",
+        };
         const dest = map[e.key.toLowerCase()];
-        if (dest) { window.location.href = dest; last = ""; return; }
+        if (dest) {
+          window.location.href = dest;
+          last = "";
+          return;
+        }
       }
       last = e.key.toLowerCase();
       lastAt = now;
@@ -87,7 +101,9 @@ export function ShortcutsModal() {
                     <span className="text-[14px] text-ink">{s.label}</span>
                     <span className="flex items-center gap-1.5">
                       {s.keys.map((k, i) => (
-                        <span key={i} className="kbd">{k}</span>
+                        <span key={i} className="kbd">
+                          {k}
+                        </span>
                       ))}
                     </span>
                   </li>

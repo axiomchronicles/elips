@@ -4,7 +4,6 @@ import { Lightbulb } from "lucide-react";
 import { docs, siteNav } from "../lib/content";
 import { AskAI } from "./AskAI";
 
-
 /* ---------------- Version switcher ---------------- */
 const VERSIONS = [
   { id: "1.0", label: "1.0 (stable)", current: true },
@@ -45,11 +44,15 @@ export function VersionSwitcher() {
                   setOpen(false);
                 }}
                 className={`w-full text-left px-2.5 py-2 rounded-md text-[13px] flex items-center justify-between transition ${
-                  active === vv.id ? "bg-canvas-soft text-ink" : "text-body hover:bg-canvas-soft hover:text-ink"
+                  active === vv.id
+                    ? "bg-canvas-soft text-ink"
+                    : "text-body hover:bg-canvas-soft hover:text-ink"
                 }`}
               >
                 <span>{vv.label}</span>
-                {vv.current && <span className="text-[10px] uppercase tracking-wider text-primary">current</span>}
+                {vv.current && (
+                  <span className="text-[10px] uppercase tracking-wider text-primary">current</span>
+                )}
               </button>
             ))}
             <div className="px-2.5 py-2 mt-1 border-t border-hairline-soft text-[11px] text-muted leading-snug">
@@ -145,15 +148,29 @@ export function SearchTrigger() {
         className="h-9 px-3 inline-flex items-center gap-3 rounded-md border border-hairline-strong text-muted hover:border-ink hover:text-ink transition text-[13px] min-w-[200px]"
       >
         <span>Search the docs</span>
-        <span className="ml-auto font-mono text-[11px] border border-hairline rounded px-1.5 py-0.5">⌘K</span>
+        <span className="ml-auto font-mono text-[11px] border border-hairline rounded px-1.5 py-0.5">
+          ⌘K
+        </span>
       </button>
       {open && (
-        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-start justify-center pt-[10vh] px-4 fade-up" onClick={() => { setOpen(false); setGroupFilter(null); }}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl bg-surface border border-hairline rounded-xl overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-start justify-center pt-[10vh] px-4 fade-up"
+          onClick={() => {
+            setOpen(false);
+            setGroupFilter(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl bg-surface border border-hairline rounded-xl overflow-hidden"
+          >
             <input
               autoFocus
               value={q}
-              onChange={(e) => { setQ(e.target.value); setGroupFilter(null); }}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setGroupFilter(null);
+              }}
               placeholder="Search pages, APIs, concepts…"
               className="w-full px-5 py-4 bg-transparent text-ink outline-none border-b border-hairline text-[15px]"
             />
@@ -162,7 +179,9 @@ export function SearchTrigger() {
                 <button
                   onClick={() => setGroupFilter(null)}
                   className={`text-[11px] px-2.5 py-1 rounded-full border transition ${groupFilter === null ? "bg-ink text-canvas border-ink" : "border-hairline-strong text-muted hover:text-ink"}`}
-                >All ({results.length})</button>
+                >
+                  All ({results.length})
+                </button>
                 {groupSet.map((g) => {
                   const n = results.filter((r) => r.d.group === g).length;
                   return (
@@ -170,7 +189,9 @@ export function SearchTrigger() {
                       key={g}
                       onClick={() => setGroupFilter(g)}
                       className={`text-[11px] px-2.5 py-1 rounded-full border transition ${groupFilter === g ? "bg-ink text-canvas border-ink" : "border-hairline-strong text-muted hover:text-ink"}`}
-                    >{g} ({n})</button>
+                    >
+                      {g} ({n})
+                    </button>
                   );
                 })}
               </div>
@@ -179,7 +200,12 @@ export function SearchTrigger() {
               {visible.length === 0 && (
                 <li className="px-5 py-6 text-muted text-sm">
                   No matches for "{q}".{" "}
-                  <Link to="/chat" search={{ q } as never} onClick={() => setOpen(false)} className="text-ink underline">
+                  <Link
+                    to="/chat"
+                    search={{ q } as never}
+                    onClick={() => setOpen(false)}
+                    className="text-ink underline"
+                  >
                     Ask AI instead →
                   </Link>
                 </li>
@@ -188,7 +214,10 @@ export function SearchTrigger() {
                 <li key={r.d.path}>
                   <Link
                     to={r.d.path}
-                    onClick={() => { setOpen(false); setGroupFilter(null); }}
+                    onClick={() => {
+                      setOpen(false);
+                      setGroupFilter(null);
+                    }}
                     className="block px-5 py-3 hover:bg-canvas-soft transition border-b border-hairline-soft last:border-b-0"
                   >
                     <div className="flex items-baseline justify-between gap-4">
@@ -205,7 +234,10 @@ export function SearchTrigger() {
                   <Link
                     to="/chat"
                     search={{ q } as never}
-                    onClick={() => { setOpen(false); setGroupFilter(null); }}
+                    onClick={() => {
+                      setOpen(false);
+                      setGroupFilter(null);
+                    }}
                     className="flex items-center gap-3 px-5 py-3 hover:bg-canvas-soft transition text-[14px] text-ink"
                   >
                     <Lightbulb className="askai-spark" size={14} aria-hidden />
@@ -226,13 +258,22 @@ export function TopNav() {
   return (
     <header className="sticky top-0 z-40 bg-canvas/85 backdrop-blur border-b border-hairline">
       <div className="max-w-[1200px] mx-auto h-16 px-6 flex items-center gap-8">
-        <Link to="/" className="text-ink text-[18px] tracking-tight" style={{ letterSpacing: "-0.02em" }}>
+        <Link
+          to="/"
+          className="text-ink text-[18px] tracking-tight"
+          style={{ letterSpacing: "-0.02em" }}
+        >
           <span className="text-primary">elips</span>
           <span className="text-muted">/docs</span>
         </Link>
         <nav className="hidden md:flex items-center gap-7 ml-2">
           {siteNav.map((l) => (
-            <Link key={l.to} to={l.to} className="text-[14px] text-body hover:text-ink transition" activeProps={{ className: "text-ink" }}>
+            <Link
+              key={l.to}
+              to={l.to}
+              className="text-[14px] text-body hover:text-ink transition"
+              activeProps={{ className: "text-ink" }}
+            >
               {l.label}
             </Link>
           ))}
@@ -253,7 +294,6 @@ export function TopNav() {
           >
             GitHub →
           </a>
-          <VersionSwitcher />
           <ThemeToggle />
         </div>
       </div>
@@ -276,16 +316,42 @@ export function Footer() {
           </p>
         </div>
         {[
-          { h: "Docs", l: [["Getting started", "/docs"], ["Architecture", "/docs/architecture"], ["API reference", "/docs/api"], ["EQL", "/docs/eql"]] },
-          { h: "Project", l: [["Changelog", "/changelog"], ["Contributing", "/contributing"], ["Roadmap", "/docs/design-decisions"], ["FAQ", "/faq"]] },
-          { h: "Support", l: [["Ask AI", "/chat"], ["Help center", "/help"], ["Community", "/community"], ["Contact", "/contact"]] },
+          {
+            h: "Docs",
+            l: [
+              ["Getting started", "/docs"],
+              ["Architecture", "/docs/architecture"],
+              ["API reference", "/docs/api"],
+              ["EQL", "/docs/eql"],
+            ],
+          },
+          {
+            h: "Project",
+            l: [
+              ["Changelog", "/changelog"],
+              ["Contributing", "/contributing"],
+              ["Roadmap", "/docs/design-decisions"],
+              ["FAQ", "/faq"],
+            ],
+          },
+          {
+            h: "Support",
+            l: [
+              ["Ask AI", "/chat"],
+              ["Help center", "/help"],
+              ["Community", "/community"],
+              ["Contact", "/contact"],
+            ],
+          },
         ].map((col) => (
           <div key={col.h}>
             <div className="eyebrow mb-3">{col.h}</div>
             <ul className="space-y-2">
               {col.l.map(([label, href]) => (
                 <li key={href}>
-                  <Link to={href} className="text-[14px] text-body hover:text-ink transition">{label}</Link>
+                  <Link to={href} className="text-[14px] text-body hover:text-ink transition">
+                    {label}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -302,9 +368,15 @@ export function Footer() {
             >
               <span className="kbd !h-5 !min-w-[20px] !text-[10px]">?</span> Shortcuts
             </button>
-            <Link to="/terms" className="hover:text-ink">Terms</Link>
-            <Link to="/privacy" className="hover:text-ink">Privacy</Link>
-            <Link to="/cookies" className="hover:text-ink">Cookies</Link>
+            <Link to="/terms" className="hover:text-ink">
+              Terms
+            </Link>
+            <Link to="/privacy" className="hover:text-ink">
+              Privacy
+            </Link>
+            <Link to="/cookies" className="hover:text-ink">
+              Cookies
+            </Link>
           </div>
         </div>
       </div>
@@ -327,19 +399,35 @@ export function CookieConsent() {
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:bottom-6 z-40 max-w-md bg-surface border border-hairline-strong rounded-lg p-5 fade-up">
       <div className="eyebrow mb-1.5">Cookie notice</div>
       <p className="text-[13px] text-body leading-relaxed">
-        This documentation site stores a theme preference and a single consent flag in your
-        browser. No analytics, no third-party trackers. <Link to="/cookies" className="underline">Read more</Link>.
+        This documentation site stores a theme preference and a single consent flag in your browser.
+        No analytics, no third-party trackers.{" "}
+        <Link to="/cookies" className="underline">
+          Read more
+        </Link>
+        .
       </p>
       <div className="flex gap-2 mt-3">
-        <button onClick={() => decide("accepted")} className="btn btn-primary !h-9 !px-4 text-[13px]">Acknowledge</button>
-        <button onClick={() => decide("declined")} className="btn btn-ghost !h-9 !px-4 text-[13px]">Dismiss</button>
+        <button
+          onClick={() => decide("accepted")}
+          className="btn btn-primary !h-9 !px-4 text-[13px]"
+        >
+          Acknowledge
+        </button>
+        <button onClick={() => decide("declined")} className="btn btn-ghost !h-9 !px-4 text-[13px]">
+          Dismiss
+        </button>
       </div>
     </div>
   );
 }
 
 /* ---------------- Docs Layout ---------------- */
-export function DocsShell({ children, title, eyebrow, toc }: {
+export function DocsShell({
+  children,
+  title,
+  eyebrow,
+  toc,
+}: {
   children: React.ReactNode;
   title?: string;
   eyebrow?: string;
@@ -388,8 +476,17 @@ export function DocsShell({ children, title, eyebrow, toc }: {
         )}
         <article className="prose">{children}</article>
         <div className="hairline-t mt-16 pt-6 text-[13px] text-muted flex justify-between">
-          <Link to="/docs" className="hover:text-ink">← All docs</Link>
-          <a href="https://github.com/axiomchronicles/ellips" target="_blank" rel="noreferrer" className="hover:text-ink">Edit on GitHub →</a>
+          <Link to="/docs" className="hover:text-ink">
+            ← All docs
+          </Link>
+          <a
+            href="https://github.com/axiomchronicles/ellips"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-ink"
+          >
+            Edit on GitHub →
+          </a>
         </div>
       </main>
 
@@ -400,7 +497,9 @@ export function DocsShell({ children, title, eyebrow, toc }: {
             <ul className="space-y-1.5">
               {toc.map((t) => (
                 <li key={t.id}>
-                  <a href={`#${t.id}`} className="text-[13px] text-muted hover:text-ink transition">{t.label}</a>
+                  <a href={`#${t.id}`} className="text-[13px] text-muted hover:text-ink transition">
+                    {t.label}
+                  </a>
                 </li>
               ))}
             </ul>
