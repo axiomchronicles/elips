@@ -18,25 +18,28 @@ export const Route = createFileRoute("/docs/guides")({
 
 function Page() {
   return (
-    <DocsShell eyebrow="Practice" title="Guides" toc={[
-      { id: "rag", label: "RAG store" },
-      { id: "fanout", label: "Shared reader fan-out" },
-      { id: "rebuild", label: "Reindex without downtime" },
-      { id: "import", label: "Bulk import" },
-    ]}>
+    <DocsShell
+      eyebrow="Practice"
+      title="Guides"
+      toc={[
+        { id: "rag", label: "RAG store" },
+        { id: "fanout", label: "Shared reader fan-out" },
+        { id: "rebuild", label: "Reindex without downtime" },
+        { id: "import", label: "Bulk import" },
+      ]}
+    >
       <p className="text-[18px] text-ink">
         Short, task-shaped walkthroughs. Each one starts from{" "}
-        <Link to="/docs">Getting started</Link> and ends with a runnable
-        snippet.
+        <Link to="/docs">Getting started</Link> and ends with a runnable snippet.
       </p>
 
       <h2 id="rag">A small RAG store</h2>
       <p>
-        Persist chunked documents with lineage, query by text, and surface
-        the original passage on every hit.
+        Persist chunked documents with lineage, query by text, and surface the original passage on
+        every hit.
       </p>
       <CodeBlock lang="python">
-{`import elips
+        {`import elips
 
 db = elips.open("/var/lib/rag", dimension=384, metric="cosine")
 docs = db.vault("docs")
@@ -60,11 +63,11 @@ for hit in docs.seek_text("how do we rotate keys?", top=5):
 
       <h2 id="fanout">Shared-reader fan-out</h2>
       <p>
-        One writer process refreshes the database; many reader processes
-        serve queries with read-only handles.
+        One writer process refreshes the database; many reader processes serve queries with
+        read-only handles.
       </p>
       <CodeBlock lang="python">
-{`# writer.py — exclusive lock
+        {`# writer.py — exclusive lock
 writer = elips.open("/srv/index", dimension=768)
 
 # reader.py — shared lock, can run in N processes concurrently
@@ -74,11 +77,11 @@ result = reader.vault("docs").seek_text("status of incident 9412", top=10)`}
 
       <h2 id="rebuild">Reindex without downtime</h2>
       <p>
-        Build a fresh index in a sibling directory, swap atomically, and
-        let readers pick it up on their next open.
+        Build a fresh index in a sibling directory, swap atomically, and let readers pick it up on
+        their next open.
       </p>
       <CodeBlock lang="python">
-{`new = elips.open("/srv/index.next", dimension=768)
+        {`new = elips.open("/srv/index.next", dimension=768)
 hydrate(new)
 new.compact()
 new.close()
@@ -90,7 +93,7 @@ os.rename("/srv/index.next", "/srv/index")`}
 
       <h2 id="import">Bulk import</h2>
       <CodeBlock lang="bash">
-{`elips import /srv/index --vault docs --input dump.jsonl --dimension 768
+        {`elips import /srv/index --vault docs --input dump.jsonl --dimension 768
 elips checkpoint /srv/index`}
       </CodeBlock>
     </DocsShell>

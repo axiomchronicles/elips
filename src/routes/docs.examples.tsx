@@ -6,7 +6,10 @@ export const Route = createFileRoute("/docs/examples")({
   head: () => ({
     meta: [
       { title: "Examples — ELIPS Docs" },
-      { name: "description", content: "Concrete Python and C++ snippets straight from the ELIPS repository." },
+      {
+        name: "description",
+        content: "Concrete Python and C++ snippets straight from the ELIPS repository.",
+      },
       { property: "og:title", content: "Examples — ELIPS" },
       { property: "og:description", content: "Concrete usage examples." },
       { property: "og:url", content: "/docs/examples" },
@@ -20,13 +23,13 @@ function Page() {
   return (
     <DocsShell eyebrow="Practice" title="Examples">
       <p className="text-[18px] text-ink">
-        Drawn directly from <code>examples/python/</code> and{" "}
-        <code>examples/cpp/</code> in the repository.
+        Drawn directly from <code>examples/python/</code> and <code>examples/cpp/</code> in the
+        repository.
       </p>
 
       <h2>Python — getting started</h2>
       <CodeBlock lang="python" filename="examples/python/01_getting_started.py">
-{`import elips
+        {`import elips
 
 engine = elips.connect(":memory:", dimension=128)
 arena = engine.arena("documents")
@@ -41,7 +44,7 @@ for hit in arena.probe_text("alpha", top=2):
 
       <h2>C++ — getting started</h2>
       <CodeBlock lang="cpp" filename="examples/cpp/01_getting_started.cpp">
-{`#include "elips/elips.hpp"
+        {`#include "elips/elips.hpp"
 #include <print>
 
 int main() {
@@ -62,7 +65,7 @@ int main() {
 
       <h2>EQL from the SDK</h2>
       <CodeBlock lang="python">
-{`rows = db.query(
+        {`rows = db.query(
     "seek in documents nearest $q top 10 "
     "where kind = \\"design\\" project kind yield",
     bindings={"q": query_vector},
@@ -71,7 +74,7 @@ int main() {
 
       <h2>Hybrid retrieval</h2>
       <CodeBlock lang="python">
-{`hits = docs.seek_hybrid(
+        {`hits = docs.seek_hybrid(
     vector=query_vector,
     text="rotate KMS keys",
     top=5,

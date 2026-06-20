@@ -7,9 +7,17 @@ export const Route = createFileRoute("/docs/tutorial/")({
   head: () => ({
     meta: [
       { title: "Tutorial — ELIPS Docs" },
-      { name: "description", content: "Thirty-two hand-drawn lessons across Beginner, Intermediate, and Advanced — the complete ELIPS engine end-to-end." },
+      {
+        name: "description",
+        content:
+          "Thirty-two hand-drawn lessons across Beginner, Intermediate, and Advanced — the complete ELIPS engine end-to-end.",
+      },
       { property: "og:title", content: "ELIPS Tutorial — 32 lessons, three levels" },
-      { property: "og:description", content: "From pip install to GPU-accelerated production. Beginner → Intermediate → Advanced, every page grounded in the source." },
+      {
+        property: "og:description",
+        content:
+          "From pip install to GPU-accelerated production. Beginner → Intermediate → Advanced, every page grounded in the source.",
+      },
       { property: "og:url", content: "/docs/tutorial" },
     ],
     links: [{ rel: "canonical", href: "/docs/tutorial" }],
@@ -18,18 +26,28 @@ export const Route = createFileRoute("/docs/tutorial/")({
 });
 
 const LEVELS: { level: Level; blurb: string }[] = [
-  { level: "Beginner",     blurb: "Install, open a database, write your first record, run your first query." },
-  { level: "Intermediate", blurb: "EQL, transactions, durability, embedders, planner observability — the daily-driver surface." },
-  { level: "Advanced",     blurb: "Storage internals, HNSW, lock manager, query executor, GPU engine — everything under the hood." },
+  {
+    level: "Beginner",
+    blurb: "Install, open a database, write your first record, run your first query.",
+  },
+  {
+    level: "Intermediate",
+    blurb:
+      "EQL, transactions, durability, embedders, planner observability — the daily-driver surface.",
+  },
+  {
+    level: "Advanced",
+    blurb:
+      "Storage internals, HNSW, lock manager, query executor, GPU engine — everything under the hood.",
+  },
 ];
 
 function TutorialHub() {
   return (
     <DocsShell eyebrow="Tutorial" title="Learn ELIPS — thirty-two lessons">
       <p className="handwritten-lede text-body">
-        From <code>pip install</code> to GPU-accelerated production serving.
-        Three levels, thirty-two chapters, every page grounded in the actual
-        source — not paraphrase.
+        From <code>pip install</code> to GPU-accelerated production serving. Three levels,
+        thirty-two chapters, every page grounded in the actual source — not paraphrase.
       </p>
 
       <div className="my-10">
@@ -39,7 +57,8 @@ function TutorialHub() {
       </div>
 
       <p className="text-[14px] text-muted">
-        {lessons.length} lessons · grouped by level · linear order works if you read straight through.
+        {lessons.length} lessons · grouped by level · linear order works if you read straight
+        through.
       </p>
 
       {LEVELS.map(({ level, blurb }) => {
