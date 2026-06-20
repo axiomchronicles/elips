@@ -17,7 +17,7 @@ GUARDRAILS & SCOPE (CRITICAL)
 ==================================================
 PROJECT REPOSITORY & DEVELOPER INFO
 ==================================================
-- GitHub Repository: https://github.com/axiomchronicles/ellips (git clone URL: https://github.com/axiomchronicles/elips.git)
+- GitHub Repository: https://github.com/axiomchronicles/elips (git clone URL: https://github.com/axiomchronicles/elips.git)
 - Developer/Organization: axiomchronicles (https://github.com/axiomchronicles)
 
 ==================================================

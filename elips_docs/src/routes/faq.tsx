@@ -151,7 +151,7 @@ const FAQS: [string, ReactNode][] = [
     "Where can I report a bug?",
     <p>
       Open an issue on the{" "}
-      <a href="https://github.com/axiomchronicles/ellips/issues" target="_blank" rel="noreferrer">
+      <a href="https://github.com/axiomchronicles/elips/issues" target="_blank" rel="noreferrer">
         GitHub tracker
       </a>
       . Include the output of <code>elips info</code> and <code>elips verify</code> when relevant.

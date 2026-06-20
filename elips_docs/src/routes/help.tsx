@@ -65,7 +65,7 @@ function Page() {
       <h2>Still stuck?</h2>
       <p>
         Open an{" "}
-        <a href="https://github.com/axiomchronicles/ellips/issues" target="_blank" rel="noreferrer">
+        <a href="https://github.com/axiomchronicles/elips/issues" target="_blank" rel="noreferrer">
           issue
         </a>{" "}
         with the output of <code>elips info</code>, your config, and a minimal reproduction. See

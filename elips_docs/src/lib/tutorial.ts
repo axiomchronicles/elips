@@ -1,5 +1,5 @@
 // ELIPS tutorial — 30 lessons, three levels.
-// Every factual claim traces to docs/ in github.com/axiomchronicles/ellips.
+// Every factual claim traces to docs/ in github.com/axiomchronicles/elips.
 // Prose is tight; diagrams + real code carry the weight.
 
 export type LessonBlock =
@@ -109,8 +109,8 @@ const beginner: Lesson[] = [
       {
         kind: "code",
         lang: "bash",
-        code: `git clone https://github.com/axiomchronicles/ellips.git
-cd ellips && cmake -B build -DCMAKE_BUILD_TYPE=Release
+        code: `git clone https://github.com/axiomchronicles/elips.git
+cd elips && cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j`,
       },
       {

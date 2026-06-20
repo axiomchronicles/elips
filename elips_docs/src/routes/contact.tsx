@@ -32,13 +32,13 @@ function Page() {
             h: "Bugs",
             d: "Open an issue with reproduction.",
             a: "GitHub issues →",
-            href: "https://github.com/axiomchronicles/ellips/issues",
+            href: "https://github.com/axiomchronicles/elips/issues",
           },
           {
             h: "Design discussion",
             d: "Use Discussions for proposals.",
             a: "GitHub discussions →",
-            href: "https://github.com/axiomchronicles/ellips/discussions",
+            href: "https://github.com/axiomchronicles/elips/discussions",
           },
           {
             h: "Security",

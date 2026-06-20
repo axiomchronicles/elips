@@ -30,22 +30,22 @@ function Page() {
           {
             h: "GitHub repository",
             d: "Source, issues, pull requests, and the ADR log under docs/adr/.",
-            href: "https://github.com/axiomchronicles/ellips",
+            href: "https://github.com/axiomchronicles/elips",
           },
           {
             h: "Discussions",
             d: "Open-ended questions, design proposals, and feedback threads.",
-            href: "https://github.com/axiomchronicles/ellips/discussions",
+            href: "https://github.com/axiomchronicles/elips/discussions",
           },
           {
             h: "Issue tracker",
             d: "Bugs and concrete feature requests with reproduction steps.",
-            href: "https://github.com/axiomchronicles/ellips/issues",
+            href: "https://github.com/axiomchronicles/elips/issues",
           },
           {
             h: "Contributing guide",
             d: "Build, test, and review conventions — read before opening a PR.",
-            href: "https://github.com/axiomchronicles/ellips/blob/main/docs/developer-guide/contributing.md",
+            href: "https://github.com/axiomchronicles/elips/blob/main/docs/developer-guide/contributing.md",
           },
         ].map((c) => (
           <a

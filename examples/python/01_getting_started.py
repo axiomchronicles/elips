@@ -29,7 +29,7 @@ def main() -> None:
 
         engine = elips.connect(
             str(db_path),
-            dimension=128,
+            dimension=2,
             metric="cosine",
             segmented_storage=True,
             metadata_acceleration=True,

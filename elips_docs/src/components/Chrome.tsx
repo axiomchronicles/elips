@@ -287,7 +287,7 @@ export function TopNav() {
             <Lightbulb size={14} aria-hidden /> Ask AI
           </Link>
           <a
-            href="https://github.com/axiomchronicles/ellips"
+            href="https://github.com/axiomchronicles/elips"
             target="_blank"
             rel="noreferrer"
             className="hidden sm:inline-flex h-9 px-3 items-center text-[13px] text-body hover:text-ink transition"
@@ -480,7 +480,7 @@ export function DocsShell({
             ← All docs
           </Link>
           <a
-            href="https://github.com/axiomchronicles/ellips"
+            href="https://github.com/axiomchronicles/elips"
             target="_blank"
             rel="noreferrer"
             className="hover:text-ink"

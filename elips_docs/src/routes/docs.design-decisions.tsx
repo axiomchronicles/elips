@@ -143,7 +143,7 @@ function Page() {
           return (
             <a
               key={id}
-              href={`https://github.com/axiomchronicles/ellips/blob/main/docs/adr/${file}`}
+              href={`https://github.com/axiomchronicles/elips/blob/main/docs/adr/${file}`}
               target="_blank"
               rel="noreferrer"
               className="rounded-lg border border-hairline p-5 bg-surface hover:border-ink transition block"
@@ -166,7 +166,7 @@ function Page() {
           return (
             <a
               key={id}
-              href={`https://github.com/axiomchronicles/ellips/blob/main/docs/adr/${file}`}
+              href={`https://github.com/axiomchronicles/elips/blob/main/docs/adr/${file}`}
               target="_blank"
               rel="noreferrer"
               className="rounded-lg border border-hairline p-5 bg-surface hover:border-ink transition block"

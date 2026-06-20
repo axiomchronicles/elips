@@ -66,7 +66,7 @@ function Home() {
               <Lightbulb size={14} aria-hidden /> Ask AI
             </Link>
             <a
-              href="https://github.com/axiomchronicles/ellips"
+              href="https://github.com/axiomchronicles/elips"
               target="_blank"
               rel="noreferrer"
               className="btn btn-text"

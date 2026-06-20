@@ -24,18 +24,18 @@ The FAISS side of this document is grounded in the following upstream sources:
 
 The Elips side is grounded in these implementation units:
 
-- [`include/elips/index_engine/IndexSnapshot.hpp`](/Users/kuroyami/ellips/include/elips/index_engine/IndexSnapshot.hpp)
-- [`include/elips/index_engine/IndexTransferPort.hpp`](/Users/kuroyami/ellips/include/elips/index_engine/IndexTransferPort.hpp)
-- [`src/gpu_engine/GpuIndexTransferManager.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuIndexTransferManager.cpp)
-- [`src/gpu_engine/detail/IvfIndexState.cpp`](/Users/kuroyami/ellips/src/gpu_engine/detail/IvfIndexState.cpp)
-- [`src/gpu_engine/GpuBruteForceIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuBruteForceIndex.cpp)
-- [`src/gpu_engine/GpuIVFFlatIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuIVFFlatIndex.cpp)
-- [`src/gpu_engine/GpuIVFPQIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuIVFPQIndex.cpp)
-- [`src/gpu_engine/GpuGraphIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuGraphIndex.cpp)
-- [`src/gpu_engine/GpuHybridIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuHybridIndex.cpp)
-- [`src/gpu_engine/GpuDistributedIndex.cpp`](/Users/kuroyami/ellips/src/gpu_engine/GpuDistributedIndex.cpp)
-- [`src/ExactIndex.cpp`](/Users/kuroyami/ellips/src/ExactIndex.cpp)
-- [`src/HierarchicalGraphIndex.cpp`](/Users/kuroyami/ellips/src/HierarchicalGraphIndex.cpp)
+- [`include/elips/index_engine/IndexSnapshot.hpp`](/Users/kuroyami/elips/include/elips/index_engine/IndexSnapshot.hpp)
+- [`include/elips/index_engine/IndexTransferPort.hpp`](/Users/kuroyami/elips/include/elips/index_engine/IndexTransferPort.hpp)
+- [`src/gpu_engine/GpuIndexTransferManager.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuIndexTransferManager.cpp)
+- [`src/gpu_engine/detail/IvfIndexState.cpp`](/Users/kuroyami/elips/src/gpu_engine/detail/IvfIndexState.cpp)
+- [`src/gpu_engine/GpuBruteForceIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuBruteForceIndex.cpp)
+- [`src/gpu_engine/GpuIVFFlatIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuIVFFlatIndex.cpp)
+- [`src/gpu_engine/GpuIVFPQIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuIVFPQIndex.cpp)
+- [`src/gpu_engine/GpuGraphIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuGraphIndex.cpp)
+- [`src/gpu_engine/GpuHybridIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuHybridIndex.cpp)
+- [`src/gpu_engine/GpuDistributedIndex.cpp`](/Users/kuroyami/elips/src/gpu_engine/GpuDistributedIndex.cpp)
+- [`src/ExactIndex.cpp`](/Users/kuroyami/elips/src/ExactIndex.cpp)
+- [`src/HierarchicalGraphIndex.cpp`](/Users/kuroyami/elips/src/HierarchicalGraphIndex.cpp)
 
 ## 1. FAISS Core Architecture
 
@@ -508,7 +508,7 @@ struct IndexSnapshot {
 };
 ```
 
-This is implemented in [`IndexSnapshot.hpp`](/Users/kuroyami/ellips/include/elips/index_engine/IndexSnapshot.hpp).
+This is implemented in [`IndexSnapshot.hpp`](/Users/kuroyami/elips/include/elips/index_engine/IndexSnapshot.hpp).
 
 The key design choice is that raw vectors remain the source of truth. This
 matches FAISS' willingness to rebuild algorithm-native state during cloning
@@ -847,8 +847,8 @@ function distributed_search(query, k):
 
 Implemented coverage in this pass:
 
-- [`tests/unit/gpu/GpuBruteForceIndexTest.cpp`](/Users/kuroyami/ellips/tests/unit/gpu/GpuBruteForceIndexTest.cpp)
-- [`tests/unit/gpu/GpuAdvancedIndexTest.cpp`](/Users/kuroyami/ellips/tests/unit/gpu/GpuAdvancedIndexTest.cpp)
+- [`tests/unit/gpu/GpuBruteForceIndexTest.cpp`](/Users/kuroyami/elips/tests/unit/gpu/GpuBruteForceIndexTest.cpp)
+- [`tests/unit/gpu/GpuAdvancedIndexTest.cpp`](/Users/kuroyami/elips/tests/unit/gpu/GpuAdvancedIndexTest.cpp)
 
 Covered behaviors:
 

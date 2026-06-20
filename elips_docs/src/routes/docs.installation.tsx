@@ -53,8 +53,8 @@ function Page() {
 
       <h2 id="build">Building from source</h2>
       <CodeBlock lang="bash" filename="terminal">
-        {`git clone https://github.com/axiomchronicles/ellips.git
-cd ellips
+        {`git clone https://github.com/axiomchronicles/elips.git
+cd elips
 
 cmake -S . -B build -G Ninja \\
   -DCMAKE_BUILD_TYPE=Release \\

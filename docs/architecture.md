@@ -90,4 +90,4 @@ rather than silently switching to lexical-only behavior.
 
 For the detailed FAISS reverse-engineering and the corresponding Elips GPU
 index design and implementation plan, see
-[FAISS GPU Acceleration Design](/Users/kuroyami/ellips/docs/architecture/faiss-gpu-acceleration-design.md).
+[FAISS GPU Acceleration Design](/Users/kuroyami/elips/docs/architecture/faiss-gpu-acceleration-design.md).
