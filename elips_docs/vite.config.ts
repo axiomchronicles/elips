@@ -3,6 +3,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
+import netlify from "@netlify/vite-plugin-tanstack-start";
 import { fileURLToPath } from "url";
 
 export default defineConfig({
@@ -18,6 +19,7 @@ export default defineConfig({
         },
       },
     }),
+    netlify(),
     react(),
     tailwindcss(),
   ],

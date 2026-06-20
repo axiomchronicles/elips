@@ -1,0 +1,6 @@
+# Netlify Configuration for ELIPS Docs monorepo deployment
+
+[build]
+  base = "elips_docs"
+  command = "bun run build"
+  publish = "dist/client"
