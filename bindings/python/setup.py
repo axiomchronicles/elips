@@ -35,6 +35,11 @@ if (REPO_ROOT / "CMakeLists.txt").exists() and (REPO_ROOT / "src").exists():
             else:
                 shutil.copy2(src_path, dst_path)
 
+    # Copy bindings/python/elips_python.cpp into core_src/bindings/python/elips_python.cpp
+    bindings_py_dir = core_src_dir / "bindings" / "python"
+    bindings_py_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(CURRENT_DIR / "elips_python.cpp", bindings_py_dir / "elips_python.cpp")
+
     ROOT = core_src_dir
 else:
     # We are running from a packaged sdist, the source files must already be in core_src
