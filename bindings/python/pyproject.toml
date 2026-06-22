@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elips"
+version = "1.0.0"
+description = "Embedded local vector database (SQLite for vectors)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Pawan Kumar", email = "aegis.invincible@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/axiomchronicles/elips"
+Repository = "https://github.com/axiomchronicles/elips.git"
+Issues = "https://github.com/axiomchronicles/elips/issues"
+
+[tool.setuptools]
+packages = ["elips", "elips._modern"]
+package-dir = {"" = "."}
+package-data = {"elips" = ["py.typed", "_core.pyi"]}
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "ARG", # flake8-unused-arguments
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F403", "F405", "E402"]
+"**/core.py" = ["F401", "F403", "F405", "E402"]
+"**/errors.py" = ["E402", "F401"]
+"**/modern.py" = ["E402", "F401"]
+"**/types.py" = ["E402", "E501"]
+"**/_modern/*.py" = ["E501", "E402"]
+"**/_modern/**/*.py" = ["E501", "E402"]
+"**/_core.pyi" = ["E501", "UP", "N818"]
+"**/setup.py" = ["E501"]
+"**/test.py" = ["E501"]
+"**/tests/**/*.py" = ["E501"]
+"**/examples/**/*.py" = ["E501"]
+
+

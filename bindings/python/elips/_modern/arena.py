@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence, cast, overload
+from collections.abc import Sequence
+from typing import Optional, cast, overload
 
 from ..core import (
     ChunkInfo,
@@ -12,7 +13,7 @@ from ..core import (
     Result,
     Vault,
 )
-from ..types import MetaValue, PayloadLike, StoredRecord, Vector
+from ..types import PayloadLike, StoredRecord, Vector
 from ._records import build_record_inputs_from_columns, coerce_record_input
 from .models import Hit, RecordInput, Row
 from .typing import Embedder, RecordInputLike
@@ -47,7 +48,7 @@ class Arena:
         db: Database,
         name: str,
         *,
-        embedder: Optional[Embedder] = None,
+        embedder: Embedder | None = None,
         text_slot: str = "__elips_text__",
     ) -> None:
         self._db = db
@@ -98,28 +99,28 @@ class Arena:
     def write(
         self,
         *,
-        vector: Optional[Vector] = ...,
-        text: Optional[str] = ...,
-        meta: Optional[PayloadLike] = ...,
-        key: Optional[str] = ...,
-        document: Optional[DocumentAttachment] = ...,
-        chunk: Optional[ChunkInfo] = ...,
-        lineage: Optional[EmbeddingLineage] = ...,
+        vector: Vector | None = ...,
+        text: str | None = ...,
+        meta: PayloadLike | None = ...,
+        key: str | None = ...,
+        document: DocumentAttachment | None = ...,
+        chunk: ChunkInfo | None = ...,
+        lineage: EmbeddingLineage | None = ...,
     ) -> str:
         ...
 
     def write(
         self,
-        record: Optional[RecordInputLike] = None,
+        record: RecordInputLike | None = None,
         /,
         *,
-        vector: Optional[Vector] = None,
-        text: Optional[str] = None,
-        meta: Optional[PayloadLike] = None,
-        key: Optional[str] = None,
-        document: Optional[DocumentAttachment] = None,
-        chunk: Optional[ChunkInfo] = None,
-        lineage: Optional[EmbeddingLineage] = None,
+        vector: Vector | None = None,
+        text: str | None = None,
+        meta: PayloadLike | None = None,
+        key: str | None = None,
+        document: DocumentAttachment | None = None,
+        chunk: ChunkInfo | None = None,
+        lineage: EmbeddingLineage | None = None,
     ) -> str:
         r"""write(record=None, /, *, vector=None, text=None, meta=None, key=None, document=None, chunk=None, lineage=None) -> str
 
@@ -264,28 +265,28 @@ class Arena:
     def ingest(
         self,
         *,
-        vectors: Optional[Sequence[Optional[Vector]]] = ...,
-        texts: Optional[Sequence[Optional[str]]] = ...,
-        meta: Optional[Sequence[Optional[PayloadLike]]] = ...,
-        keys: Optional[Sequence[Optional[str]]] = ...,
-        documents: Optional[Sequence[Optional[DocumentAttachment]]] = ...,
-        chunks: Optional[Sequence[Optional[ChunkInfo]]] = ...,
-        lineages: Optional[Sequence[Optional[EmbeddingLineage]]] = ...,
+        vectors: Sequence[Vector | None] | None = ...,
+        texts: Sequence[str | None] | None = ...,
+        meta: Sequence[PayloadLike | None] | None = ...,
+        keys: Sequence[str | None] | None = ...,
+        documents: Sequence[DocumentAttachment | None] | None = ...,
+        chunks: Sequence[ChunkInfo | None] | None = ...,
+        lineages: Sequence[EmbeddingLineage | None] | None = ...,
     ) -> list[str]:
         ...
 
     def ingest(
         self,
-        records: Optional[Sequence[RecordInputLike]] = None,
+        records: Sequence[RecordInputLike] | None = None,
         /,
         *,
-        vectors: Optional[Sequence[Optional[Vector]]] = None,
-        texts: Optional[Sequence[Optional[str]]] = None,
-        meta: Optional[Sequence[Optional[PayloadLike]]] = None,
-        keys: Optional[Sequence[Optional[str]]] = None,
-        documents: Optional[Sequence[Optional[DocumentAttachment]]] = None,
-        chunks: Optional[Sequence[Optional[ChunkInfo]]] = None,
-        lineages: Optional[Sequence[Optional[EmbeddingLineage]]] = None,
+        vectors: Sequence[Vector | None] | None = None,
+        texts: Sequence[str | None] | None = None,
+        meta: Sequence[PayloadLike | None] | None = None,
+        keys: Sequence[str | None] | None = None,
+        documents: Sequence[DocumentAttachment | None] | None = None,
+        chunks: Sequence[ChunkInfo | None] | None = None,
+        lineages: Sequence[EmbeddingLineage | None] | None = None,
     ) -> list[str]:
         r"""ingest(records=None, /, *, vectors=None, texts=None, meta=None, keys=None, documents=None, chunks=None, lineages=None) -> list[str]
 
@@ -362,16 +363,16 @@ class Arena:
 
     def merge(
         self,
-        records: Optional[Sequence[RecordInputLike]] = None,
+        records: Sequence[RecordInputLike] | None = None,
         /,
         *,
-        vectors: Optional[Sequence[Optional[Vector]]] = None,
-        texts: Optional[Sequence[Optional[str]]] = None,
-        meta: Optional[Sequence[Optional[PayloadLike]]] = None,
-        keys: Optional[Sequence[Optional[str]]] = None,
-        documents: Optional[Sequence[Optional[DocumentAttachment]]] = None,
-        chunks: Optional[Sequence[Optional[ChunkInfo]]] = None,
-        lineages: Optional[Sequence[Optional[EmbeddingLineage]]] = None,
+        vectors: Sequence[Vector | None] | None = None,
+        texts: Sequence[str | None] | None = None,
+        meta: Sequence[PayloadLike | None] | None = None,
+        keys: Sequence[str | None] | None = None,
+        documents: Sequence[DocumentAttachment | None] | None = None,
+        chunks: Sequence[ChunkInfo | None] | None = None,
+        lineages: Sequence[EmbeddingLineage | None] | None = None,
     ) -> list[str]:
         r"""merge(records=None, /, *, vectors=None, texts=None, meta=None, keys=None, documents=None, chunks=None, lineages=None) -> list[str]
 
@@ -409,8 +410,8 @@ class Arena:
         vector: Vector,
         *,
         top: int = 10,
-        where: Optional[Filter] = None,
-        max_distance: Optional[float] = None,
+        where: Filter | None = None,
+        max_distance: float | None = None,
         include_vectors: bool = False,
     ) -> list[Hit]:
         r"""probe(vector, *, top=10, where=None, max_distance=None, include_vectors=False) -> list[Hit]
@@ -456,8 +457,8 @@ class Arena:
         text: str,
         *,
         top: int = 10,
-        where: Optional[Filter] = None,
-        max_distance: Optional[float] = None,
+        where: Filter | None = None,
+        max_distance: float | None = None,
         include_vectors: bool = False,
         lexical_weight: float = 0.25,
     ) -> list[Hit]:
@@ -529,8 +530,8 @@ class Arena:
         text: str,
         *,
         top: int = 10,
-        where: Optional[Filter] = None,
-        max_distance: Optional[float] = None,
+        where: Filter | None = None,
+        max_distance: float | None = None,
         lexical_weight: float = 0.25,
         include_vectors: bool = False,
     ) -> list[Hit]:
@@ -567,8 +568,8 @@ class Arena:
         vector: Vector,
         *,
         top: int = 10,
-        where: Optional[Filter] = None,
-        max_distance: Optional[float] = None,
+        where: Filter | None = None,
+        max_distance: float | None = None,
         has_text_component: bool = False,
     ) -> QueryPlan:
         r"""explain(vector, *, top=10, where=None, max_distance=None, has_text_component=False) -> QueryPlan
@@ -627,9 +628,9 @@ class Arena:
     def sweep(
         self,
         *,
-        where: Optional[Filter] = None,
+        where: Filter | None = None,
         offset: int = 0,
-        limit: Optional[int] = None,
+        limit: int | None = None,
         include_vectors: bool = False,
     ) -> list[Row]:
         r"""sweep(*, where=None, offset=0, limit=None, include_vectors=False) -> list[Row]
@@ -659,9 +660,9 @@ class Arena:
 
     def discard(
         self,
-        keys: Optional[Sequence[str]] = None,
+        keys: Sequence[str] | None = None,
         *,
-        where: Optional[Filter] = None,
+        where: Filter | None = None,
     ) -> int:
         r"""discard(keys=None, *, where=None) -> int
 
@@ -706,7 +707,7 @@ class Arena:
     def _resolve_vectors(
         self,
         records: Sequence[RecordInput],
-    ) -> tuple[list[Optional[Vector]], set[int]]:
+    ) -> tuple[list[Vector | None], set[int]]:
         resolved_vectors = [record.vector for record in records]
         missing_indices = [
             index for index, vector in enumerate(resolved_vectors) if vector is None
@@ -779,7 +780,7 @@ class Arena:
         record: RecordInput,
         *,
         vector_generated: bool,
-    ) -> Optional[EmbeddingLineage]:
+    ) -> EmbeddingLineage | None:
         if record.lineage is not None:
             return record.lineage
 

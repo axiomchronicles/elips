@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 from ..core import Config, LocalEmbedderConfig, open_with_config as _open_with_config
 from ..types import AccessModeName, IndexName, MetricName
@@ -14,13 +14,13 @@ if TYPE_CHECKING:
 def _attach_embedder(
     config: Config,
     *,
-    embedder: Optional[Union[Embedder, LocalEmbedderConfig]],
+    embedder: Embedder | LocalEmbedderConfig | None,
     embedder_provider: str,
     embedder_model: str,
     embedder_revision: str,
     dimension: int = 0,
-) -> Optional[Embedder]:
-    runtime_embedder: Optional[Embedder] = None
+) -> Embedder | None:
+    runtime_embedder: Embedder | None = None
     if isinstance(embedder, LocalEmbedderConfig):
         config.local_text_embedder(embedder)
     elif embedder is not None:
@@ -44,12 +44,12 @@ def connect(
     access_mode: AccessModeName = "read_write",
     segmented_storage: bool = True,
     metadata_acceleration: bool = True,
-    embedder: Optional[Union[Embedder, LocalEmbedderConfig]] = None,
+    embedder: Embedder | LocalEmbedderConfig | None = None,
     embedder_provider: str = "python",
     embedder_model: str = "callable",
     embedder_revision: str = "",
     use_default_text_embedder: bool = True,
-    gpu: Optional["GpuConfig"] = None,
+    gpu: GpuConfig | None = None,
 ) -> Engine:
     r"""connect(path, *, dimension=0, metric="cosine", index="graph", access_mode="read_write", segmented_storage=True, metadata_acceleration=True, embedder=None, embedder_provider="python", embedder_model="callable", embedder_revision="", use_default_text_embedder=True, gpu=None) -> Engine
 
@@ -127,7 +127,7 @@ def connect_with_config(
     path: str,
     config: Config,
     *,
-    embedder: Optional[Union[Embedder, LocalEmbedderConfig]] = None,
+    embedder: Embedder | LocalEmbedderConfig | None = None,
     embedder_provider: str = "python",
     embedder_model: str = "callable",
     embedder_revision: str = "",
@@ -162,7 +162,7 @@ def connect_with_config(
         >>> engine.close()
     """
 
-    runtime_embedder: Optional[Embedder] = None
+    runtime_embedder: Embedder | None = None
     if embedder is not None and not config.has_text_embedder:
         runtime_embedder = _attach_embedder(
             config,

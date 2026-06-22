@@ -10,7 +10,8 @@ Examples::
     >>> record: RecordInputDict = {"text": "alpha note", "meta": payload}
 """
 
-from typing import TYPE_CHECKING, Literal, Mapping, Optional, Sequence, TypedDict, Union
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
     from .core import ChunkInfo, DocumentAttachment, EmbeddingLineage
@@ -34,9 +35,9 @@ class RecordInputDict(TypedDict, total=False):
     text: str
     meta: PayloadLike
     key: str
-    document: "DocumentAttachment"
-    chunk: "ChunkInfo"
-    lineage: "EmbeddingLineage"
+    document: DocumentAttachment
+    chunk: ChunkInfo
+    lineage: EmbeddingLineage
 
 
 class BatchRecord(TypedDict, total=False):
@@ -46,9 +47,9 @@ class BatchRecord(TypedDict, total=False):
     vector: Vector
     text: str
     data: PayloadLike
-    document: "DocumentAttachment"
-    chunk: "ChunkInfo"
-    lineage: "EmbeddingLineage"
+    document: DocumentAttachment
+    chunk: ChunkInfo
+    lineage: EmbeddingLineage
 
 
 class StoredRecord(TypedDict):
@@ -57,9 +58,9 @@ class StoredRecord(TypedDict):
     id: str
     vector: tuple[float, ...]
     data: dict[str, MetaValue]
-    document: Optional["DocumentAttachment"]
-    chunk: Optional["ChunkInfo"]
-    lineage: Optional["EmbeddingLineage"]
+    document: DocumentAttachment | None
+    chunk: ChunkInfo | None
+    lineage: EmbeddingLineage | None
 
 
 FetchResult = StoredRecord

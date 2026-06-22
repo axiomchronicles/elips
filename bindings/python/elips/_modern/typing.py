@@ -10,7 +10,8 @@ Examples::
     ...     return [[float(len(text)), 0.0] for text in texts]
 """
 
-from typing import TYPE_CHECKING, Protocol, Sequence, Union, runtime_checkable
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 
 from ..types import BatchRecord, RecordInputDict
 

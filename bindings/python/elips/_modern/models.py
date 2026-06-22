@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from ..core import ChunkInfo, DocumentAttachment, EmbeddingLineage
 from ..types import MetaValue, PayloadLike, Vector
@@ -64,13 +65,13 @@ class RecordInput:
         'beta note'
     """
 
-    vector: Optional[Vector] = None
-    text: Optional[str] = None
-    meta: Optional[PayloadLike] = None
-    key: Optional[str] = None
-    document: Optional[DocumentAttachment] = None
-    chunk: Optional[ChunkInfo] = None
-    lineage: Optional[EmbeddingLineage] = None
+    vector: Vector | None = None
+    text: str | None = None
+    meta: PayloadLike | None = None
+    key: str | None = None
+    document: DocumentAttachment | None = None
+    chunk: ChunkInfo | None = None
+    lineage: EmbeddingLineage | None = None
 
     def __post_init__(self) -> None:
         if self.vector is None and self.document_text is None:
@@ -86,7 +87,7 @@ class RecordInput:
                 )
 
     @property
-    def document_text(self) -> Optional[str]:
+    def document_text(self) -> str | None:
         r"""document_text -> Optional[str]
 
         Return the record text, whether it was provided directly or through a
@@ -119,7 +120,7 @@ class RecordInput:
 
         return dict(self.meta or {})
 
-    def materialize_document(self) -> Optional[DocumentAttachment]:
+    def materialize_document(self) -> DocumentAttachment | None:
         r"""materialize_document() -> Optional[DocumentAttachment]
 
         Build a concrete :class:`~elips.DocumentAttachment` for storage.
@@ -167,7 +168,7 @@ class RecordInput:
         )
 
     @classmethod
-    def from_mapping(cls, record: Mapping[str, Any]) -> "RecordInput":
+    def from_mapping(cls, record: Mapping[str, Any]) -> RecordInput:
         r"""from_mapping(record) -> RecordInput
 
         Convert a mapping into a :class:`RecordInput`.
@@ -265,13 +266,13 @@ class Row:
 
     key: str
     meta: dict[str, MetaValue]
-    document: Optional[DocumentAttachment] = None
-    vector: Optional[tuple[float, ...]] = None
-    chunk: Optional[ChunkInfo] = None
-    lineage: Optional[EmbeddingLineage] = None
+    document: DocumentAttachment | None = None
+    vector: tuple[float, ...] | None = None
+    chunk: ChunkInfo | None = None
+    lineage: EmbeddingLineage | None = None
 
     @property
-    def text(self) -> Optional[str]:
+    def text(self) -> str | None:
         r"""text -> Optional[str]
 
         Convenience alias for ``document.text``.
@@ -320,13 +321,13 @@ class Hit:
     key: str
     distance: float
     meta: dict[str, MetaValue]
-    document: Optional[DocumentAttachment] = None
-    vector: Optional[tuple[float, ...]] = None
-    chunk: Optional[ChunkInfo] = None
-    lineage: Optional[EmbeddingLineage] = None
+    document: DocumentAttachment | None = None
+    vector: tuple[float, ...] | None = None
+    chunk: ChunkInfo | None = None
+    lineage: EmbeddingLineage | None = None
 
     @property
-    def text(self) -> Optional[str]:
+    def text(self) -> str | None:
         r"""text -> Optional[str]
 
         Convenience alias for ``document.text``.

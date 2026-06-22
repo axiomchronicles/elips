@@ -1,5 +1,5 @@
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Union
 from enum import IntEnum
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Union
 
 # -- Type aliases --------------------------------------------------------------
 

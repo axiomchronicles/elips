@@ -19,8 +19,7 @@ Examples::
     >>> engine.close()
 """
 
-from . import core as _core_api
-from . import modern as _modern_api
+from . import core as _core_api, modern as _modern_api
 from .core import *  # noqa: F401,F403
 from .modern import *  # noqa: F401,F403
 

@@ -22,3 +22,7 @@ dist/
 *.log
 
 bindings/python/data/
+bindings/python/core_src/
+bindings/python/build/
+bindings/python/dist/
+bindings/python/elips.egg-info/

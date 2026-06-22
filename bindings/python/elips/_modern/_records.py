@@ -2,8 +2,7 @@ from __future__ import annotations
 
 r"""Internal record normalization helpers for the modern ELIPS API."""
 
-from collections.abc import Mapping
-from typing import Optional, Sequence
+from collections.abc import Mapping, Sequence
 
 from ..core import ChunkInfo, DocumentAttachment, EmbeddingLineage
 from ..types import PayloadLike, Vector
@@ -25,13 +24,13 @@ def coerce_record_input(record: RecordInputLike) -> RecordInput:
 
 def build_record_inputs_from_columns(
     *,
-    vectors: Optional[Sequence[Optional[Vector]]],
-    texts: Optional[Sequence[Optional[str]]],
-    meta: Optional[Sequence[Optional[PayloadLike]]],
-    keys: Optional[Sequence[Optional[str]]],
-    documents: Optional[Sequence[Optional[DocumentAttachment]]],
-    chunks: Optional[Sequence[Optional[ChunkInfo]]],
-    lineages: Optional[Sequence[Optional[EmbeddingLineage]]],
+    vectors: Sequence[Vector | None] | None,
+    texts: Sequence[str | None] | None,
+    meta: Sequence[PayloadLike | None] | None,
+    keys: Sequence[str | None] | None,
+    documents: Sequence[DocumentAttachment | None] | None,
+    chunks: Sequence[ChunkInfo | None] | None,
+    lineages: Sequence[EmbeddingLineage | None] | None,
 ) -> list[RecordInput]:
     candidates = [
         len(vectors) if vectors is not None else None,

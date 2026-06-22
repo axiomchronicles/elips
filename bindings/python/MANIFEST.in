@@ -1,0 +1,10 @@
+recursive-include core_src *
+recursive-include elips *
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+global-exclude *.pyc
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll

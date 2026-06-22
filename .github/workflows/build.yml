@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Ruff Check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check ."
+      - name: Run Ruff Format Check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check ."
+
   build-test:
     name: ${{ matrix.os }} / ${{ matrix.build_type }}
     runs-on: ${{ matrix.os }}

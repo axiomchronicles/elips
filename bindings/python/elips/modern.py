@@ -11,7 +11,16 @@ Examples::
     >>> engine.close()
 """
 
-from ._modern import Arena, Embedder, Engine, Hit, RecordInput, Row, connect, connect_with_config
+from ._modern import (
+    Arena,
+    Embedder,
+    Engine,
+    Hit,
+    RecordInput,
+    Row,
+    connect,
+    connect_with_config,
+)
 
 __all__ = [
     "Arena",

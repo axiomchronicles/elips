@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
-
-from ..core import Config, Database, Vault
+from ..core import Config, Database
 from .arena import Arena
 from .typing import Embedder
 
@@ -33,7 +31,7 @@ class Engine:
         self,
         db: Database,
         *,
-        default_embedder: Optional[Embedder] = None,
+        default_embedder: Embedder | None = None,
     ) -> None:
         self._db = db
         self._default_embedder = default_embedder
@@ -60,7 +58,7 @@ class Engine:
         self,
         name: str,
         *,
-        embedder: Optional[Embedder] = None,
+        embedder: Embedder | None = None,
         text_slot: str = DEFAULT_TEXT_SLOT,
     ) -> Arena:
         r"""arena(name, *, embedder=None, text_slot="__elips_text__") -> Arena
@@ -120,7 +118,7 @@ class Engine:
 
         self._db.close()
 
-    def __enter__(self) -> "Engine":
+    def __enter__(self) -> Engine:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

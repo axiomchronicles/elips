@@ -5,15 +5,43 @@ For local development the extension is built via the top-level CMake project
 This setup.py drives `cibuildwheel` / `pip` builds via CMake.
 """
 
-import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from setuptools import Extension, find_packages, setup
+from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
-ROOT = Path(__file__).resolve().parents[2]
+# Locate directory paths
+CURRENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = CURRENT_DIR.parent.parent
+
+# If we are in the development repository, copy C++ sources to make bindings self-contained
+if (REPO_ROOT / "CMakeLists.txt").exists() and (REPO_ROOT / "src").exists():
+    core_src_dir = CURRENT_DIR / "core_src"
+    if core_src_dir.exists():
+        shutil.rmtree(core_src_dir)
+    core_src_dir.mkdir(exist_ok=True)
+
+    # Copy essential folders and files
+    to_copy = ["src", "include", "cli", "benchmarks", "tests", "CMakeLists.txt"]
+    for name in to_copy:
+        src_path = REPO_ROOT / name
+        dst_path = core_src_dir / name
+        if src_path.exists():
+            if src_path.is_dir():
+                shutil.copytree(src_path, dst_path)
+            else:
+                shutil.copy2(src_path, dst_path)
+
+    ROOT = core_src_dir
+else:
+    # We are running from a packaged sdist, the source files must already be in core_src
+    ROOT = CURRENT_DIR / "core_src"
+    if not ROOT.exists():
+        # Fallback to parent workspace root just in case
+        ROOT = CURRENT_DIR.parents[2]
 
 
 class CMakeExtension(Extension):
@@ -32,6 +60,7 @@ class CMakeBuild(build_ext):
             "-DELIPS_BUILD_PYTHON=ON",
             "-DELIPS_BUILD_TESTS=OFF",
             "-DELIPS_BUILD_CLI=OFF",
+            "-DELIPS_BUILD_BENCH=OFF",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DELIPS_PYTHON_OUTPUT_DIR={out_dir}",
         ]
@@ -52,13 +81,8 @@ class CMakeBuild(build_ext):
 
 
 setup(
-    name="elips",
-    version="1.0.0",
-    description="Embedded local vector database (SQLite for vectors)",
-    packages=find_packages(include=["elips", "elips.*"]),
-    package_data={"elips": ["py.typed", "_core.pyi"]},
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild},
-    python_requires=">=3.9",
     zip_safe=False,
 )
+

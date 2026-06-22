@@ -1,6 +1,5 @@
 import elips
 
-
 database = elips.open(":memory:", dimension=768, metric="cosine")
 vault = database.vault("documents")
 
