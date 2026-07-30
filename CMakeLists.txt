@@ -147,6 +147,7 @@ if(ELIPS_BUILD_TESTS)
         tests/concurrency/single_writer_test.cpp
         tests/concurrency/multi_reader_test.cpp
         tests/concurrency/m2_thread_safety_test.cpp
+        tests/fuzz/parser_robustness_test.cpp
     )
     target_link_libraries(elips_tests PRIVATE elips_core GTest::gtest_main)
 
@@ -183,6 +184,23 @@ endif()
 
     include(GoogleTest)
     gtest_discover_tests(elips_tests)
+endif()
+
+# ------------------------------- fuzzers ---------------------------------
+# libFuzzer targets for the on-disk parsers. Clang only; the deterministic
+# mutation tests in tests/fuzz/parser_robustness_test.cpp cover the same surface
+# in the normal suite.
+option(ELIPS_BUILD_FUZZERS "Build libFuzzer targets (requires Clang)" OFF)
+if(ELIPS_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "ELIPS_BUILD_FUZZERS requires Clang (libFuzzer).")
+    endif()
+    add_executable(elips_fuzz_wal tests/fuzz/fuzz_wal_replay.cpp)
+    target_link_libraries(elips_fuzz_wal PRIVATE elips_core)
+    target_compile_options(elips_fuzz_wal PRIVATE
+        -fsanitize=fuzzer,address,undefined -g)
+    target_link_options(elips_fuzz_wal PRIVATE
+        -fsanitize=fuzzer,address,undefined)
 endif()
 
 # ----------------------------- python bindings ---------------------------

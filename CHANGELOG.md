@@ -8,6 +8,15 @@ All notable changes to ELIPS are documented here. Format follows
 
 ### Added
 
+- Parser robustness tests (`tests/fuzz/parser_robustness_test.cpp`): random
+  single-byte mutation, truncation at every offset, pure-garbage input, and
+  corrupted on-disk segments, asserting the WAL and snapshot readers fail fast
+  and bounded rather than crashing, hanging, or over-allocating.
+- `ELIPS_BUILD_FUZZERS=ON` builds a libFuzzer target for `WAL::replay()`
+  (`elips_fuzz_wal`). 895k executions under ASan+UBSan produced no findings.
+- `.clang-tidy` scoped to correctness, lifetime, and concurrency checks. Only the
+  `WarningsAsErrors` set gates CI, so a toolchain disagreeing with its own system
+  headers cannot block a merge on a false positive.
 - `Vault.vacuum()` / `Database.vacuum()` (C++ and Python) to reclaim index space
   held by deleted records, plus `Vault.pending_removals` to observe how much is
   outstanding. `GraphParams::compaction_ratio` (default 0.2) controls the

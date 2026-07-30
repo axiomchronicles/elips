@@ -1,0 +1,42 @@
+---
+# Checks are scoped to what is actionable on this codebase: correctness,
+# lifetime/concurrency mistakes, and the bug classes the engineering audit
+# found. Stylistic and naming checks are deliberately excluded so the signal
+# stays high.
+# Ports are pure-virtual seams by design (misc-multiple-inheritance), and the
+# public enums are part of the ABI (performance-enum-size), so both are off.
+#
+# Note: only the checks in WarningsAsErrors fail CI. The rest are advisory, so a
+# toolchain whose clang-tidy disagrees with its own system headers cannot block a
+# merge on a false positive.
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor,
+  misc-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  performance-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-include-cleaner,
+  -misc-use-internal-linkage,
+  -misc-multiple-inheritance,
+  -performance-avoid-endl,
+  -performance-enum-size
+
+WarningsAsErrors: >
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-unhandled-self-assignment,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.NewDelete*,
+  concurrency-*
+
+HeaderFilterRegex: 'include/elips/.*'
+FormatStyle: none
