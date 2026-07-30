@@ -6,7 +6,34 @@ All notable changes to ELIPS are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `ELIPS_SANITIZE=thread|address` CMake option, building the test suite under
+  ThreadSanitizer or ASan+UBSan. The full suite (197 tests) is clean under TSan.
+
 ### Fixed
+
+- **In-process reader/writer locking [F6].** Nothing outside `LocalTextEmbedder`
+  held a lock. `LockManager` wraps a cross-process `flock` acquired once at open,
+  which cannot serialize threads inside one process — so two threads sharing an
+  instance raced on `HierarchicalGraphIndex`'s `data_`/`links_`/`id_to_node_` and
+  on `Vault::records_`. Each `Vault` now owns a `std::shared_mutex` (readers
+  share, mutators exclude) and `ElipsInstance` owns a mutex over the vault
+  registry, WAL handle, and lifecycle flags. `Transaction::commit()` holds the
+  instance lock for the whole batch so a concurrent writer cannot interleave
+  mutations and invalidate the undo log. ADR-0008 and the transaction-engine
+  internals doc previously claimed `LockManager` provided this; both corrected.
+  *Behavioral change:* `Vault::records()` now returns a copy rather than a
+  reference to the live map, since a reference could be mutated under a
+  concurrent reader.
+
+- **Writes after `close()` are refused instead of silently discarded [F7].**
+  `close()` detached the WAL but left `Vault` objects live and writable.
+  `Vault::place()` treated a null WAL as "skip logging" rather than "closed", so
+  a post-close write returned a valid `RecordID`, mutated the in-memory index,
+  and then vanished at process exit — silent data loss with a success return.
+  `close()` now seals every vault (and any vault created afterwards); mutations
+  throw `StorageError`. Reads still work.
 
 - **WAL and checkpoint writes now reach stable storage before acknowledgement
   [F1].** `WAL::append()` called `std::ofstream::flush()`, which only pushes

@@ -726,9 +726,38 @@ Vector Vault::prepare(const Vector& vector) const {
 }
 
 void Vault::ensure_writable() const {
+    if (sealed_) {
+        throw StorageError{
+            "database is closed: this write would never be persisted"};
+    }
     if (read_only_) {
         throw StorageError{"vault is opened in read-only mode"};
     }
+}
+
+void Vault::set_read_only(bool read_only) noexcept {
+    const std::unique_lock lock(mutex_);
+    read_only_ = read_only;
+}
+
+bool Vault::read_only() const noexcept {
+    const std::shared_lock lock(mutex_);
+    return read_only_;
+}
+
+void Vault::seal() noexcept {
+    const std::unique_lock lock(mutex_);
+    sealed_ = true;
+}
+
+bool Vault::sealed() const noexcept {
+    const std::shared_lock lock(mutex_);
+    return sealed_;
+}
+
+std::map<RecordID, Record> Vault::records() const {
+    const std::shared_lock lock(mutex_);
+    return records_;
 }
 
 RecordID Vault::place(const Vector& vector, Payload payload,
@@ -736,6 +765,17 @@ RecordID Vault::place(const Vector& vector, Payload payload,
                       std::optional<DocumentAttachment> document,
                       std::optional<ChunkInfo> chunk,
                       std::optional<EmbeddingLineage> lineage) {
+    const std::unique_lock lock(mutex_);
+    return place_locked(vector, std::move(payload), std::move(id),
+                        std::move(document), std::move(chunk),
+                        std::move(lineage));
+}
+
+RecordID Vault::place_locked(const Vector& vector, Payload payload,
+                             std::optional<RecordID> id,
+                             std::optional<DocumentAttachment> document,
+                             std::optional<ChunkInfo> chunk,
+                             std::optional<EmbeddingLineage> lineage) {
     ensure_writable();
 
     Vector prepared = prepare(vector);
@@ -803,17 +843,22 @@ RecordID Vault::place_document(std::string text, Payload payload,
         };
     }
 
-    return place(config_.text_embedder()->embed(text), std::move(payload), record_id,
-                 std::move(document), std::move(chunk), std::move(lineage));
+    // Embed outside the vault lock: it is a pure function of the text and can
+    // be slow, so holding the exclusive lock across it would serialize readers
+    // for no reason.
+    Vector embedded = config_.text_embedder()->embed(text);
+    return place(embedded, std::move(payload), record_id, std::move(document),
+                 std::move(chunk), std::move(lineage));
 }
 
 void Vault::place_many(const std::vector<Record>& records) {
+    const std::unique_lock lock(mutex_);
     for (const auto& record : records) {
         const std::optional<RecordID> id =
             (record.id == RecordID{}) ? std::nullopt
                                       : std::optional<RecordID>{record.id};
-        place(record.vector, record.payload, id, record.document, record.chunk,
-              record.lineage);
+        place_locked(record.vector, record.payload, id, record.document,
+                     record.chunk, record.lineage);
     }
 }
 
@@ -919,6 +964,13 @@ QueryPlan Vault::plan_seek(const Vector& prepared, std::size_t top,
 std::vector<SearchResult> Vault::seek(const Vector& query, std::size_t top,
                                       const Filter& filter,
                                       std::optional<float> threshold) const {
+    const std::shared_lock lock(mutex_);
+    return seek_locked(query, top, filter, threshold);
+}
+
+std::vector<SearchResult> Vault::seek_locked(
+    const Vector& query, std::size_t top, const Filter& filter,
+    std::optional<float> threshold) const {
     if (top == 0 || records_.empty()) {
         return {};
     }
@@ -982,10 +1034,13 @@ std::vector<SearchResult> Vault::seek_text(std::string_view text, std::size_t to
     if (!config_.has_text_embedder()) {
         throw ConfigError{missing_text_embedder_message(config_)};
     }
-    if (top == 0 || records_.empty()) {
+    if (top == 0) {
         return {};
     }
-    return seek(config_.text_embedder()->embed(text), top, filter, threshold);
+    // Embed before taking the lock; embedding does not touch vault state.
+    const Vector embedded = config_.text_embedder()->embed(text);
+    const std::shared_lock lock(mutex_);
+    return seek_locked(embedded, top, filter, threshold);
 }
 
 std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
@@ -994,18 +1049,19 @@ std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
                                              const Filter& filter,
                                              std::optional<float> threshold,
                                              float lexical_weight) const {
+    const std::shared_lock lock(mutex_);
     if (top == 0 || records_.empty()) {
         return {};
     }
 
     const float weight = std::clamp(lexical_weight, 0.0F, 1.0F);
     if (text.empty() || weight == 0.0F) {
-        return seek(query, top, filter, threshold);
+        return seek_locked(query, top, filter, threshold);
     }
 
     const std::size_t candidate_top =
         std::min(records_.size(), std::max<std::size_t>(top * 5, top));
-    auto candidates = seek(query, candidate_top, filter, threshold);
+    auto candidates = seek_locked(query, candidate_top, filter, threshold);
     for (auto& result : candidates) {
         const auto it = records_.find(result.id);
         const float lexical_score =
@@ -1035,11 +1091,13 @@ QueryPlan Vault::explain_seek(const Vector& query, std::size_t top,
                               const Filter& filter,
                               std::optional<float> threshold,
                               bool has_text_component) const {
+    const std::shared_lock lock(mutex_);
     return plan_seek(prepare(query), top, filter, threshold, has_text_component);
 }
 
 std::vector<Record> Vault::scan(const Filter& filter, std::size_t offset,
                                 std::size_t limit) const {
+    const std::shared_lock lock(mutex_);
     std::vector<Record> out;
     std::size_t skipped = 0;
     for (const auto& [id, record] : records_) {
@@ -1060,6 +1118,7 @@ std::vector<Record> Vault::scan(const Filter& filter, std::size_t offset,
 }
 
 std::optional<Record> Vault::fetch(const RecordID& id) const {
+    const std::shared_lock lock(mutex_);
     const auto it = records_.find(id);
     if (it == records_.end()) {
         return std::nullopt;
@@ -1068,6 +1127,11 @@ std::optional<Record> Vault::fetch(const RecordID& id) const {
 }
 
 bool Vault::erase(const RecordID& id) {
+    const std::unique_lock lock(mutex_);
+    return erase_locked(id);
+}
+
+bool Vault::erase_locked(const RecordID& id) {
     ensure_writable();
 
     const auto it = records_.find(id);
@@ -1087,6 +1151,7 @@ bool Vault::erase(const RecordID& id) {
 
 void Vault::restore_for_undo(const RecordID& id,
                              const std::optional<Record>& previous) {
+    const std::unique_lock lock(mutex_);
     const auto existing = records_.find(id);
     if (existing != records_.end()) {
         if (config_.metadata_acceleration()) {
@@ -1106,6 +1171,11 @@ void Vault::restore_for_undo(const RecordID& id,
 }
 
 void Vault::rebuild_index() {
+    const std::unique_lock lock(mutex_);
+    rebuild_index_locked();
+}
+
+void Vault::rebuild_index_locked() {
     ensure_writable();
 
     auto rebuilt = make_index(config_, config_.dimension()
@@ -1126,6 +1196,7 @@ void Vault::rebuild_index() {
 }
 
 VaultInfo Vault::info() const noexcept {
+    const std::shared_lock lock(mutex_);
     return VaultInfo{records_.size(), config_.dimension(), config_.metric()};
 }
 
@@ -1139,9 +1210,10 @@ ElipsInstance::ElipsInstance(std::string path, Config config, bool persistent,
       lock_(std::move(lock)) {}
 
 ElipsInstance::~ElipsInstance() {
+    const std::lock_guard lock(mutex_);
     if (persistent_ && !closed_ && config_.access_mode() != AccessMode::read_only) {
         try {
-            checkpoint();
+            checkpoint_locked();
         } catch (...) {
             // E.16: destructors must not throw. Best-effort checkpoint.
         }
@@ -1152,7 +1224,17 @@ ElipsInstance::~ElipsInstance() {
     vaults_.clear();
 }
 
+void ElipsInstance::abandon() noexcept {
+    const std::lock_guard lock(mutex_);
+    closed_ = true;
+}
+
 Vault& ElipsInstance::vault(const std::string& name) {
+    const std::lock_guard lock(mutex_);
+    return vault_locked(name);
+}
+
+Vault& ElipsInstance::vault_locked(const std::string& name) {
     const auto it = vaults_.find(name);
     if (it != vaults_.end()) {
         return *it->second;
@@ -1167,6 +1249,9 @@ Vault& ElipsInstance::vault(const std::string& name) {
     if (config_.access_mode() == AccessMode::read_only) {
         created->set_read_only(true);
     }
+    if (closed_) {
+        created->seal();
+    }
 
     Vault& ref = *created;
     vaults_.emplace(name, std::move(created));
@@ -1174,6 +1259,7 @@ Vault& ElipsInstance::vault(const std::string& name) {
 }
 
 Vault& ElipsInstance::adopt_vault(std::unique_ptr<Vault> vault) {
+    const std::lock_guard lock(mutex_);
     vault->set_wal(wal_.get());
     if (config_.access_mode() == AccessMode::read_only) {
         vault->set_read_only(true);
@@ -1184,6 +1270,7 @@ Vault& ElipsInstance::adopt_vault(std::unique_ptr<Vault> vault) {
 }
 
 void ElipsInstance::attach_wal(std::unique_ptr<WAL> wal) {
+    const std::lock_guard lock(mutex_);
     wal_ = std::move(wal);
     for (auto& [name, vault] : vaults_) {
         (void)name;
@@ -1192,6 +1279,7 @@ void ElipsInstance::attach_wal(std::unique_ptr<WAL> wal) {
 }
 
 std::vector<std::string> ElipsInstance::list_vaults() const {
+    const std::lock_guard lock(mutex_);
     std::vector<std::string> names;
     names.reserve(vaults_.size());
     for (const auto& [name, vault] : vaults_) {
@@ -1202,6 +1290,11 @@ std::vector<std::string> ElipsInstance::list_vaults() const {
 }
 
 void ElipsInstance::checkpoint() {
+    const std::lock_guard lock(mutex_);
+    checkpoint_locked();
+}
+
+void ElipsInstance::checkpoint_locked() {
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
     }
@@ -1266,6 +1359,7 @@ void ElipsInstance::checkpoint() {
 }
 
 void ElipsInstance::compact() {
+    const std::lock_guard lock(mutex_);
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
     }
@@ -1273,18 +1367,22 @@ void ElipsInstance::compact() {
         (void)name;
         vault->rebuild_index();
     }
-    checkpoint();
+    checkpoint_locked();
 }
 
 void ElipsInstance::close() {
+    const std::lock_guard lock(mutex_);
     if (closed_) {
         return;
     }
 
-    checkpoint();
+    checkpoint_locked();
     for (auto& [name, vault] : vaults_) {
         (void)name;
         vault->set_wal(nullptr);
+        // A write after close() would never be WAL-logged and never
+        // checkpointed: it would return success and then vanish. Refuse it.
+        vault->seal();
     }
     wal_.reset();
     lock_.reset();
@@ -1415,7 +1513,7 @@ void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
     // Reverse order so repeated writes to the same id land on the oldest state.
     for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
         try {
-            db_->vault(it->vault).restore_for_undo(it->id, it->previous);
+            db_->vault_locked(it->vault).restore_for_undo(it->id, it->previous);
         } catch (...) {
             // Undo is a best-effort in-memory operation on structures that were
             // just successfully mutated; nothing here can be usefully retried.
@@ -1424,16 +1522,25 @@ void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
 }
 
 void Transaction::commit() {
+    // Hold the instance lock for the whole batch so a concurrent writer cannot
+    // interleave its own mutations between our ops (which would make the undo
+    // log restore state that is no longer the correct pre-batch state).
+    const std::lock_guard db_lock(db_->mutex_);
+
     // Eager checks that cover every failure mode we can see before mutating:
     // vault existence and writability. Runtime I/O failure is still possible,
     // which is what the undo log below is for.
     for (const auto& op : ops_) {
-        if (db_->vault(op.vault).read_only()) {
-            throw StorageError{"vault is opened in read-only mode"};
+        Vault& vault = db_->vault_locked(op.vault);
+        if (vault.read_only() || vault.sealed()) {
+            throw StorageError{vault.sealed()
+                                   ? "database is closed: this write would "
+                                     "never be persisted"
+                                   : "vault is opened in read-only mode"};
         }
     }
 
-    WAL* wal = db_->wal();
+    WAL* wal = db_->wal_.get();
     if (wal != nullptr) {
         wal->append_txn_begin();
     }
@@ -1442,7 +1549,7 @@ void Transaction::commit() {
     undo_log.reserve(ops_.size());
     try {
         for (auto& op : ops_) {
-            Vault& vault = db_->vault(op.vault);
+            Vault& vault = db_->vault_locked(op.vault);
             const RecordID target =
                 op.id.value_or(op.is_erase ? RecordID{} : RecordID::generate());
             undo_log.push_back(

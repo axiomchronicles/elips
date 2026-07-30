@@ -5,7 +5,9 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -55,6 +57,11 @@ struct QueryPlan {
 
 // A named partition of records within a database. Owns its index and the
 // authoritative record store used to hydrate search results.
+//
+// Thread safety: every public method is safe to call concurrently from multiple
+// threads on the same object. Readers share access; mutators are exclusive.
+// A cross-process `flock` (see LockManager) keeps other *processes* out; this
+// mutex is what keeps threads inside this process from racing.
 class Vault {
 public:
     Vault(std::string name, const Config& config
@@ -101,13 +108,21 @@ public:
     [[nodiscard]] VaultInfo info() const noexcept;
     [[nodiscard]] const std::string& name() const noexcept { return name_; }
 
-    [[nodiscard]] const std::map<RecordID, Record>& records() const noexcept {
-        return records_;
-    }
+    // Snapshot of the record store. Returns a copy because the live map is
+    // guarded by the vault mutex and a reference could be mutated underneath a
+    // concurrent reader.
+    [[nodiscard]] std::map<RecordID, Record> records() const;
+
     void set_wal(WAL* wal) noexcept { wal_ = wal; }
-    void set_read_only(bool read_only) noexcept { read_only_ = read_only; }
-    [[nodiscard]] bool read_only() const noexcept { return read_only_; }
+    void set_read_only(bool read_only) noexcept;
+    [[nodiscard]] bool read_only() const noexcept;
     void rebuild_index();
+
+    // Refuse further mutations. Called when the owning database closes: writes
+    // after close would mutate memory that is never checkpointed and never
+    // WAL-logged, i.e. silently vanish.
+    void seal() noexcept;
+    [[nodiscard]] bool sealed() const noexcept;
 
     // Transaction rollback hook: restores one record to a prior state (or
     // removes it when `previous` is empty) touching only in-memory structures.
@@ -128,6 +143,20 @@ private:
         const std::vector<const Record*>* subset = nullptr) const;
     void ensure_writable() const;
 
+    // `_locked` suffix: caller already holds mutex_. Public entry points take
+    // the lock and delegate here, so nested calls cannot self-deadlock
+    // (std::shared_mutex is not recursive).
+    RecordID place_locked(const Vector& vector, Payload payload,
+                          std::optional<RecordID> id,
+                          std::optional<DocumentAttachment> document,
+                          std::optional<ChunkInfo> chunk,
+                          std::optional<EmbeddingLineage> lineage);
+    bool erase_locked(const RecordID& id);
+    [[nodiscard]] std::vector<SearchResult> seek_locked(
+        const Vector& query, std::size_t top, const Filter& filter,
+        std::optional<float> threshold) const;
+    void rebuild_index_locked();
+
     std::string name_;
     Config config_;
     std::unique_ptr<IndexPort> index_;
@@ -135,13 +164,20 @@ private:
     MetadataIndex metadata_index_;
     WAL* wal_{nullptr};
     bool read_only_{false};
+    bool sealed_{false};
 #ifdef ELIPS_GPU_ENABLED
     gpu::GpuPort* gpu_backend_{nullptr};
 #endif
+    // Guards every member above. Mutable so const (read) methods can share-lock.
+    mutable std::shared_mutex mutex_;
 };
 
 // Top-level database handle. One per directory. Owns all vaults and persistence.
 // Checkpoints automatically on destruction for on-disk databases.
+//
+// Thread safety: safe to share across threads. The instance mutex guards the
+// vault registry and lifecycle state; each Vault carries its own reader/writer
+// lock, so concurrent searches on the same vault do not serialize.
 class ElipsInstance {
 public:
     ElipsInstance(std::string path, Config config, bool persistent,
@@ -165,7 +201,7 @@ public:
     void checkpoint();
     void compact();
     void close();
-    void abandon() noexcept { closed_ = true; }
+    void abandon() noexcept;
     [[nodiscard]] WAL* wal() const noexcept { return wal_.get(); }
 
     [[nodiscard]] const Config& config() const noexcept { return config_; }
@@ -184,6 +220,11 @@ public:
     void attach_wal(std::unique_ptr<WAL> wal);
 
 private:
+    friend class Transaction;
+
+    Vault& vault_locked(const std::string& name);
+    void checkpoint_locked();
+
     std::string path_;
     Config config_;
     bool persistent_;
@@ -199,6 +240,9 @@ private:
     std::unique_ptr<gpu::GpuPort> gpu_backend_;
 #endif
     std::map<std::string, std::unique_ptr<Vault>> vaults_;
+    // Guards the vault registry, the WAL handle, and lifecycle flags. Vault
+    // contents have their own finer-grained lock.
+    mutable std::recursive_mutex mutex_;
 };
 
 [[nodiscard]] std::unique_ptr<ElipsInstance> open(const std::string& path,

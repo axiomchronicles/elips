@@ -12,6 +12,19 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
+# ------------------------------- sanitizers -------------------------------
+# -DELIPS_SANITIZE=thread    validates the in-process locking (F6)
+# -DELIPS_SANITIZE=address   validates memory safety (ASan + UBSan)
+set(ELIPS_SANITIZE "" CACHE STRING "Sanitizer to build with: thread|address|none")
+set_property(CACHE ELIPS_SANITIZE PROPERTY STRINGS "" none thread address)
+if(ELIPS_SANITIZE STREQUAL "thread")
+    add_compile_options(-fsanitize=thread -g -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+elseif(ELIPS_SANITIZE STREQUAL "address")
+    add_compile_options(-fsanitize=address,undefined -g -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 # Enable Objective-C++ for Metal backend on Apple platforms
 if(APPLE)
     enable_language(OBJCXX)
@@ -119,6 +132,7 @@ if(ELIPS_BUILD_TESTS)
         tests/recovery/wal_recovery_test.cpp
         tests/concurrency/single_writer_test.cpp
         tests/concurrency/multi_reader_test.cpp
+        tests/concurrency/m2_thread_safety_test.cpp
     )
     target_link_libraries(elips_tests PRIVATE elips_core GTest::gtest_main)
 

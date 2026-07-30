@@ -329,18 +329,37 @@ ElipsInstance (owner)
 
 ## Concurrency Model
 
-The transaction engine operates under the **single-writer model**:
+Locking is two-layered, because the two layers solve different problems:
 
-- **No internal locking**: The transaction itself is not thread-safe. It assumes external synchronization via the `LockManager`.
-- **No concurrent transactions**: Only one process can hold the write lock. Within that process, only one `Transaction` should be active.
+- **Cross-process:** a `flock` advisory lock on `<dir>/LOCK`, acquired once at
+  `open()` (see `LockManager`). It keeps a second *process* from opening the same
+  directory for writing. It says nothing about threads.
+- **In-process:** each `Vault` owns a `std::shared_mutex`; `ElipsInstance` owns a
+  `std::recursive_mutex` guarding the vault registry, the WAL handle, and
+  lifecycle flags. Readers share the vault lock, mutators take it exclusively.
+  This is what makes concurrent `place()` / `seek()` from a thread pool safe.
+
+- **Transactions are serialized in-process**: `commit()` holds the instance lock
+  for the whole batch, so a concurrent writer cannot interleave mutations between
+  the batch's operations (which would invalidate the undo log's captured
+  pre-batch state). Concurrent `commit()` calls from several threads therefore
+  apply one after another, each atomically.
 - **Nested transactions**: Not supported. Creating a second `Transaction` while one is active will reference the same `ElipsInstance` but will not coordinate with the first.
 - **Read-your-writes**: Not available within a transaction. Writes are deferred to `commit()` and are not visible to reads within the same transaction. This is by design — the Vault's `seek()` always reads from the committed state.
+
+Validated under ThreadSanitizer: build with `-DELIPS_SANITIZE=thread` and run
+`tests/concurrency/m2_thread_safety_test.cpp`, which drives concurrent writers,
+readers, erasers, vault creation, and transactions against one live instance.
 
 ## Isolation Level
 
 **Atomic Batched Writes** under the single-writer model:
 
-- **Atomicity**: All operations in a transaction are applied together (or none, via rollback). WAL ensures durability.
+- **Atomicity**: All operations in a transaction are applied together, or none.
+  A failure partway through (read-only vault, WAL write/fsync failure) restores
+  the pre-batch state from an undo log and rethrows; a crash mid-batch is handled
+  by the WAL's `txn_begin`/`txn_commit` markers, which cause replay to discard an
+  unterminated window. See ADR-0005.
 - **Consistency**: Eager validation ensures dimension/finiteness constraints. The WAL records every mutation atomically.
 - **Isolation**: Single-writer ensures no dirty reads or lost updates. Other processes see a consistent snapshot via checkpoint + WAL replay.
 - **Durability**: Each operation writes to the WAL during `commit()`. The WAL is flushed per the `Durability` setting.
