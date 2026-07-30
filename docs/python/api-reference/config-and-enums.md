@@ -87,10 +87,18 @@ params = elips.GraphParams(
     max_connections=32,
     ef_construction=400,
     ef_search=100,
+    compaction_ratio=0.2,   # tombstone fraction that triggers vacuum() (0 = manual only)
 )
 ```
 
 These tune the graph index when `index("graph")` is used.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `max_connections` | `16` | Max edges per node (M). Higher = better recall, more memory. |
+| `ef_construction` | `200` | Beam width during graph build. Higher = better graph quality, slower inserts. |
+| `ef_search` | `50` | Beam width during search. Higher = better recall, higher latency. |
+| `compaction_ratio` | `0.2` | Tombstone fraction (deleted / total) that triggers automatic `vacuum()`. Set to `0` to disable auto-compaction and call `vacuum()` manually. |
 
 ## Core Enums
 
