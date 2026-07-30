@@ -98,3 +98,13 @@ jobs:
       - name: Import + smoke test
         run: |
           PYTHONPATH=bindings/python python3 examples/python/01_getting_started.py
+      - name: Install test tooling
+        run: python3 -m pip install --upgrade pytest mypy
+      - name: Python test suite
+        run: PYTHONPATH=bindings/python python3 -m pytest tests/python -q
+      - name: Doctests
+        run: >
+          PYTHONPATH=bindings/python python3 -m pytest --doctest-modules
+          bindings/python/elips/_modern/ bindings/python/elips/types.py -q
+      - name: Type checking
+        run: cd bindings/python && python3 -m mypy --strict elips/

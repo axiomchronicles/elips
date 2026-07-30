@@ -853,6 +853,9 @@ RecordID Vault::place_document(std::string text, Payload payload,
 
 void Vault::place_many(const std::vector<Record>& records) {
     const std::unique_lock lock(mutex_);
+    // Check up front so an empty batch against a sealed or read-only vault
+    // still reports the problem, rather than silently succeeding.
+    ensure_writable();
     for (const auto& record : records) {
         const std::optional<RecordID> id =
             (record.id == RecordID{}) ? std::nullopt
