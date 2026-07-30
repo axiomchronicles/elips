@@ -48,12 +48,19 @@ private:
         Payload payload;
         std::optional<RecordID> id;
     };
+    struct UndoEntry {
+        std::string vault;
+        RecordID id;
+        std::optional<Record> previous;  // nullopt = record did not exist
+    };
+
     void enqueue_place(std::string vault, const Vector& vector, Payload payload,
                        std::optional<RecordID> id);
     void enqueue_erase(std::string vault, const RecordID& id);
 
     ElipsInstance* db_;
     std::vector<PendingOp> ops_;
+    std::vector<UndoEntry> undo_log_;
     bool done_{false};
 };
 
@@ -68,8 +75,8 @@ private:
 |                  |         |                       |         |                  |
 | begin_transaction| ------> | db_: ElipsInstance*   | -owns-> | vaults_: map<>   |
 |                  |         | ops_: vector<PendingOp>|        | wal_: WAL*       |
-| txn.vault("v")   | ------> | done_: bool           |         | ...              |
-|                  |         |                       |         |                  |
+| txn.vault("v")   | ------> | undo_log_: vector<>   |         | ...              |
+|                  |         | done_: bool           |         |                  |
 | tv.place(v, p)   | ------> | enqueue_place()       |         |                  |
 |                  |         | enqueue_erase()       |         |                  |
 | txn.commit()     | ------> | commit()              | ------> | vault.place()    |
@@ -175,34 +182,81 @@ RecordID TransactionVault::place(const Vector& vector, Payload payload,
 
 ```cpp
 void Transaction::commit() {
-    for (auto& op : ops_) {
+    std::lock_guard<std::recursive_mutex> lock(db_->mutex_);
+    
+    // 1. Pre-flight writability check
+    for (const auto& op : ops_) {
         Vault& vault = db_->vault(op.vault);
-        if (op.is_erase) {
-            vault.erase(*op.id);                     // WAL append + index remove + store erase
-        } else {
-            vault.place(op.vector, op.payload, op.id); // prepare + WAL + index + store
+        if (vault.is_read_only()) {
+            throw VaultReadOnlyError{"Cannot write to read-only vault"};
         }
     }
+
+    db_->wal().write_txn_begin();
+    
+    try {
+        // 2. Apply operations with undo logging
+        for (auto& op : ops_) {
+            Vault& vault = db_->vault(op.vault);
+            
+            // Record prior state for undo
+            std::optional<Record> prev = vault.get_record(*op.id);
+            undo_log_.push_back({op.vault, *op.id, prev});
+
+            if (op.is_erase) {
+                vault.erase(*op.id);
+            } else {
+                vault.place(op.vector, op.payload, op.id);
+            }
+        }
+    } catch (...) {
+        // 3. Restore prior states in reverse order
+        for (auto it = undo_log_.rbegin(); it != undo_log_.rend(); ++it) {
+            Vault& vault = db_->vault(it->vault);
+            if (it->previous) {
+                vault.restore_record(*(it->previous));
+            } else {
+                vault.erase_without_wal(it->id);
+            }
+        }
+        undo_log_.clear();
+        throw;
+    }
+
+    db_->wal().write_txn_commit();
     ops_.clear();
+    undo_log_.clear();
     done_ = true;
 }
 ```
 
+### UndoEntry Log
+
+To guarantee atomicity in memory if an operation throws mid-commit (e.g., a WAL storage failure), the transaction maintains an `undo_log_`. Before any operation mutates a vault, the transaction captures the prior state of the target record using the `UndoEntry` struct:
+
+```cpp
+struct UndoEntry {
+    std::string vault;
+    RecordID id;
+    std::optional<Record> previous;  // nullopt = record did not exist
+};
+```
+
+If an exception is thrown during `commit()`, the transaction catches it and iterates the `undo_log_` in reverse order. It restores each record to its prior state (or removes it if it did not exist before). This ensures the in-memory state remains pristine and consistent with the state before the batch began, allowing safe recovery or termination.
+
 ### Commit Semantics
 
-1. **Sequential application**: Operations are applied one by one in the order they were enqueued.
-2. **Each operation triggers WAL**: `vault.place()` and `vault.erase()` both write to the WAL before mutating in-memory state, ensuring each operation is durably recorded.
-3. **Not atomic across operations**: If the process crashes mid-commit, WAL replay on recovery will re-apply the already-WAL'd operations. Unapplied operations in the batch (after the crash point) are lost, but the pre-crash state is consistent.
-4. **Single-writer safety**: Under the single-writer model, no concurrent mutations can interleave with the commit batch.
-5. **Idempotent-ish**: Calling `commit()` after `done_=true` would be a no-op (though the current implementation doesn't guard against double-commit — `ops_` is empty, so the loop does nothing).
+1. **Pre-flight Check**: `commit()` pre-checks every target vault to ensure it is writable. If any vault is read-only, the transaction fails entirely before any operation is applied.
+2. **Sequential application**: Operations are applied one by one in the order they were enqueued, and their prior states are appended to the `undo_log_`.
+3. **WAL Markers**: The batch is bracketed with `txn_begin` and `txn_commit` markers in the WAL. If a crash occurs, replay will drop unterminated windows, preserving durability atomicity.
+4. **Single-writer safety**: `commit()` holds the instance lock for the entire batch. Under the single-writer model, no concurrent mutations can interleave with the commit batch.
+5. **Idempotent-ish**: Calling `commit()` after `done_=true` is a no-op since `ops_` is empty.
 
 ### Commit Failure Handling
 
-Since eager validation ensures all vectors are dimensionally valid and finite, the only failure points during `commit()` are:
-- **Storage errors**: WAL write failures, filesystem full → `StorageError` exception
-- **Vault not found**: `db_->vault(name)` creates the vault lazily, so this always succeeds
+Thanks to eager validation and pre-flight checks, typical user errors (bad dimensions, read-only vaults) throw cleanly before any state is mutated.
 
-If a `StorageError` occurs mid-commit, the exception propagates to the caller. The transaction is left in a partially-applied state (the WAL already contains committed operations). If the process continues, the caller would typically handle the error by checkpointing. If the process crashes, WAL replay recovers the committed portion.
+If a failure occurs during mutation (e.g., WAL write failure, fsync failure → `StorageError`), the exception is caught by `commit()`. The transaction restores all prior states from the `undo_log_` in reverse order, reverting all in-memory changes. The exception is then rethrown. The state of the database is exactly as it was before `commit()` was called, avoiding any partially-applied state.
 
 ## Rollback
 
@@ -210,7 +264,8 @@ If a `StorageError` occurs mid-commit, the exception propagates to the caller. T
 void rollback() noexcept { ops_.clear(); done_ = true; }
 ```
 
-- **Trivially safe**: Simply clears the pending operations vector. No in-memory state was modified, so no undo is needed.
+- **Trivially safe**: Clears the pending operations vector.
+- **Safe after failed commit**: Because a failed `commit()` automatically restores the in-memory state via the undo log, calling `rollback()` afterward simply clears the queues and is a completely safe no-op.
 - **No exceptions**: Marked `noexcept` — guaranteed to succeed.
 - **Marks transaction as done**: `done_ = true` prevents the destructor from calling `rollback()` again.
 
@@ -272,7 +327,8 @@ with db.begin_transaction() as txn:
     v.place(vector1, {"tag": "a"})
     v.place(vector2, {"tag": "b"})
     # no explicit commit needed — __exit__ calls commit() on clean exit
-    # if an exception is raised, __exit__ does NOT commit → destructor rollbacks
+    # if an exception is raised, __exit__ does NOT commit
+    # -> destructor handles via auto-rollback (a no-op since undo log restored state)
 
 # Equivalent to:
 txn = db.begin_transaction()
@@ -356,8 +412,8 @@ readers, erasers, vault creation, and transactions against one live instance.
 **Atomic Batched Writes** under the single-writer model:
 
 - **Atomicity**: All operations in a transaction are applied together, or none.
-  A failure partway through (read-only vault, WAL write/fsync failure) restores
-  the pre-batch state from an undo log and rethrows; a crash mid-batch is handled
+  A failure partway through (e.g., WAL write/fsync failure) restores
+  the pre-batch state from an undo log and rethrows. This is supported by eager validation, pre-flight writability checks, and the `undo_log_`. A crash mid-batch is handled
   by the WAL's `txn_begin`/`txn_commit` markers, which cause replay to discard an
   unterminated window. See ADR-0005.
 - **Consistency**: Eager validation ensures dimension/finiteness constraints. The WAL records every mutation atomically.

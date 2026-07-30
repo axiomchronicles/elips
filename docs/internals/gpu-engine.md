@@ -338,12 +338,24 @@ Metal kernels are dispatched via `MTLComputeCommandEncoder`:
 Implements `GpuMemoryPort` with a best-fit pool allocator.
 
 ```cpp
+struct FreeBlock {
+    void* ptr;
+    size_t bytes;
+    size_t root;  // which backend allocation this came from — blocks from different roots cannot be coalesced
+};
+
+struct LiveBlock {
+    size_t bytes;  // rounded-up size actually reserved
+    size_t root;   // which backend allocation this came from
+};
+
 class GpuMemoryManager : public GpuMemoryPort {
     GpuPort& backend_;                   // backend for raw allocations
     size_t pool_bytes_{0};               // total pool capacity (80% of device memory)
     size_t allocated_{0};                // currently allocated
     size_t peak_allocated_{0};           // peak usage
     std::vector<FreeBlock> free_blocks_; // best-fit free list
+    std::unordered_map<void*, LiveBlock> live_blocks_; // size/root of each handed-out block
     std::vector<void*> pinned_blocks_;   // host-side pinned allocations
     mutable std::mutex mutex_;           // thread safety
 };
@@ -363,7 +375,14 @@ allocate(bytes):
       if waste < best_waste: best_idx = i, best_waste = waste
   
   if best_idx found:
+    block = free_blocks_[best_idx]
     remove block from free_blocks_
+    
+    // Split remainder immediately back to free list
+    if block.bytes > bytes:
+      free_blocks_.push_back({block.ptr + bytes, block.bytes - bytes, block.root})
+      
+    live_blocks_[block.ptr] = {bytes, block.root}
     allocated_ += bytes
     return GpuBuffer{block.ptr, bytes}
   
@@ -373,17 +392,21 @@ allocate(bytes):
     return InsufficientMemory
   
   result = backend_.allocate_device(alloc_size)
+  root_id = generate_new_root_id()
   
-  // If oversized, add remainder to free list
+  // If oversized, add remainder to free list immediately
   if alloc_size > bytes:
-    free_blocks_.push_back({ptr + bytes, alloc_size - bytes})
+    free_blocks_.push_back({result.ptr + bytes, alloc_size - bytes, root_id})
   
+  live_blocks_[result.ptr] = {bytes, root_id}
   allocated_ += bytes
-  return GpuBuffer{ptr, bytes}
+  return GpuBuffer{result.ptr, bytes}
 ```
 
 - **Minimum chunk size**: `pool_bytes_ / 16` to prevent excessive fragmentation.
 - **Peak tracking**: `peak_allocated_` is updated on every allocation.
+- **Immediate splitting**: Remainder bytes are returned to the free list immediately instead of leaking.
+- **Live tracking**: `live_blocks_` maps each returned pointer to its exact allocated size and root ID.
 - **No defragmentation**: Blocks are not compacted; free blocks are coalesced when deallocated adjacent blocks are detected (done in `GpuMemoryPool`).
 
 ### Deallocation
@@ -391,8 +414,16 @@ allocate(bytes):
 ```
 deallocate(buf):
   lock mutex
-  allocated_ -= buf.bytes
-  free_blocks_.push_back({buf.ptr, buf.bytes})
+  
+  if buf.ptr not in live_blocks_:
+    return DoubleFreeError
+    
+  live = live_blocks_[buf.ptr]
+  live_blocks_.remove(buf.ptr)
+  allocated_ -= live.bytes
+  
+  // release_locked() coalesces with adjacent free blocks from the same root
+  release_locked(buf.ptr, live.bytes, live.root)
 ```
 
 ### Pinned Memory
@@ -424,6 +455,13 @@ shutdown():
 ```
 
 Called by `~GpuMemoryManager()`.
+
+### v1.1.0 Suballocator Corrections
+
+Three bugs were fixed in v1.1.0:
+1. **Remainder leak on reuse.** When a best-fit block was larger than needed, the extra bytes were silently dropped. Now the remainder is immediately split back onto the free list.
+2. **No coalescing on free.** Deallocating at varying sizes left the free list permanently fragmented. Freed blocks now coalesce with physically adjacent free spans from the same backend allocation. Only adjacent blocks from the same root allocation may merge (blocks from different `allocate_device` calls are not contiguous even if adjacent in address space).
+3. **`bytes_available()` over-reported.** The old formula `pool_bytes - allocated` counted leaked remainders as available. The new formula sums the actual free-list bytes plus uncommitted pool headroom — reporting what a subsequent allocation can actually obtain.
 
 ## 7. GpuMemoryPool
 

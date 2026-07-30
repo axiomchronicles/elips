@@ -137,8 +137,33 @@ In the current single-writer/multi-reader model:
 
 Since ELIPS is an embedded library (not a server), the "reader" process typically either:
 1. Opens a separate in-memory copy of the database (no lock needed).
-2. Opens the on-disk database in read-only mode (not yet implemented — a future enhancement).
+2. Opens the on-disk database in read-only mode via `Config.access_mode(AccessMode::read_only)`. This acquires a shared advisory lock (`LOCK_SH`), allowing multiple concurrent read-only openers alongside the writer.
 3. Waits for the writer to `close()` before opening (process-level coordination).
+
+## Read-Only Access Mode
+
+v1.1.0 ships `AccessMode::read_only`, which opens an existing database with a
+shared advisory lock.
+
+```cpp
+auto db = elips::open("/data/vectors",
+    elips::Config{}.access_mode(elips::AccessMode::read_only));
+```
+
+- **Shared lock:** `flock(LOCK_SH | LOCK_NB)`. Multiple read-only openers coexist. A write-mode open (holding `LOCK_EX`) blocks new `LOCK_EX` and `LOCK_SH` requests.
+- **No WAL writer:** Read-only instances do not attach a WAL writer. They replay the existing WAL at open to see the latest committed state.
+- **Sealed vaults:** All vaults are immediately marked read-only. `place()`, `erase()`, `rebuild_index()`, and `vacuum()` raise `StorageError`.
+- **No checkpoint on close:** Read-only instances never checkpoint.
+
+```python
+# Python
+reader = elips.open("/data/vectors",
+    elips.Config().access_mode("read_only"))
+results = reader.vault("docs").seek([1.0, 0.0], top=5)
+reader.close()
+```
+
+Read-only is appropriate for replica servers or analytical workers that run alongside a dedicated write process.
 
 ## Lock File Location
 
