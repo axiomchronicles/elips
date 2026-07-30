@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <filesystem>
 #include <memory>
 #include <limits>
 #include <optional>
@@ -11,8 +12,11 @@
 #include <vector>
 
 #include "elips/elips.hpp"
+#include "elips/index_engine/IndexSnapshot.hpp"
+#include "elips/query_engine/AST.hpp"
 #include "elips/query_engine/EQLLexer.hpp"
 #include "elips/query_engine/EQLParser.hpp"
+#include "elips/storage/WAL.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
@@ -519,6 +523,112 @@ doing their own pre-processing.
     m.def("tokenize_eql", &elips::eql::tokenize, py::arg("source"),
           "Tokenize an EQL source string. Returns a list of Token objects.");
 
+    // =====================  EQL abstract syntax tree  =====================
+
+    py::class_<elips::eql::VectorRef>(
+        m, "VectorRef",
+        "A query vector in a parsed EQL statement: either an inline literal or "
+        "a named binding supplied at execution time.")
+        .def(py::init<>())
+        .def_readwrite("literal", &elips::eql::VectorRef::literal,
+                       "Inline vector values; empty when a binding is used.")
+        .def_readwrite("binding", &elips::eql::VectorRef::binding,
+                       "Binding name (``$name`` in EQL); empty for literals.")
+        .def("__repr__", [](const elips::eql::VectorRef& ref) {
+            return ref.binding.empty()
+                       ? "<VectorRef literal dim=" +
+                             std::to_string(ref.literal.size()) + ">"
+                       : "<VectorRef binding='" + ref.binding + "'>";
+        });
+
+    py::class_<elips::eql::SearchStatement>(
+        m, "SearchStatement", "A parsed EQL ``SEARCH`` statement.")
+        .def(py::init<>())
+        .def_readwrite("vault", &elips::eql::SearchStatement::vault)
+        .def_readwrite("query", &elips::eql::SearchStatement::query)
+        .def_readwrite("top", &elips::eql::SearchStatement::top,
+                       "Result limit, or ``None`` when unspecified.")
+        .def_readwrite("threshold", &elips::eql::SearchStatement::threshold,
+                       "Maximum distance, or ``None``.")
+        .def_readwrite("where", &elips::eql::SearchStatement::where,
+                       "Metadata filter; matches everything when absent.")
+        .def_readwrite("rank_by", &elips::eql::SearchStatement::rank_by,
+                       "Ranking field, or ``None`` to rank by distance.")
+        .def_readwrite("projection", &elips::eql::SearchStatement::projection,
+                       "Requested fields; empty means all fields.")
+        .def("__repr__", [](const elips::eql::SearchStatement& s) {
+            return "<SearchStatement vault='" + s.vault + "'>";
+        });
+
+    py::class_<elips::eql::FetchStatement>(
+        m, "FetchStatement", "A parsed EQL ``FETCH`` statement.")
+        .def(py::init<>())
+        .def_readwrite("vault", &elips::eql::FetchStatement::vault)
+        .def_readwrite("id", &elips::eql::FetchStatement::id)
+        .def("__repr__", [](const elips::eql::FetchStatement& s) {
+            return "<FetchStatement vault='" + s.vault + "' id='" + s.id + "'>";
+        });
+
+    py::class_<elips::eql::ScanStatement>(
+        m, "ScanStatement", "A parsed EQL ``SCAN`` statement.")
+        .def(py::init<>())
+        .def_readwrite("vault", &elips::eql::ScanStatement::vault)
+        .def_readwrite("where", &elips::eql::ScanStatement::where)
+        .def_readwrite("offset", &elips::eql::ScanStatement::offset)
+        .def_readwrite("limit", &elips::eql::ScanStatement::limit)
+        .def("__repr__", [](const elips::eql::ScanStatement& s) {
+            return "<ScanStatement vault='" + s.vault + "'>";
+        });
+
+    py::class_<elips::eql::InsertStatement>(
+        m, "InsertStatement", "A parsed EQL ``INSERT`` statement.")
+        .def(py::init<>())
+        .def_readwrite("vault", &elips::eql::InsertStatement::vault)
+        .def_readwrite("vector", &elips::eql::InsertStatement::vector)
+        .def_property(
+            "data",
+            [](const elips::eql::InsertStatement& s) {
+                return from_payload(s.data);
+            },
+            [](elips::eql::InsertStatement& s, const py::dict& data) {
+                s.data = to_payload(data);
+            },
+            "Payload to store with the record.")
+        .def("__repr__", [](const elips::eql::InsertStatement& s) {
+            return "<InsertStatement vault='" + s.vault + "'>";
+        });
+
+    py::class_<elips::eql::DeleteStatement>(
+        m, "DeleteStatement", "A parsed EQL ``DELETE`` statement.")
+        .def(py::init<>())
+        .def_readwrite("vault", &elips::eql::DeleteStatement::vault)
+        .def_readwrite("id", &elips::eql::DeleteStatement::id)
+        .def("__repr__", [](const elips::eql::DeleteStatement& s) {
+            return "<DeleteStatement vault='" + s.vault + "' id='" + s.id + "'>";
+        });
+
+    m.def("parse_eql",
+          [](const std::string& source) {
+              return elips::eql::parse(source);
+          },
+          py::arg("source"),
+          R"doc(Parse an EQL statement into its abstract syntax tree.
+
+Args:
+    source: EQL source text.
+
+Returns:
+    One of :class:`SearchStatement`, :class:`FetchStatement`,
+    :class:`ScanStatement`, :class:`InsertStatement`, or
+    :class:`DeleteStatement`. Use ``isinstance`` to discriminate.
+
+Raises:
+    ParseError: If the statement is not valid EQL.
+
+Unlike :func:`validate_eql`, which discards the result, this returns the
+parsed tree so callers can build query linters, rewriters, or builders.
+)doc");
+
     py::enum_<elips::eql::TokenKind>(m, "TokenKind")
         .value("word", elips::eql::TokenKind::word)
         .value("number", elips::eql::TokenKind::number)
@@ -616,6 +726,167 @@ Args:
                    "' model='" + info.model +
                    "' dimension=" + std::to_string(info.dimension) + ">";
         });
+
+    // =====================  Index snapshots  =====================
+
+    py::enum_<elips::IndexSnapshotKind>(m, "IndexSnapshotKind",
+                                        "Which index produced a snapshot.")
+        .value("unknown", elips::IndexSnapshotKind::unknown)
+        .value("exact", elips::IndexSnapshotKind::exact)
+        .value("graph", elips::IndexSnapshotKind::graph)
+        .value("gpu_brute_force", elips::IndexSnapshotKind::gpu_brute_force)
+        .value("gpu_ivf_flat", elips::IndexSnapshotKind::gpu_ivf_flat)
+        .value("gpu_ivf_pq", elips::IndexSnapshotKind::gpu_ivf_pq)
+        .value("gpu_graph", elips::IndexSnapshotKind::gpu_graph)
+        .value("gpu_hybrid", elips::IndexSnapshotKind::gpu_hybrid)
+        .value("gpu_distributed", elips::IndexSnapshotKind::gpu_distributed);
+
+    py::class_<elips::IvfSnapshot>(
+        m, "IvfSnapshot", "Inverted-file clustering state from an IVF index.")
+        .def(py::init<>())
+        .def_readwrite("n_lists", &elips::IvfSnapshot::n_lists,
+                       "Number of coarse clusters.")
+        .def_readwrite("n_probe", &elips::IvfSnapshot::n_probe,
+                       "Clusters visited per query.")
+        .def_readwrite("centroids", &elips::IvfSnapshot::centroids,
+                       "Row-major cluster centroids.")
+        .def_readwrite("assignments", &elips::IvfSnapshot::assignments,
+                       "Per-vector cluster assignment.")
+        .def("__repr__", [](const elips::IvfSnapshot& s) {
+            return "<IvfSnapshot n_lists=" + std::to_string(s.n_lists) + ">";
+        });
+
+    py::class_<elips::PqSnapshot>(
+        m, "PqSnapshot", "Product-quantization codebook and codes.")
+        .def(py::init<>())
+        .def_readwrite("pq_dim", &elips::PqSnapshot::pq_dim,
+                       "Number of subquantizers.")
+        .def_readwrite("pq_bits", &elips::PqSnapshot::pq_bits,
+                       "Bits per subquantizer code.")
+        .def_readwrite("codebook", &elips::PqSnapshot::codebook,
+                       "Trained centroids for every subquantizer.")
+        .def_readwrite("codes", &elips::PqSnapshot::codes,
+                       "Encoded vectors.")
+        .def("__repr__", [](const elips::PqSnapshot& s) {
+            return "<PqSnapshot pq_dim=" + std::to_string(s.pq_dim) +
+                   " pq_bits=" + std::to_string(s.pq_bits) + ">";
+        });
+
+    py::class_<elips::IndexSnapshot>(
+        m, "IndexSnapshot",
+        "A portable dump of index contents, used to move an index between "
+        "backends (CPU to GPU and back) or to inspect it offline.")
+        .def(py::init<>())
+        .def_readwrite("kind", &elips::IndexSnapshot::kind)
+        .def_readwrite("metric", &elips::IndexSnapshot::metric)
+        .def_readwrite("dimension", &elips::IndexSnapshot::dimension)
+        .def_property_readonly(
+            "ids",
+            [](const elips::IndexSnapshot& s) {
+                py::list out;
+                for (const auto& id : s.ids) {
+                    out.append(py::str(id.to_string()));
+                }
+                return out;
+            },
+            "Record identifiers, aligned with :attr:`vectors`.")
+        .def_readwrite("vectors", &elips::IndexSnapshot::vectors,
+                       "Row-major vector data.")
+        .def_readwrite("ivf", &elips::IndexSnapshot::ivf,
+                       "IVF clustering state, when present.")
+        .def_readwrite("pq", &elips::IndexSnapshot::pq,
+                       "Product-quantization state, when present.")
+        .def("__len__",
+             [](const elips::IndexSnapshot& s) { return s.ids.size(); })
+        .def("__repr__", [](const elips::IndexSnapshot& s) {
+            return "<IndexSnapshot vectors=" + std::to_string(s.ids.size()) +
+                   " dimension=" + std::to_string(s.dimension) + ">";
+        });
+
+    // =====================  Write-ahead log  =====================
+
+    py::enum_<elips::WAL::Op>(m, "WalOp", "Kind of a write-ahead log record.")
+        .value("insert", elips::WAL::Op::insert)
+        .value("erase", elips::WAL::Op::erase)
+        .value("insert_ex", elips::WAL::Op::insert_ex,
+               "Insert carrying document, chunk, or lineage attachments.")
+        .value("txn_begin", elips::WAL::Op::txn_begin,
+               "Start of a transaction batch.")
+        .value("txn_commit", elips::WAL::Op::txn_commit,
+               "End of a transaction batch. Records inside an unterminated "
+               "begin..commit window are discarded on replay.");
+
+    py::class_<elips::WAL::Entry>(m, "WalEntry",
+                                  "One replayed write-ahead log record.")
+        .def_readonly("op", &elips::WAL::Entry::op)
+        .def_readonly("vault", &elips::WAL::Entry::vault)
+        .def_property_readonly(
+            "id",
+            [](const elips::WAL::Entry& e) { return e.id.to_string(); },
+            "Record identifier this entry applies to.")
+        .def_property_readonly(
+            "vector",
+            [](const elips::WAL::Entry& e) {
+                py::tuple out(e.vector.size());
+                for (std::size_t i = 0; i < e.vector.size(); ++i) {
+                    out[i] = py::float_(e.vector[i]);
+                }
+                return out;
+            },
+            "Vector payload; empty for erases and transaction markers.")
+        .def_property_readonly(
+            "data",
+            [](const elips::WAL::Entry& e) { return from_payload(e.payload); },
+            "Metadata payload.")
+        .def_readonly("document", &elips::WAL::Entry::document)
+        .def_readonly("chunk", &elips::WAL::Entry::chunk)
+        .def_readonly("lineage", &elips::WAL::Entry::lineage)
+        .def("__repr__", [](const elips::WAL::Entry& e) {
+            return "<WalEntry vault='" + e.vault + "' id='" + e.id.to_string() +
+                   "'>";
+        });
+
+    m.def("replay_wal",
+          [](const std::string& path) {
+              return elips::WAL::replay(std::filesystem::path{path});
+          },
+          py::arg("path"),
+          R"doc(Replay a write-ahead log file without opening the database.
+
+Args:
+    path: Path to a ``wal.log`` file.
+
+Returns:
+    A list of :class:`WalEntry` in log order. Records inside an
+    unterminated transaction window are omitted, matching what recovery
+    would apply. A corrupt or truncated tail is dropped rather than raised,
+    so a partial log still yields its valid prefix.
+
+Intended for crash forensics and recovery tooling: it answers "what did the
+database actually acknowledge before it died?" without mutating anything.
+)doc");
+
+    m.def("describe_local_embedder",
+          [](const elips::LocalTextEmbedderOptions& options,
+             std::uint16_t fallback_dimension, bool auto_attached) {
+              return elips::describe_local_text_embedder(
+                  options, fallback_dimension, auto_attached);
+          },
+          py::arg("config") = elips::LocalTextEmbedderOptions{},
+          py::arg("fallback_dimension") = 0,
+          py::arg("auto_attached") = false,
+          R"doc(Describe a local text embedder without instantiating it.
+
+Args:
+    config: The :class:`LocalEmbedderConfig` to describe.
+    fallback_dimension: Dimension to assume when ``config.dimension`` is 0.
+    auto_attached: Whether the embedder would be attached automatically.
+
+Returns:
+    A :class:`TextEmbedderInfo` with the resolved dimension, fingerprint,
+    and storage path. Use this to check compatibility with an existing
+    database before opening it.
+)doc");
 
     // =====================  Config  =====================
 
