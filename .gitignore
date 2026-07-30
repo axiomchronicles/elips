@@ -1,4 +1,5 @@
 .agents/
+.claude/
 build/
 build-*/
 __pycache__/
@@ -26,3 +27,5 @@ bindings/python/core_src/
 bindings/python/build/
 bindings/python/dist/
 bindings/python/elips.egg-info/
+
+.ruff_cache/

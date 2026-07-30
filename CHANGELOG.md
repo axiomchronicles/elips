@@ -8,6 +8,14 @@ All notable changes to ELIPS are documented here. Format follows
 
 ### Added
 
+### Fixed
+
+---
+
+## [1.1.0] — 2026-07-30
+
+### Added
+
 - Parser robustness tests (`tests/fuzz/parser_robustness_test.cpp`): random
   single-byte mutation, truncation at every offset, pure-garbage input, and
   corrupted on-disk segments, asserting the WAL and snapshot readers fail fast
@@ -131,3 +139,9 @@ All notable changes to ELIPS are documented here. Format follows
   throws before applying anything (previously it threw partway through).
   ADR-0004 and ADR-0005 were corrected — both previously described guarantees the
   code did not deliver.
+
+
+---
+
+[Unreleased]: https://github.com/axiomchronicles/elips/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/axiomchronicles/elips/releases/tag/v1.1.0

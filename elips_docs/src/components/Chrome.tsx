@@ -452,8 +452,8 @@ export function DocsShell({
                     <li key={d.path}>
                       <Link
                         to={d.path}
-                        className={`block py-1 text-[14px] transition ${
-                          active ? "text-primary" : "text-body hover:text-ink"
+                        className={`block py-1 pl-2 text-[14px] transition ${
+                          active ? "text-primary border-l-2 border-primary" : "text-body hover:text-ink border-l-2 border-transparent"
                         }`}
                       >
                         {d.title}
@@ -468,6 +468,20 @@ export function DocsShell({
       </aside>
 
       <main className="col-span-12 lg:col-span-7 pb-24 fade-up">
+        {/* Breadcrumb */}
+        {(() => {
+          const currentDoc = docs.find(d => d.path === path);
+          if (!currentDoc) return null;
+          return (
+            <nav className="flex items-center gap-1.5 text-[12px] text-muted mb-6" aria-label="Breadcrumb">
+              <Link to="/docs" className="hover:text-ink transition">Docs</Link>
+              <span aria-hidden>/</span>
+              <span className="text-body">{currentDoc.group}</span>
+              <span aria-hidden>/</span>
+              <span className="text-ink">{currentDoc.title}</span>
+            </nav>
+          );
+        })()}
         {(eyebrow || title) && (
           <header className="mb-10 pb-6 border-b border-hairline">
             {eyebrow && <div className="eyebrow mb-3">{eyebrow}</div>}
@@ -475,19 +489,42 @@ export function DocsShell({
           </header>
         )}
         <article className="prose">{children}</article>
-        <div className="hairline-t mt-16 pt-6 text-[13px] text-muted flex justify-between">
-          <Link to="/docs" className="hover:text-ink">
-            ← All docs
-          </Link>
-          <a
-            href="https://github.com/axiomchronicles/elips"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-ink"
-          >
-            Edit on GitHub →
-          </a>
-        </div>
+        {/* Prev/Next */}
+        {(() => {
+          const idx = docs.findIndex(d => d.path === path);
+          const prev = idx > 0 ? docs[idx - 1] : null;
+          const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
+          return (
+            <div className="hairline-t mt-16 pt-6 grid grid-cols-3 gap-4 text-[13px]">
+              <div>
+                {prev && (
+                  <Link to={prev.path} className="flex flex-col gap-0.5 text-muted hover:text-ink transition">
+                    <span className="text-[11px] uppercase tracking-wider">← Previous</span>
+                    <span className="text-ink">{prev.title}</span>
+                  </Link>
+                )}
+              </div>
+              <div className="flex justify-center items-center">
+                <a
+                  href="https://github.com/axiomchronicles/elips"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-muted hover:text-ink transition"
+                >
+                  Edit on GitHub →
+                </a>
+              </div>
+              <div className="flex justify-end">
+                {next && (
+                  <Link to={next.path} className="flex flex-col items-end gap-0.5 text-muted hover:text-ink transition">
+                    <span className="text-[11px] uppercase tracking-wider">Next →</span>
+                    <span className="text-ink">{next.title}</span>
+                  </Link>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </main>
 
       <aside className="hidden xl:block col-span-2">

@@ -32,6 +32,7 @@ import { Route as DocsPerformanceRouteImport } from './routes/docs.performance'
 import { Route as DocsInstallationRouteImport } from './routes/docs.installation'
 import { Route as DocsGuidesRouteImport } from './routes/docs.guides'
 import { Route as DocsGpuEngineRouteImport } from './routes/docs.gpu-engine'
+import { Route as DocsGettingStartedRouteImport } from './routes/docs.getting-started'
 import { Route as DocsExamplesRouteImport } from './routes/docs.examples'
 import { Route as DocsEqlRouteImport } from './routes/docs.eql'
 import { Route as DocsDesignDecisionsRouteImport } from './routes/docs.design-decisions'
@@ -39,6 +40,7 @@ import { Route as DocsCppSdkRouteImport } from './routes/docs.cpp-sdk'
 import { Route as DocsCoreConceptsRouteImport } from './routes/docs.core-concepts'
 import { Route as DocsConfigurationRouteImport } from './routes/docs.configuration'
 import { Route as DocsCliRouteImport } from './routes/docs.cli'
+import { Route as DocsBenchmarksRouteImport } from './routes/docs.benchmarks'
 import { Route as DocsArchitectureRouteImport } from './routes/docs.architecture'
 import { Route as DocsApiRouteImport } from './routes/docs.api'
 import { Route as DocsAlgorithmsRouteImport } from './routes/docs.algorithms'
@@ -46,8 +48,31 @@ import { Route as DocsAdvancedRouteImport } from './routes/docs.advanced'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as DocsTutorialIndexRouteImport } from './routes/docs.tutorial.index'
 import { Route as DocsTutorialLessonRouteImport } from './routes/docs.tutorial.$lesson'
+import { Route as DocsPythonWalRouteImport } from './routes/docs.python.wal'
+import { Route as DocsPythonVaultRouteImport } from './routes/docs.python.vault'
+import { Route as DocsPythonUtilitiesRouteImport } from './routes/docs.python.utilities'
+import { Route as DocsPythonTransactionRouteImport } from './routes/docs.python.transaction'
+import { Route as DocsPythonModelsRouteImport } from './routes/docs.python.models'
+import { Route as DocsPythonMaintenanceRouteImport } from './routes/docs.python.maintenance'
+import { Route as DocsPythonGpuRouteImport } from './routes/docs.python.gpu'
+import { Route as DocsPythonFilteringRouteImport } from './routes/docs.python.filtering'
+import { Route as DocsPythonErrorsRouteImport } from './routes/docs.python.errors'
+import { Route as DocsPythonEqlRouteImport } from './routes/docs.python.eql'
+import { Route as DocsPythonEngineRouteImport } from './routes/docs.python.engine'
+import { Route as DocsPythonDurabilityRouteImport } from './routes/docs.python.durability'
+import { Route as DocsPythonDatabaseRouteImport } from './routes/docs.python.database'
+import { Route as DocsPythonConnectRouteImport } from './routes/docs.python.connect'
+import { Route as DocsPythonConfigRouteImport } from './routes/docs.python.config'
+import { Route as DocsPythonArenaRouteImport } from './routes/docs.python.arena'
 import { Route as DocsInternalsTransactionEngineRouteImport } from './routes/docs.internals.transaction-engine'
 import { Route as DocsInternalsLockManagerRouteImport } from './routes/docs.internals.lock-manager'
+import { Route as DocsGpuOverviewRouteImport } from './routes/docs.gpu.overview'
+import { Route as DocsCppVaultRouteImport } from './routes/docs.cpp.vault'
+import { Route as DocsCppTransactionRouteImport } from './routes/docs.cpp.transaction'
+import { Route as DocsCppOverviewRouteImport } from './routes/docs.cpp.overview'
+import { Route as DocsCppElipsInstanceRouteImport } from './routes/docs.cpp.elips-instance'
+import { Route as DocsCppDomainRouteImport } from './routes/docs.cpp.domain'
+import { Route as DocsCppConfigRouteImport } from './routes/docs.cpp.config'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -164,6 +189,11 @@ const DocsGpuEngineRoute = DocsGpuEngineRouteImport.update({
   path: '/gpu-engine',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsGettingStartedRoute = DocsGettingStartedRouteImport.update({
+  id: '/getting-started',
+  path: '/getting-started',
+  getParentRoute: () => DocsRoute,
+} as any)
 const DocsExamplesRoute = DocsExamplesRouteImport.update({
   id: '/examples',
   path: '/examples',
@@ -197,6 +227,11 @@ const DocsConfigurationRoute = DocsConfigurationRouteImport.update({
 const DocsCliRoute = DocsCliRouteImport.update({
   id: '/cli',
   path: '/cli',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsBenchmarksRoute = DocsBenchmarksRouteImport.update({
+  id: '/benchmarks',
+  path: '/benchmarks',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsArchitectureRoute = DocsArchitectureRouteImport.update({
@@ -234,6 +269,86 @@ const DocsTutorialLessonRoute = DocsTutorialLessonRouteImport.update({
   path: '/tutorial/$lesson',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsPythonWalRoute = DocsPythonWalRouteImport.update({
+  id: '/python/wal',
+  path: '/python/wal',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonVaultRoute = DocsPythonVaultRouteImport.update({
+  id: '/python/vault',
+  path: '/python/vault',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonUtilitiesRoute = DocsPythonUtilitiesRouteImport.update({
+  id: '/python/utilities',
+  path: '/python/utilities',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonTransactionRoute = DocsPythonTransactionRouteImport.update({
+  id: '/python/transaction',
+  path: '/python/transaction',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonModelsRoute = DocsPythonModelsRouteImport.update({
+  id: '/python/models',
+  path: '/python/models',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonMaintenanceRoute = DocsPythonMaintenanceRouteImport.update({
+  id: '/python/maintenance',
+  path: '/python/maintenance',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonGpuRoute = DocsPythonGpuRouteImport.update({
+  id: '/python/gpu',
+  path: '/python/gpu',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonFilteringRoute = DocsPythonFilteringRouteImport.update({
+  id: '/python/filtering',
+  path: '/python/filtering',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonErrorsRoute = DocsPythonErrorsRouteImport.update({
+  id: '/python/errors',
+  path: '/python/errors',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonEqlRoute = DocsPythonEqlRouteImport.update({
+  id: '/python/eql',
+  path: '/python/eql',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonEngineRoute = DocsPythonEngineRouteImport.update({
+  id: '/python/engine',
+  path: '/python/engine',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonDurabilityRoute = DocsPythonDurabilityRouteImport.update({
+  id: '/python/durability',
+  path: '/python/durability',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonDatabaseRoute = DocsPythonDatabaseRouteImport.update({
+  id: '/python/database',
+  path: '/python/database',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonConnectRoute = DocsPythonConnectRouteImport.update({
+  id: '/python/connect',
+  path: '/python/connect',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonConfigRoute = DocsPythonConfigRouteImport.update({
+  id: '/python/config',
+  path: '/python/config',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPythonArenaRoute = DocsPythonArenaRouteImport.update({
+  id: '/python/arena',
+  path: '/python/arena',
+  getParentRoute: () => DocsRoute,
+} as any)
 const DocsInternalsTransactionEngineRoute =
   DocsInternalsTransactionEngineRouteImport.update({
     id: '/internals/transaction-engine',
@@ -246,6 +361,41 @@ const DocsInternalsLockManagerRoute =
     path: '/internals/lock-manager',
     getParentRoute: () => DocsRoute,
   } as any)
+const DocsGpuOverviewRoute = DocsGpuOverviewRouteImport.update({
+  id: '/gpu/overview',
+  path: '/gpu/overview',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppVaultRoute = DocsCppVaultRouteImport.update({
+  id: '/cpp/vault',
+  path: '/cpp/vault',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppTransactionRoute = DocsCppTransactionRouteImport.update({
+  id: '/cpp/transaction',
+  path: '/cpp/transaction',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppOverviewRoute = DocsCppOverviewRouteImport.update({
+  id: '/cpp/overview',
+  path: '/cpp/overview',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppElipsInstanceRoute = DocsCppElipsInstanceRouteImport.update({
+  id: '/cpp/elips-instance',
+  path: '/cpp/elips-instance',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppDomainRoute = DocsCppDomainRouteImport.update({
+  id: '/cpp/domain',
+  path: '/cpp/domain',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCppConfigRoute = DocsCppConfigRouteImport.update({
+  id: '/cpp/config',
+  path: '/cpp/config',
+  getParentRoute: () => DocsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -266,6 +416,7 @@ export interface FileRoutesByFullPath {
   '/docs/algorithms': typeof DocsAlgorithmsRoute
   '/docs/api': typeof DocsApiRoute
   '/docs/architecture': typeof DocsArchitectureRoute
+  '/docs/benchmarks': typeof DocsBenchmarksRoute
   '/docs/cli': typeof DocsCliRoute
   '/docs/configuration': typeof DocsConfigurationRoute
   '/docs/core-concepts': typeof DocsCoreConceptsRoute
@@ -273,6 +424,7 @@ export interface FileRoutesByFullPath {
   '/docs/design-decisions': typeof DocsDesignDecisionsRoute
   '/docs/eql': typeof DocsEqlRoute
   '/docs/examples': typeof DocsExamplesRoute
+  '/docs/getting-started': typeof DocsGettingStartedRoute
   '/docs/gpu-engine': typeof DocsGpuEngineRoute
   '/docs/guides': typeof DocsGuidesRoute
   '/docs/installation': typeof DocsInstallationRoute
@@ -283,8 +435,31 @@ export interface FileRoutesByFullPath {
   '/docs/security': typeof DocsSecurityRoute
   '/docs/storage': typeof DocsStorageRoute
   '/docs/': typeof DocsIndexRoute
+  '/docs/cpp/config': typeof DocsCppConfigRoute
+  '/docs/cpp/domain': typeof DocsCppDomainRoute
+  '/docs/cpp/elips-instance': typeof DocsCppElipsInstanceRoute
+  '/docs/cpp/overview': typeof DocsCppOverviewRoute
+  '/docs/cpp/transaction': typeof DocsCppTransactionRoute
+  '/docs/cpp/vault': typeof DocsCppVaultRoute
+  '/docs/gpu/overview': typeof DocsGpuOverviewRoute
   '/docs/internals/lock-manager': typeof DocsInternalsLockManagerRoute
   '/docs/internals/transaction-engine': typeof DocsInternalsTransactionEngineRoute
+  '/docs/python/arena': typeof DocsPythonArenaRoute
+  '/docs/python/config': typeof DocsPythonConfigRoute
+  '/docs/python/connect': typeof DocsPythonConnectRoute
+  '/docs/python/database': typeof DocsPythonDatabaseRoute
+  '/docs/python/durability': typeof DocsPythonDurabilityRoute
+  '/docs/python/engine': typeof DocsPythonEngineRoute
+  '/docs/python/eql': typeof DocsPythonEqlRoute
+  '/docs/python/errors': typeof DocsPythonErrorsRoute
+  '/docs/python/filtering': typeof DocsPythonFilteringRoute
+  '/docs/python/gpu': typeof DocsPythonGpuRoute
+  '/docs/python/maintenance': typeof DocsPythonMaintenanceRoute
+  '/docs/python/models': typeof DocsPythonModelsRoute
+  '/docs/python/transaction': typeof DocsPythonTransactionRoute
+  '/docs/python/utilities': typeof DocsPythonUtilitiesRoute
+  '/docs/python/vault': typeof DocsPythonVaultRoute
+  '/docs/python/wal': typeof DocsPythonWalRoute
   '/docs/tutorial/$lesson': typeof DocsTutorialLessonRoute
   '/docs/tutorial/': typeof DocsTutorialIndexRoute
 }
@@ -306,6 +481,7 @@ export interface FileRoutesByTo {
   '/docs/algorithms': typeof DocsAlgorithmsRoute
   '/docs/api': typeof DocsApiRoute
   '/docs/architecture': typeof DocsArchitectureRoute
+  '/docs/benchmarks': typeof DocsBenchmarksRoute
   '/docs/cli': typeof DocsCliRoute
   '/docs/configuration': typeof DocsConfigurationRoute
   '/docs/core-concepts': typeof DocsCoreConceptsRoute
@@ -313,6 +489,7 @@ export interface FileRoutesByTo {
   '/docs/design-decisions': typeof DocsDesignDecisionsRoute
   '/docs/eql': typeof DocsEqlRoute
   '/docs/examples': typeof DocsExamplesRoute
+  '/docs/getting-started': typeof DocsGettingStartedRoute
   '/docs/gpu-engine': typeof DocsGpuEngineRoute
   '/docs/guides': typeof DocsGuidesRoute
   '/docs/installation': typeof DocsInstallationRoute
@@ -323,8 +500,31 @@ export interface FileRoutesByTo {
   '/docs/security': typeof DocsSecurityRoute
   '/docs/storage': typeof DocsStorageRoute
   '/docs': typeof DocsIndexRoute
+  '/docs/cpp/config': typeof DocsCppConfigRoute
+  '/docs/cpp/domain': typeof DocsCppDomainRoute
+  '/docs/cpp/elips-instance': typeof DocsCppElipsInstanceRoute
+  '/docs/cpp/overview': typeof DocsCppOverviewRoute
+  '/docs/cpp/transaction': typeof DocsCppTransactionRoute
+  '/docs/cpp/vault': typeof DocsCppVaultRoute
+  '/docs/gpu/overview': typeof DocsGpuOverviewRoute
   '/docs/internals/lock-manager': typeof DocsInternalsLockManagerRoute
   '/docs/internals/transaction-engine': typeof DocsInternalsTransactionEngineRoute
+  '/docs/python/arena': typeof DocsPythonArenaRoute
+  '/docs/python/config': typeof DocsPythonConfigRoute
+  '/docs/python/connect': typeof DocsPythonConnectRoute
+  '/docs/python/database': typeof DocsPythonDatabaseRoute
+  '/docs/python/durability': typeof DocsPythonDurabilityRoute
+  '/docs/python/engine': typeof DocsPythonEngineRoute
+  '/docs/python/eql': typeof DocsPythonEqlRoute
+  '/docs/python/errors': typeof DocsPythonErrorsRoute
+  '/docs/python/filtering': typeof DocsPythonFilteringRoute
+  '/docs/python/gpu': typeof DocsPythonGpuRoute
+  '/docs/python/maintenance': typeof DocsPythonMaintenanceRoute
+  '/docs/python/models': typeof DocsPythonModelsRoute
+  '/docs/python/transaction': typeof DocsPythonTransactionRoute
+  '/docs/python/utilities': typeof DocsPythonUtilitiesRoute
+  '/docs/python/vault': typeof DocsPythonVaultRoute
+  '/docs/python/wal': typeof DocsPythonWalRoute
   '/docs/tutorial/$lesson': typeof DocsTutorialLessonRoute
   '/docs/tutorial': typeof DocsTutorialIndexRoute
 }
@@ -348,6 +548,7 @@ export interface FileRoutesById {
   '/docs/algorithms': typeof DocsAlgorithmsRoute
   '/docs/api': typeof DocsApiRoute
   '/docs/architecture': typeof DocsArchitectureRoute
+  '/docs/benchmarks': typeof DocsBenchmarksRoute
   '/docs/cli': typeof DocsCliRoute
   '/docs/configuration': typeof DocsConfigurationRoute
   '/docs/core-concepts': typeof DocsCoreConceptsRoute
@@ -355,6 +556,7 @@ export interface FileRoutesById {
   '/docs/design-decisions': typeof DocsDesignDecisionsRoute
   '/docs/eql': typeof DocsEqlRoute
   '/docs/examples': typeof DocsExamplesRoute
+  '/docs/getting-started': typeof DocsGettingStartedRoute
   '/docs/gpu-engine': typeof DocsGpuEngineRoute
   '/docs/guides': typeof DocsGuidesRoute
   '/docs/installation': typeof DocsInstallationRoute
@@ -365,8 +567,31 @@ export interface FileRoutesById {
   '/docs/security': typeof DocsSecurityRoute
   '/docs/storage': typeof DocsStorageRoute
   '/docs/': typeof DocsIndexRoute
+  '/docs/cpp/config': typeof DocsCppConfigRoute
+  '/docs/cpp/domain': typeof DocsCppDomainRoute
+  '/docs/cpp/elips-instance': typeof DocsCppElipsInstanceRoute
+  '/docs/cpp/overview': typeof DocsCppOverviewRoute
+  '/docs/cpp/transaction': typeof DocsCppTransactionRoute
+  '/docs/cpp/vault': typeof DocsCppVaultRoute
+  '/docs/gpu/overview': typeof DocsGpuOverviewRoute
   '/docs/internals/lock-manager': typeof DocsInternalsLockManagerRoute
   '/docs/internals/transaction-engine': typeof DocsInternalsTransactionEngineRoute
+  '/docs/python/arena': typeof DocsPythonArenaRoute
+  '/docs/python/config': typeof DocsPythonConfigRoute
+  '/docs/python/connect': typeof DocsPythonConnectRoute
+  '/docs/python/database': typeof DocsPythonDatabaseRoute
+  '/docs/python/durability': typeof DocsPythonDurabilityRoute
+  '/docs/python/engine': typeof DocsPythonEngineRoute
+  '/docs/python/eql': typeof DocsPythonEqlRoute
+  '/docs/python/errors': typeof DocsPythonErrorsRoute
+  '/docs/python/filtering': typeof DocsPythonFilteringRoute
+  '/docs/python/gpu': typeof DocsPythonGpuRoute
+  '/docs/python/maintenance': typeof DocsPythonMaintenanceRoute
+  '/docs/python/models': typeof DocsPythonModelsRoute
+  '/docs/python/transaction': typeof DocsPythonTransactionRoute
+  '/docs/python/utilities': typeof DocsPythonUtilitiesRoute
+  '/docs/python/vault': typeof DocsPythonVaultRoute
+  '/docs/python/wal': typeof DocsPythonWalRoute
   '/docs/tutorial/$lesson': typeof DocsTutorialLessonRoute
   '/docs/tutorial/': typeof DocsTutorialIndexRoute
 }
@@ -391,6 +616,7 @@ export interface FileRouteTypes {
     | '/docs/algorithms'
     | '/docs/api'
     | '/docs/architecture'
+    | '/docs/benchmarks'
     | '/docs/cli'
     | '/docs/configuration'
     | '/docs/core-concepts'
@@ -398,6 +624,7 @@ export interface FileRouteTypes {
     | '/docs/design-decisions'
     | '/docs/eql'
     | '/docs/examples'
+    | '/docs/getting-started'
     | '/docs/gpu-engine'
     | '/docs/guides'
     | '/docs/installation'
@@ -408,8 +635,31 @@ export interface FileRouteTypes {
     | '/docs/security'
     | '/docs/storage'
     | '/docs/'
+    | '/docs/cpp/config'
+    | '/docs/cpp/domain'
+    | '/docs/cpp/elips-instance'
+    | '/docs/cpp/overview'
+    | '/docs/cpp/transaction'
+    | '/docs/cpp/vault'
+    | '/docs/gpu/overview'
     | '/docs/internals/lock-manager'
     | '/docs/internals/transaction-engine'
+    | '/docs/python/arena'
+    | '/docs/python/config'
+    | '/docs/python/connect'
+    | '/docs/python/database'
+    | '/docs/python/durability'
+    | '/docs/python/engine'
+    | '/docs/python/eql'
+    | '/docs/python/errors'
+    | '/docs/python/filtering'
+    | '/docs/python/gpu'
+    | '/docs/python/maintenance'
+    | '/docs/python/models'
+    | '/docs/python/transaction'
+    | '/docs/python/utilities'
+    | '/docs/python/vault'
+    | '/docs/python/wal'
     | '/docs/tutorial/$lesson'
     | '/docs/tutorial/'
   fileRoutesByTo: FileRoutesByTo
@@ -431,6 +681,7 @@ export interface FileRouteTypes {
     | '/docs/algorithms'
     | '/docs/api'
     | '/docs/architecture'
+    | '/docs/benchmarks'
     | '/docs/cli'
     | '/docs/configuration'
     | '/docs/core-concepts'
@@ -438,6 +689,7 @@ export interface FileRouteTypes {
     | '/docs/design-decisions'
     | '/docs/eql'
     | '/docs/examples'
+    | '/docs/getting-started'
     | '/docs/gpu-engine'
     | '/docs/guides'
     | '/docs/installation'
@@ -448,8 +700,31 @@ export interface FileRouteTypes {
     | '/docs/security'
     | '/docs/storage'
     | '/docs'
+    | '/docs/cpp/config'
+    | '/docs/cpp/domain'
+    | '/docs/cpp/elips-instance'
+    | '/docs/cpp/overview'
+    | '/docs/cpp/transaction'
+    | '/docs/cpp/vault'
+    | '/docs/gpu/overview'
     | '/docs/internals/lock-manager'
     | '/docs/internals/transaction-engine'
+    | '/docs/python/arena'
+    | '/docs/python/config'
+    | '/docs/python/connect'
+    | '/docs/python/database'
+    | '/docs/python/durability'
+    | '/docs/python/engine'
+    | '/docs/python/eql'
+    | '/docs/python/errors'
+    | '/docs/python/filtering'
+    | '/docs/python/gpu'
+    | '/docs/python/maintenance'
+    | '/docs/python/models'
+    | '/docs/python/transaction'
+    | '/docs/python/utilities'
+    | '/docs/python/vault'
+    | '/docs/python/wal'
     | '/docs/tutorial/$lesson'
     | '/docs/tutorial'
   id:
@@ -472,6 +747,7 @@ export interface FileRouteTypes {
     | '/docs/algorithms'
     | '/docs/api'
     | '/docs/architecture'
+    | '/docs/benchmarks'
     | '/docs/cli'
     | '/docs/configuration'
     | '/docs/core-concepts'
@@ -479,6 +755,7 @@ export interface FileRouteTypes {
     | '/docs/design-decisions'
     | '/docs/eql'
     | '/docs/examples'
+    | '/docs/getting-started'
     | '/docs/gpu-engine'
     | '/docs/guides'
     | '/docs/installation'
@@ -489,8 +766,31 @@ export interface FileRouteTypes {
     | '/docs/security'
     | '/docs/storage'
     | '/docs/'
+    | '/docs/cpp/config'
+    | '/docs/cpp/domain'
+    | '/docs/cpp/elips-instance'
+    | '/docs/cpp/overview'
+    | '/docs/cpp/transaction'
+    | '/docs/cpp/vault'
+    | '/docs/gpu/overview'
     | '/docs/internals/lock-manager'
     | '/docs/internals/transaction-engine'
+    | '/docs/python/arena'
+    | '/docs/python/config'
+    | '/docs/python/connect'
+    | '/docs/python/database'
+    | '/docs/python/durability'
+    | '/docs/python/engine'
+    | '/docs/python/eql'
+    | '/docs/python/errors'
+    | '/docs/python/filtering'
+    | '/docs/python/gpu'
+    | '/docs/python/maintenance'
+    | '/docs/python/models'
+    | '/docs/python/transaction'
+    | '/docs/python/utilities'
+    | '/docs/python/vault'
+    | '/docs/python/wal'
     | '/docs/tutorial/$lesson'
     | '/docs/tutorial/'
   fileRoutesById: FileRoutesById
@@ -675,6 +975,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsGpuEngineRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/getting-started': {
+      id: '/docs/getting-started'
+      path: '/getting-started'
+      fullPath: '/docs/getting-started'
+      preLoaderRoute: typeof DocsGettingStartedRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/examples': {
       id: '/docs/examples'
       path: '/examples'
@@ -722,6 +1029,13 @@ declare module '@tanstack/react-router' {
       path: '/cli'
       fullPath: '/docs/cli'
       preLoaderRoute: typeof DocsCliRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/benchmarks': {
+      id: '/docs/benchmarks'
+      path: '/benchmarks'
+      fullPath: '/docs/benchmarks'
+      preLoaderRoute: typeof DocsBenchmarksRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/architecture': {
@@ -773,6 +1087,118 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsTutorialLessonRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/python/wal': {
+      id: '/docs/python/wal'
+      path: '/python/wal'
+      fullPath: '/docs/python/wal'
+      preLoaderRoute: typeof DocsPythonWalRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/vault': {
+      id: '/docs/python/vault'
+      path: '/python/vault'
+      fullPath: '/docs/python/vault'
+      preLoaderRoute: typeof DocsPythonVaultRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/utilities': {
+      id: '/docs/python/utilities'
+      path: '/python/utilities'
+      fullPath: '/docs/python/utilities'
+      preLoaderRoute: typeof DocsPythonUtilitiesRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/transaction': {
+      id: '/docs/python/transaction'
+      path: '/python/transaction'
+      fullPath: '/docs/python/transaction'
+      preLoaderRoute: typeof DocsPythonTransactionRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/models': {
+      id: '/docs/python/models'
+      path: '/python/models'
+      fullPath: '/docs/python/models'
+      preLoaderRoute: typeof DocsPythonModelsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/maintenance': {
+      id: '/docs/python/maintenance'
+      path: '/python/maintenance'
+      fullPath: '/docs/python/maintenance'
+      preLoaderRoute: typeof DocsPythonMaintenanceRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/gpu': {
+      id: '/docs/python/gpu'
+      path: '/python/gpu'
+      fullPath: '/docs/python/gpu'
+      preLoaderRoute: typeof DocsPythonGpuRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/filtering': {
+      id: '/docs/python/filtering'
+      path: '/python/filtering'
+      fullPath: '/docs/python/filtering'
+      preLoaderRoute: typeof DocsPythonFilteringRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/errors': {
+      id: '/docs/python/errors'
+      path: '/python/errors'
+      fullPath: '/docs/python/errors'
+      preLoaderRoute: typeof DocsPythonErrorsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/eql': {
+      id: '/docs/python/eql'
+      path: '/python/eql'
+      fullPath: '/docs/python/eql'
+      preLoaderRoute: typeof DocsPythonEqlRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/engine': {
+      id: '/docs/python/engine'
+      path: '/python/engine'
+      fullPath: '/docs/python/engine'
+      preLoaderRoute: typeof DocsPythonEngineRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/durability': {
+      id: '/docs/python/durability'
+      path: '/python/durability'
+      fullPath: '/docs/python/durability'
+      preLoaderRoute: typeof DocsPythonDurabilityRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/database': {
+      id: '/docs/python/database'
+      path: '/python/database'
+      fullPath: '/docs/python/database'
+      preLoaderRoute: typeof DocsPythonDatabaseRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/connect': {
+      id: '/docs/python/connect'
+      path: '/python/connect'
+      fullPath: '/docs/python/connect'
+      preLoaderRoute: typeof DocsPythonConnectRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/config': {
+      id: '/docs/python/config'
+      path: '/python/config'
+      fullPath: '/docs/python/config'
+      preLoaderRoute: typeof DocsPythonConfigRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/python/arena': {
+      id: '/docs/python/arena'
+      path: '/python/arena'
+      fullPath: '/docs/python/arena'
+      preLoaderRoute: typeof DocsPythonArenaRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/internals/transaction-engine': {
       id: '/docs/internals/transaction-engine'
       path: '/internals/transaction-engine'
@@ -787,6 +1213,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsInternalsLockManagerRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/gpu/overview': {
+      id: '/docs/gpu/overview'
+      path: '/gpu/overview'
+      fullPath: '/docs/gpu/overview'
+      preLoaderRoute: typeof DocsGpuOverviewRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/vault': {
+      id: '/docs/cpp/vault'
+      path: '/cpp/vault'
+      fullPath: '/docs/cpp/vault'
+      preLoaderRoute: typeof DocsCppVaultRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/transaction': {
+      id: '/docs/cpp/transaction'
+      path: '/cpp/transaction'
+      fullPath: '/docs/cpp/transaction'
+      preLoaderRoute: typeof DocsCppTransactionRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/overview': {
+      id: '/docs/cpp/overview'
+      path: '/cpp/overview'
+      fullPath: '/docs/cpp/overview'
+      preLoaderRoute: typeof DocsCppOverviewRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/elips-instance': {
+      id: '/docs/cpp/elips-instance'
+      path: '/cpp/elips-instance'
+      fullPath: '/docs/cpp/elips-instance'
+      preLoaderRoute: typeof DocsCppElipsInstanceRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/domain': {
+      id: '/docs/cpp/domain'
+      path: '/cpp/domain'
+      fullPath: '/docs/cpp/domain'
+      preLoaderRoute: typeof DocsCppDomainRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/cpp/config': {
+      id: '/docs/cpp/config'
+      path: '/cpp/config'
+      fullPath: '/docs/cpp/config'
+      preLoaderRoute: typeof DocsCppConfigRouteImport
+      parentRoute: typeof DocsRoute
+    }
   }
 }
 
@@ -795,6 +1270,7 @@ interface DocsRouteChildren {
   DocsAlgorithmsRoute: typeof DocsAlgorithmsRoute
   DocsApiRoute: typeof DocsApiRoute
   DocsArchitectureRoute: typeof DocsArchitectureRoute
+  DocsBenchmarksRoute: typeof DocsBenchmarksRoute
   DocsCliRoute: typeof DocsCliRoute
   DocsConfigurationRoute: typeof DocsConfigurationRoute
   DocsCoreConceptsRoute: typeof DocsCoreConceptsRoute
@@ -802,6 +1278,7 @@ interface DocsRouteChildren {
   DocsDesignDecisionsRoute: typeof DocsDesignDecisionsRoute
   DocsEqlRoute: typeof DocsEqlRoute
   DocsExamplesRoute: typeof DocsExamplesRoute
+  DocsGettingStartedRoute: typeof DocsGettingStartedRoute
   DocsGpuEngineRoute: typeof DocsGpuEngineRoute
   DocsGuidesRoute: typeof DocsGuidesRoute
   DocsInstallationRoute: typeof DocsInstallationRoute
@@ -812,8 +1289,31 @@ interface DocsRouteChildren {
   DocsSecurityRoute: typeof DocsSecurityRoute
   DocsStorageRoute: typeof DocsStorageRoute
   DocsIndexRoute: typeof DocsIndexRoute
+  DocsCppConfigRoute: typeof DocsCppConfigRoute
+  DocsCppDomainRoute: typeof DocsCppDomainRoute
+  DocsCppElipsInstanceRoute: typeof DocsCppElipsInstanceRoute
+  DocsCppOverviewRoute: typeof DocsCppOverviewRoute
+  DocsCppTransactionRoute: typeof DocsCppTransactionRoute
+  DocsCppVaultRoute: typeof DocsCppVaultRoute
+  DocsGpuOverviewRoute: typeof DocsGpuOverviewRoute
   DocsInternalsLockManagerRoute: typeof DocsInternalsLockManagerRoute
   DocsInternalsTransactionEngineRoute: typeof DocsInternalsTransactionEngineRoute
+  DocsPythonArenaRoute: typeof DocsPythonArenaRoute
+  DocsPythonConfigRoute: typeof DocsPythonConfigRoute
+  DocsPythonConnectRoute: typeof DocsPythonConnectRoute
+  DocsPythonDatabaseRoute: typeof DocsPythonDatabaseRoute
+  DocsPythonDurabilityRoute: typeof DocsPythonDurabilityRoute
+  DocsPythonEngineRoute: typeof DocsPythonEngineRoute
+  DocsPythonEqlRoute: typeof DocsPythonEqlRoute
+  DocsPythonErrorsRoute: typeof DocsPythonErrorsRoute
+  DocsPythonFilteringRoute: typeof DocsPythonFilteringRoute
+  DocsPythonGpuRoute: typeof DocsPythonGpuRoute
+  DocsPythonMaintenanceRoute: typeof DocsPythonMaintenanceRoute
+  DocsPythonModelsRoute: typeof DocsPythonModelsRoute
+  DocsPythonTransactionRoute: typeof DocsPythonTransactionRoute
+  DocsPythonUtilitiesRoute: typeof DocsPythonUtilitiesRoute
+  DocsPythonVaultRoute: typeof DocsPythonVaultRoute
+  DocsPythonWalRoute: typeof DocsPythonWalRoute
   DocsTutorialLessonRoute: typeof DocsTutorialLessonRoute
   DocsTutorialIndexRoute: typeof DocsTutorialIndexRoute
 }
@@ -823,6 +1323,7 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsAlgorithmsRoute: DocsAlgorithmsRoute,
   DocsApiRoute: DocsApiRoute,
   DocsArchitectureRoute: DocsArchitectureRoute,
+  DocsBenchmarksRoute: DocsBenchmarksRoute,
   DocsCliRoute: DocsCliRoute,
   DocsConfigurationRoute: DocsConfigurationRoute,
   DocsCoreConceptsRoute: DocsCoreConceptsRoute,
@@ -830,6 +1331,7 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsDesignDecisionsRoute: DocsDesignDecisionsRoute,
   DocsEqlRoute: DocsEqlRoute,
   DocsExamplesRoute: DocsExamplesRoute,
+  DocsGettingStartedRoute: DocsGettingStartedRoute,
   DocsGpuEngineRoute: DocsGpuEngineRoute,
   DocsGuidesRoute: DocsGuidesRoute,
   DocsInstallationRoute: DocsInstallationRoute,
@@ -840,8 +1342,31 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsSecurityRoute: DocsSecurityRoute,
   DocsStorageRoute: DocsStorageRoute,
   DocsIndexRoute: DocsIndexRoute,
+  DocsCppConfigRoute: DocsCppConfigRoute,
+  DocsCppDomainRoute: DocsCppDomainRoute,
+  DocsCppElipsInstanceRoute: DocsCppElipsInstanceRoute,
+  DocsCppOverviewRoute: DocsCppOverviewRoute,
+  DocsCppTransactionRoute: DocsCppTransactionRoute,
+  DocsCppVaultRoute: DocsCppVaultRoute,
+  DocsGpuOverviewRoute: DocsGpuOverviewRoute,
   DocsInternalsLockManagerRoute: DocsInternalsLockManagerRoute,
   DocsInternalsTransactionEngineRoute: DocsInternalsTransactionEngineRoute,
+  DocsPythonArenaRoute: DocsPythonArenaRoute,
+  DocsPythonConfigRoute: DocsPythonConfigRoute,
+  DocsPythonConnectRoute: DocsPythonConnectRoute,
+  DocsPythonDatabaseRoute: DocsPythonDatabaseRoute,
+  DocsPythonDurabilityRoute: DocsPythonDurabilityRoute,
+  DocsPythonEngineRoute: DocsPythonEngineRoute,
+  DocsPythonEqlRoute: DocsPythonEqlRoute,
+  DocsPythonErrorsRoute: DocsPythonErrorsRoute,
+  DocsPythonFilteringRoute: DocsPythonFilteringRoute,
+  DocsPythonGpuRoute: DocsPythonGpuRoute,
+  DocsPythonMaintenanceRoute: DocsPythonMaintenanceRoute,
+  DocsPythonModelsRoute: DocsPythonModelsRoute,
+  DocsPythonTransactionRoute: DocsPythonTransactionRoute,
+  DocsPythonUtilitiesRoute: DocsPythonUtilitiesRoute,
+  DocsPythonVaultRoute: DocsPythonVaultRoute,
+  DocsPythonWalRoute: DocsPythonWalRoute,
   DocsTutorialLessonRoute: DocsTutorialLessonRoute,
   DocsTutorialIndexRoute: DocsTutorialIndexRoute,
 }

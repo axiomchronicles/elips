@@ -20,9 +20,28 @@ export const Route = createFileRoute("/changelog")({
 
 const ENTRIES = [
   {
+    v: "1.1.0",
+    date: "2026-07-30",
+    tag: "Latest",
+    items: [
+      "vacuum() / pending_removals() on Vault and Database: reclaim index space from deleted records. HNSW tombstones are now bounded — search() scales ef by the live/dead ratio; graph compacts automatically when tombstones exceed GraphParams::compaction_ratio (default 0.2).",
+      "Filtered ANN search re-probes adaptively: seek() widens the fetch beam 4× per round until top results are found or the vault is exhausted, replacing the fixed over-fetch that returned short sets for selective filters.",
+      "In-process reader/writer locking: each Vault now owns a std::shared_mutex; ElipsInstance owns a mutex over the registry, WAL handle, and lifecycle flags. Transaction::commit() holds the instance lock for the whole batch. Vault::records() now returns a copy for thread safety.",
+      "Sealed vaults: close() marks every vault sealed; writes after close() throw StorageError instead of silently discarding.",
+      "WAL and checkpoint writes now reach stable storage before acknowledgement: fdatasync on Linux, F_FULLFSYNC on macOS — acknowledged writes now survive OS crash and power loss, not just process crash.",
+      "Transactions are atomic under I/O and read-only failure: commit() pre-checks writability, records an undo log, and restores prior state in reverse on failure. WAL txn_begin/txn_commit markers discard unterminated windows on replay.",
+      "Length-prefixed reads bounded before allocating: WAL/snapshot length fields validated against remaining bytes before any allocation.",
+      "WAL replay is O(n): eliminated the O(n²) tail-copy; 4× data now scales linearly.",
+      "GPU suballocator leaks fixed: remainder of reused blocks now returned to the free list; frees coalesce adjacent same-root spans; bytes_available() reports reachable bytes.",
+      "GPU engine no longer compiled on platforms with no backend: ELIPS_GPU_METAL defaults to Apple only.",
+      "ELIPS_SANITIZE=thread|address CMake option; CI runs ThreadSanitizer, ASan+UBSan, and a no-GPU Linux build.",
+      "Parser robustness and fuzz testing (elips_fuzz_wal); 895k ASan+UBSan executions with no findings.",
+    ],
+  },
+  {
     v: "1.0.0",
-    date: "Current",
-    tag: "Stable",
+    date: "2024-08-01",
+    tag: "Baseline",
     items: [
       "C++23 core with hexagonal layering and full Core Guidelines compliance.",
       "HierarchicalGraphIndex (HNSW) and ExactIndex behind a single IndexPort.",
