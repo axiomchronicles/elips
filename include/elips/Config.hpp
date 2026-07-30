@@ -46,6 +46,9 @@ struct GraphParams {
     std::size_t max_connections{16};    // M
     std::size_t ef_construction{200};   // beam width during build
     std::size_t ef_search{50};          // beam width during search
+    // Tombstone fraction that triggers an automatic rebuild. 0 disables auto
+    // compaction (callers can still vacuum() explicitly).
+    float compaction_ratio{0.2F};
 };
 
 // Typed, validated configuration. Fluent builder; immutable intent after open().

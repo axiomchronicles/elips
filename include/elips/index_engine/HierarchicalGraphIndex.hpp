@@ -19,8 +19,16 @@ namespace elips {
 
 // Primary ANN index: a from-scratch Hierarchical Navigable Small World graph.
 // Vectors are stored row-major; the graph is layered with probabilistic level
-// assignment. Removal is a soft tombstone (graph navigation is preserved;
-// deleted nodes are excluded from results), matching the MVCC delete model.
+// assignment.
+//
+// Deletes are soft tombstones so graph navigation stays intact, but tombstones
+// are not free: they occupy the search beam and their vectors and edges keep
+// consuming memory. Two mechanisms bound that cost:
+//   * search() widens `ef` in proportion to the live/deleted ratio, so a
+//     tombstoned graph still returns k live results rather than silently fewer.
+//   * once tombstones exceed `compaction_ratio` of the graph the index rebuilds
+//     itself (vacuum()), reclaiming dead vectors and edges. Callers can force
+//     this at any time via vacuum().
 class HierarchicalGraphIndex final : public IndexPort, public IndexTransferPort {
 public:
     HierarchicalGraphIndex(Metric metric, std::uint16_t dimension,
@@ -36,6 +44,11 @@ public:
     }
     [[nodiscard]] std::string_view type_name() const noexcept override {
         return "graph";
+    }
+
+    void vacuum() override;
+    [[nodiscard]] std::size_t pending_removals() const noexcept override {
+        return deleted_count_;
     }
 
     [[nodiscard]] std::expected<IndexSnapshot, std::string>
@@ -57,6 +70,7 @@ private:
                                                    int level) const;
     void connect(NodeId node, const std::vector<Scored>& candidates, int level,
                  std::size_t max_links);
+    void insert_unchecked(const RecordID& id, std::span<const float> vector);
 
     Metric metric_;
     std::uint16_t dimension_;

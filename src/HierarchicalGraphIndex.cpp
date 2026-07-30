@@ -134,6 +134,11 @@ void HierarchicalGraphIndex::connect(NodeId node,
 
 void HierarchicalGraphIndex::insert(const RecordID& id,
                                     std::span<const float> vector) {
+    insert_unchecked(id, vector);
+}
+
+void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
+                                              std::span<const float> vector) {
     const auto node = static_cast<NodeId>(ids_.size());
     const int level = random_level();
     ids_.push_back(id);
@@ -182,11 +187,65 @@ void HierarchicalGraphIndex::remove(const RecordID& id) {
     }
     deleted_[it->second] = true;
     ++deleted_count_;
+    // The tombstone stays linked on purpose: it remains a routing waypoint, so
+    // unlinking it would risk disconnecting the live nodes that reached each
+    // other through it. Its cost is bounded by vacuum() below instead.
+
+    if (params_.compaction_ratio > 0.0F && !ids_.empty() &&
+        static_cast<float>(deleted_count_) / static_cast<float>(ids_.size()) >=
+            params_.compaction_ratio) {
+        vacuum();
+    }
+}
+
+void HierarchicalGraphIndex::vacuum() {
+    if (deleted_count_ == 0) {
+        return;
+    }
+    // Rebuild from the live rows only: reclaims tombstoned vectors and edges and
+    // restores full graph connectivity (unlink() leaves the survivors' degree
+    // lower than the parameters intend).
+    std::vector<RecordID> live_ids;
+    std::vector<float> live_data;
+    live_ids.reserve(ids_.size() - deleted_count_);
+    live_data.reserve(live_ids.capacity() * dimension_);
+    for (std::size_t node = 0; node < ids_.size(); ++node) {
+        if (deleted_[node]) {
+            continue;
+        }
+        live_ids.push_back(ids_[node]);
+        const auto base =
+            static_cast<std::ptrdiff_t>(node * static_cast<std::size_t>(dimension_));
+        live_data.insert(live_data.end(), data_.begin() + base,
+                         data_.begin() + base + dimension_);
+    }
+
+    data_.clear();
+    data_.shrink_to_fit();
+    ids_.clear();
+    ids_.shrink_to_fit();
+    deleted_.clear();
+    node_levels_.clear();
+    node_levels_.shrink_to_fit();
+    links_.clear();
+    links_.shrink_to_fit();
+    id_to_node_.clear();
+    entry_point_ = -1;
+    max_level_ = -1;
+    deleted_count_ = 0;
+
+    for (std::size_t i = 0; i < live_ids.size(); ++i) {
+        insert_unchecked(
+            live_ids[i],
+            std::span<const float>{
+                live_data.data() + (i * static_cast<std::size_t>(dimension_)),
+                dimension_});
+    }
 }
 
 std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
     std::span<const float> query, std::size_t k) const {
-    if (entry_point_ < 0 || k == 0) {
+    if (entry_point_ < 0 || k == 0 || ids_.size() == deleted_count_) {
         return {};
     }
     NodeId cur = static_cast<NodeId>(entry_point_);
@@ -196,7 +255,19 @@ std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
             cur = found.front().second;
         }
     }
-    const std::size_t ef = std::max(params_.ef_search, k);
+
+    // Tombstones are filtered after the beam is collected, so they consume
+    // budget. Widen the beam by the dead fraction to keep returning k live hits
+    // instead of quietly returning fewer.
+    std::size_t ef = std::max(params_.ef_search, k);
+    if (deleted_count_ > 0) {
+        const std::size_t live = ids_.size() - deleted_count_;
+        // ef * total/live, saturating rather than overflowing on a graph that is
+        // almost entirely tombstones.
+        const std::size_t scaled =
+            live == 0 ? ids_.size() : (ef * ids_.size()) / live;
+        ef = std::min(std::max(ef, scaled), ids_.size());
+    }
     const auto found = search_layer(query, cur, ef, 0);
 
     std::vector<Hit> hits;
@@ -262,11 +333,12 @@ HierarchicalGraphIndex::import_snapshot(const IndexSnapshot& snapshot) {
     deleted_count_ = 0;
 
     for (std::size_t i = 0; i < snapshot.ids.size(); ++i) {
-        insert(snapshot.ids[i],
-               std::span<const float>{
-                   snapshot.vectors.data() +
-                       i * static_cast<std::size_t>(dimension_),
-                   dimension_});
+        insert_unchecked(
+            snapshot.ids[i],
+            std::span<const float>{
+                snapshot.vectors.data() +
+                    i * static_cast<std::size_t>(dimension_),
+                dimension_});
     }
 
     return {};

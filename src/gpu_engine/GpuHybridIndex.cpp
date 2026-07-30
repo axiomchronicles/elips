@@ -71,6 +71,12 @@ std::vector<IndexPort::Hit> GpuHybridIndex::search(std::span<const float> query,
 std::size_t GpuHybridIndex::size() const noexcept { return cpu_index_->size(); }
 std::string_view GpuHybridIndex::type_name() const noexcept { return "gpu_hybrid"; }
 
+void GpuHybridIndex::vacuum() { cpu_index_->vacuum(); }
+
+std::size_t GpuHybridIndex::pending_removals() const noexcept {
+    return cpu_index_->pending_removals();
+}
+
 std::expected<void, GpuError>
 GpuHybridIndex::build_from_batch(std::span<const float> vectors,
                                  std::span<const RecordID> ids,

@@ -1006,26 +1006,38 @@ std::vector<SearchResult> Vault::seek_locked(
     }
     fetch = std::max<std::size_t>(fetch, 1U);
 
-    const auto hits = index_->search(prepared.values(), fetch);
+    // Post-filtering discards hits, so a fixed over-fetch can return fewer than
+    // `top`. Re-probe with a wider beam until the filter is satisfied or the
+    // whole vault has been swept. Bounded by records_.size(), so worst case
+    // degenerates to a full scan rather than an unbounded loop.
     std::vector<SearchResult> results;
-    results.reserve(std::min(hits.size(), top));
-    for (const auto& [id, dist] : hits) {
-        if (threshold.has_value() && dist > *threshold) {
-            continue;
+    while (true) {
+        const auto hits = index_->search(prepared.values(), fetch);
+        results.clear();
+        results.reserve(std::min(hits.size(), top));
+        for (const auto& [id, dist] : hits) {
+            if (threshold.has_value() && dist > *threshold) {
+                continue;
+            }
+            const auto it = records_.find(id);
+            if (it == records_.end()) {
+                continue;
+            }
+            if (!filter.matches(it->second.payload)) {
+                continue;
+            }
+            results.push_back(make_result(it->second, dist));
+            if (results.size() >= top) {
+                break;
+            }
         }
-        const auto it = records_.find(id);
-        if (it == records_.end()) {
-            continue;
+        const bool satisfied = results.size() >= top;
+        const bool exhausted = fetch >= records_.size() || hits.size() < fetch;
+        if (satisfied || exhausted) {
+            return results;
         }
-        if (!filter.matches(it->second.payload)) {
-            continue;
-        }
-        results.push_back(make_result(it->second, dist));
-        if (results.size() >= top) {
-            break;
-        }
+        fetch = std::min(records_.size(), fetch * 4);
     }
-    return results;
 }
 
 std::vector<SearchResult> Vault::seek_text(std::string_view text, std::size_t top,
@@ -1193,6 +1205,17 @@ void Vault::rebuild_index_locked() {
         }
     }
     index_ = std::move(rebuilt);
+}
+
+void Vault::vacuum() {
+    const std::unique_lock lock(mutex_);
+    ensure_writable();
+    index_->vacuum();
+}
+
+std::size_t Vault::pending_removals() const noexcept {
+    const std::shared_lock lock(mutex_);
+    return index_->pending_removals();
 }
 
 VaultInfo Vault::info() const noexcept {
@@ -1368,6 +1391,17 @@ void ElipsInstance::compact() {
         vault->rebuild_index();
     }
     checkpoint_locked();
+}
+
+void ElipsInstance::vacuum() {
+    const std::lock_guard lock(mutex_);
+    if (config_.access_mode() == AccessMode::read_only) {
+        return;
+    }
+    for (auto& [name, vault] : vaults_) {
+        (void)name;
+        vault->vacuum();
+    }
 }
 
 void ElipsInstance::close() {

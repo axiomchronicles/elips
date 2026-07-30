@@ -35,5 +35,9 @@ keeps each future capability additive.
 
 - Snapshot serialization uses native byte order (single-machine use).
 - Checkpoints rewrite the whole snapshot (O(N)).
-- Filtered ANN search post-filters an over-fetched candidate set rather than
-  expanding `ef` adaptively.
+- Per-record `fsync` bounds write throughput; group commit is not implemented.
+- Graph deletes leave tombstones until the compaction threshold is reached
+  (`GraphParams::compaction_ratio`, default 20%) or `vacuum()` is called. Search
+  widens its beam to compensate in the meantime, so recall holds, but a graph
+  sitting just under the threshold carries dead vectors and edges.
+- Compaction rebuilds the whole graph rather than merging segments incrementally.

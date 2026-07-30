@@ -8,10 +8,32 @@ All notable changes to ELIPS are documented here. Format follows
 
 ### Added
 
+- `Vault.vacuum()` / `Database.vacuum()` (C++ and Python) to reclaim index space
+  held by deleted records, plus `Vault.pending_removals` to observe how much is
+  outstanding. `GraphParams::compaction_ratio` (default 0.2) controls the
+  tombstone fraction that triggers automatic compaction; 0 disables it.
 - `ELIPS_SANITIZE=thread|address` CMake option, building the test suite under
   ThreadSanitizer or ASan+UBSan. The full suite (197 tests) is clean under TSan.
 
 ### Fixed
+
+- **HNSW tombstones are bounded and no longer silently degrade recall [F5].**
+  `remove()` set a flag and nothing ever reclaimed it: dead vectors and edges
+  accumulated forever under insert/delete churn, and because `search()` filters
+  tombstones *after* collecting a fixed-size `ef` beam, a growing dead fraction
+  meant fewer than `k` live results with no error or metric. `search()` now
+  scales `ef` by the total/live node ratio so the beam still yields `k` live
+  hits, and the index compacts itself once tombstones pass
+  `compaction_ratio` (or on an explicit `vacuum()`). *Measured:* at a 50% delete
+  ratio, searches return a full `k` results with recall within 0.15 of the
+  pre-delete baseline; 4,000 records churned through a 200-record live set keep
+  the graph under 400 nodes instead of growing to 4,200.
+
+- **Filtered ANN search re-probes with a wider beam instead of under-filling
+  [F5, related].** A fixed `top * 20` over-fetch followed by post-filtering
+  returned short result sets for selective filters. `seek()` now widens the fetch
+  (4× per round, bounded by the vault size) until `top` matches are found or the
+  vault is exhausted — the adaptive-`ef` gap the roadmap self-identified.
 
 - **In-process reader/writer locking [F6].** Nothing outside `LocalTextEmbedder`
   held a lock. `LockManager` wraps a cross-process `flock` acquired once at open,

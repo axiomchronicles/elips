@@ -26,6 +26,10 @@ public:
     [[nodiscard]] std::size_t size() const noexcept override;
     [[nodiscard]] std::string_view type_name() const noexcept override;
 
+    // Index maintenance belongs to the CPU index, which owns the tombstones.
+    void vacuum() override;
+    [[nodiscard]] std::size_t pending_removals() const noexcept override;
+
     [[nodiscard]] std::expected<void, GpuError>
     build_from_batch(std::span<const float> vectors, std::span<const RecordID> ids,
                      const GpuIndexBuildParams& params) override;

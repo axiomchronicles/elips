@@ -1214,6 +1214,10 @@ PYBIND11_MODULE(_core, m) {
         .def("count",
              [](const elips::Vault& v) { return v.info().count; })
         .def("rebuild_index", &elips::Vault::rebuild_index)
+        .def("vacuum", &elips::Vault::vacuum,
+             "Reclaim index space held by deleted records.")
+        .def_property_readonly("pending_removals",
+                               &elips::Vault::pending_removals)
         .def_property_readonly("name", &elips::Vault::name)
         .def("__repr__", [](const elips::Vault& v) {
             const auto vi = v.info();
@@ -1236,6 +1240,8 @@ PYBIND11_MODULE(_core, m) {
              })
         .def("checkpoint", &elips::ElipsInstance::checkpoint)
         .def("compact", &elips::ElipsInstance::compact)
+        .def("vacuum", &elips::ElipsInstance::vacuum,
+             "Reclaim tombstoned index space across every vault.")
         .def("close", &elips::ElipsInstance::close)
         .def("abandon", &elips::ElipsInstance::abandon)
         .def("query",

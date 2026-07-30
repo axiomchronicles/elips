@@ -118,6 +118,13 @@ public:
     [[nodiscard]] bool read_only() const noexcept;
     void rebuild_index();
 
+    // Reclaim index space held by deleted records. Cheap no-op when there is
+    // nothing tombstoned; the graph index also self-compacts once tombstones
+    // pass GraphParams::compaction_ratio.
+    void vacuum();
+    // Records deleted from the index but not yet reclaimed.
+    [[nodiscard]] std::size_t pending_removals() const noexcept;
+
     // Refuse further mutations. Called when the owning database closes: writes
     // after close would mutate memory that is never checkpointed and never
     // WAL-logged, i.e. silently vanish.
@@ -200,6 +207,9 @@ public:
 
     void checkpoint();
     void compact();
+    // Reclaim tombstoned index space across every vault. Unlike compact(), this
+    // does not rewrite the on-disk snapshot and works on in-memory databases.
+    void vacuum();
     void close();
     void abandon() noexcept;
     [[nodiscard]] WAL* wal() const noexcept { return wal_.get(); }

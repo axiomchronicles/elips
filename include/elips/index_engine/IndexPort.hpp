@@ -34,6 +34,15 @@ public:
 
     [[nodiscard]] virtual std::size_t size() const noexcept = 0;
     [[nodiscard]] virtual std::string_view type_name() const noexcept = 0;
+
+    // Reclaim space held by removed records. Indexes that delete eagerly have
+    // nothing to do; tombstoning indexes (the HNSW graph) rebuild here.
+    virtual void vacuum() {}
+
+    // Records tombstoned but not yet reclaimed. Zero for eager-delete indexes.
+    [[nodiscard]] virtual std::size_t pending_removals() const noexcept {
+        return 0;
+    }
 };
 
 }  // namespace elips
