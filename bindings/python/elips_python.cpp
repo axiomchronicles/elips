@@ -16,12 +16,15 @@
 #include "elips/vector_engine/Metrics.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
+#include "elips/gpu_engine/DynamicBatcher.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
+#include "elips/gpu_engine/GpuMemoryManager.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 #include "elips/gpu_engine/GpuProfiler.hpp"
+#include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #endif
 
 namespace py = pybind11;
@@ -55,6 +58,17 @@ elips::Payload to_payload(const py::dict& data) {
         payload.emplace(key.cast<std::string>(), to_meta(value));
     }
     return payload;
+}
+
+elips::Comparator comparator_from_string(std::string_view name) {
+    if (name == "eq") return elips::Comparator::eq;
+    if (name == "ne") return elips::Comparator::ne;
+    if (name == "lt") return elips::Comparator::lt;
+    if (name == "le") return elips::Comparator::le;
+    if (name == "gt") return elips::Comparator::gt;
+    if (name == "ge" || name == "gte") return elips::Comparator::ge;
+    throw py::value_error(
+        "unknown comparator: expected one of eq, ne, lt, le, gt, ge");
 }
 
 py::dict from_payload(const elips::Payload& payload) {
@@ -99,6 +113,94 @@ struct TransactionHolder {
     TransactionHolder(py::object db, elips::ElipsInstance& instance)
         : db_ref(std::move(db)), txn(instance) {}
 };
+
+#ifdef ELIPS_GPU_ENABLED
+// Owning Python-facing handle for a selected GPU backend.
+//
+// Deliberately narrower than the C++ GpuPort: the raw allocate/upload/download
+// methods traffic in void* plus a caller-supplied byte count, where a wrong
+// size is an out-of-bounds device write rather than an exception. Those stay
+// C++-only. What is exposed here -- device metadata, stream synchronization,
+// the distance and top-k kernels, and memory/profiler telemetry -- is
+// bounds-checked against the array shapes the caller passes in.
+class GpuDeviceHandle {
+public:
+    explicit GpuDeviceHandle(std::unique_ptr<elips::gpu::GpuPort> port)
+        : port_(std::move(port)),
+          memory_(std::make_unique<elips::gpu::GpuMemoryManager>(*port_)) {}
+
+    [[nodiscard]] elips::gpu::GpuPort& port() {
+        if (closed_) {
+            throw elips::StorageError{"GPU device handle is closed"};
+        }
+        return *port_;
+    }
+
+    [[nodiscard]] elips::gpu::GpuMemoryManager& memory() {
+        if (closed_) {
+            throw elips::StorageError{"GPU device handle is closed"};
+        }
+        return *memory_;
+    }
+
+    [[nodiscard]] elips::gpu::GpuProfiler& profiler() noexcept {
+        return profiler_;
+    }
+
+    [[nodiscard]] bool closed() const noexcept { return closed_; }
+
+    void close() noexcept {
+        if (closed_) {
+            return;
+        }
+        closed_ = true;
+        memory_->shutdown();
+        port_->shutdown();
+    }
+
+    ~GpuDeviceHandle() { close(); }
+
+    GpuDeviceHandle(const GpuDeviceHandle&) = delete;
+    GpuDeviceHandle& operator=(const GpuDeviceHandle&) = delete;
+    GpuDeviceHandle(GpuDeviceHandle&&) = delete;
+    GpuDeviceHandle& operator=(GpuDeviceHandle&&) = delete;
+
+private:
+    std::unique_ptr<elips::gpu::GpuPort> port_;
+    std::unique_ptr<elips::gpu::GpuMemoryManager> memory_;
+    elips::gpu::GpuProfiler profiler_;
+    bool closed_{false};
+};
+
+// Turn a GpuError arm of std::expected into a Python exception. Returning a
+// union type would push error handling onto every call site; raising matches
+// how the rest of the binding reports failure.
+void raise_gpu_error(elips::gpu::GpuError error, std::string_view context) {
+    throw elips::StorageError{std::string(context) + " failed: " +
+                              std::string(elips::gpu::to_string(error))};
+}
+
+std::vector<float> flatten_matrix(const py::iterable& rows, std::size_t expected_cols,
+                                  std::size_t& row_count,
+                                  std::string_view label) {
+    std::vector<float> flat;
+    row_count = 0;
+    for (const auto& row : rows) {
+        std::size_t cols = 0;
+        for (const auto& value : py::cast<py::iterable>(row)) {
+            flat.push_back(value.cast<float>());
+            ++cols;
+        }
+        if (expected_cols != 0 && cols != expected_cols) {
+            throw py::value_error(std::string(label) +
+                                  " rows must all have the same length");
+        }
+        expected_cols = cols;
+        ++row_count;
+    }
+    return flat;
+}
+#endif  // ELIPS_GPU_ENABLED
 
 class PythonTextEmbedder final : public elips::TextEmbedderPort {
 public:
@@ -321,6 +423,48 @@ PYBIND11_MODULE(_core, m) {
 
     // =====================  Utility functions  =====================
 
+    m.def("generate_id",
+          [] { return elips::RecordID::generate().to_string(); },
+          R"doc(Generate a fresh record identifier.
+
+Returns:
+    A new unique record ID as a string, suitable for passing as the ``id``
+    argument to :meth:`Vault.place`. Useful when the caller needs to know
+    the identifier before the write happens.
+)doc");
+
+    m.def("is_valid_id",
+          [](const std::string& id) {
+              try {
+                  (void)elips::RecordID::from_string(id);
+                  return true;
+              } catch (const elips::ElipsError&) {
+                  return false;
+              }
+          },
+          py::arg("id"),
+          "Return True when ``id`` is a well-formed record identifier.");
+
+    m.def("normalize",
+          [](const py::iterable& values) {
+              return tuple_from_vector(to_vector(values).normalized());
+          },
+          py::arg("vector"),
+          R"doc(Return ``vector`` scaled to unit length.
+
+A zero vector is returned unchanged. Cosine similarity requires normalized
+inputs; :meth:`Vault.place` and :meth:`Vault.seek` already normalize
+internally when the vault metric needs it, so this is exposed for callers
+doing their own pre-processing.
+)doc");
+
+    m.def("magnitude",
+          [](const py::iterable& values) {
+              return to_vector(values).magnitude();
+          },
+          py::arg("vector"),
+          "Return the Euclidean length (L2 norm) of ``vector``.");
+
     m.def("distance",
           [](const py::object& metric_arg, const py::iterable& a,
              const py::iterable& b) {
@@ -398,18 +542,44 @@ PYBIND11_MODULE(_core, m) {
 
     py::class_<elips::GraphParams>(m, "GraphParams")
         .def(py::init<>())
-        .def(py::init<std::size_t, std::size_t, std::size_t>(),
+        .def(py::init([](std::size_t max_connections, std::size_t ef_construction,
+                         std::size_t ef_search, float compaction_ratio) {
+                 return elips::GraphParams{max_connections, ef_construction,
+                                           ef_search, compaction_ratio};
+             }),
              py::arg("max_connections") = 16,
-             py::arg("ef_construction") = 200, py::arg("ef_search") = 50)
+             py::arg("ef_construction") = 200, py::arg("ef_search") = 50,
+             py::arg("compaction_ratio") = 0.2F,
+             R"doc(Tuning parameters for the HNSW graph index.
+
+Args:
+    max_connections: HNSW ``M``. Neighbours kept per node per layer. Higher
+        values improve recall and increase memory and build time.
+    ef_construction: Beam width during index construction. Higher values
+        build a better-connected graph at the cost of insert throughput.
+    ef_search: Beam width during search. Higher values improve recall at
+        the cost of query latency.
+    compaction_ratio: Fraction of tombstoned nodes that triggers an
+        automatic index rebuild. ``0.0`` disables automatic compaction, in
+        which case call :meth:`Vault.vacuum` explicitly.
+)doc")
         .def_readwrite("max_connections",
-                        &elips::GraphParams::max_connections)
+                        &elips::GraphParams::max_connections,
+                        "HNSW ``M``: neighbours kept per node per layer.")
         .def_readwrite("ef_construction",
-                        &elips::GraphParams::ef_construction)
-        .def_readwrite("ef_search", &elips::GraphParams::ef_search)
+                        &elips::GraphParams::ef_construction,
+                        "Beam width used while building the graph.")
+        .def_readwrite("ef_search", &elips::GraphParams::ef_search,
+                        "Beam width used while searching the graph.")
+        .def_readwrite("compaction_ratio",
+                        &elips::GraphParams::compaction_ratio,
+                        "Tombstone fraction that triggers automatic compaction; "
+                        "0.0 disables it.")
         .def("__repr__", [](const elips::GraphParams& p) {
             return "<GraphParams M=" + std::to_string(p.max_connections) +
                    " ef_c=" + std::to_string(p.ef_construction) +
-                   " ef_s=" + std::to_string(p.ef_search) + ">";
+                   " ef_s=" + std::to_string(p.ef_search) +
+                   " compaction=" + std::to_string(p.compaction_ratio) + ">";
         });
 
     py::class_<elips::LocalTextEmbedderOptions>(m, "LocalEmbedderConfig")
@@ -585,6 +755,46 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("durability_enum", [](const elips::Config& c) {
             return c.durability();
         })
+        .def_property_readonly(
+            "durability_val",
+            [](const elips::Config& c) -> std::string {
+                switch (c.durability()) {
+                    case elips::Durability::paranoid: return "paranoid";
+                    case elips::Durability::standard: return "standard";
+                    case elips::Durability::relaxed: return "relaxed";
+                    case elips::Durability::ephemeral: return "ephemeral";
+                }
+                return "standard";
+            },
+            "Durability level as a string.")
+        .def_property_readonly(
+            "has_gpu",
+            [](const elips::Config& c) {
+#ifdef ELIPS_GPU_ENABLED
+                return c.has_gpu();
+#else
+                (void)c;
+                return false;
+#endif
+            },
+            "True when a GPU policy other than CPU-only is configured.")
+        .def_property_readonly(
+            "has_pending_local_text_embedder",
+            [](const elips::Config& c) {
+                return c.has_pending_local_text_embedder();
+            },
+            "True when a local text embedder is configured but not yet "
+            "instantiated (it is created when the database is opened).")
+        .def_property_readonly(
+            "local_text_embedder_config",
+            [](const elips::Config& c) -> py::object {
+                const auto& options = c.local_text_embedder_options();
+                if (!options.has_value()) {
+                    return py::none();
+                }
+                return py::cast(*options);
+            },
+            "The pending :class:`LocalEmbedderConfig`, or ``None``.")
         .def_property_readonly("access_mode_val",
                                [](const elips::Config& c) -> std::string {
                                    return c.access_mode() ==
@@ -804,7 +1014,360 @@ PYBIND11_MODULE(_core, m) {
     m.def("gpu_devices", []() {
         elips::gpu::GpuDeviceManager manager;
         return manager.probe_all_devices();
-    });
+    },
+    R"doc(Probe every GPU backend compiled into this build.
+
+Returns:
+    A list of :class:`GpuDeviceInfo`, one per usable device. Empty when no
+    compatible device is present, which is the normal case on CPU-only
+    machines -- callers should treat an empty list as "run on the CPU"
+    rather than an error.
+)doc");
+
+    m.def("gpu_cpu_fallback_info", []() {
+        elips::gpu::GpuDeviceManager manager;
+        return manager.cpu_fallback_info();
+    },
+    "Return the synthetic :class:`GpuDeviceInfo` describing the CPU fallback "
+    "path, used when no GPU is selected.");
+
+    m.def("gpu_runtime_device_info", []() {
+        elips::gpu::GpuDeviceManager manager;
+        return manager.runtime_device_info();
+    },
+    "Return :class:`GpuDeviceInfo` for the device this process would select "
+    "right now, or the CPU fallback when there is none.");
+
+    m.def("gpu_can_fit_index",
+          [](const elips::gpu::GpuDeviceInfo& device, std::size_t n_vectors,
+             std::size_t dimension, const elips::gpu::GpuConfig& config) {
+              elips::gpu::GpuDeviceManager manager;
+              return manager.can_fit_index(device, n_vectors, dimension, config);
+          },
+          py::arg("device"), py::arg("n_vectors"), py::arg("dimension"),
+          py::arg("config") = elips::gpu::GpuConfig{},
+          R"doc(Check whether an index of the given shape fits in device memory.
+
+Args:
+    device: Target device, from :func:`gpu_devices`.
+    n_vectors: Number of vectors the index will hold.
+    dimension: Vector dimensionality.
+    config: GPU configuration; its precision and pool settings affect the
+        estimate.
+
+Returns:
+    True when the index is expected to fit. Use this for capacity planning
+    before a large ingest, rather than discovering the limit mid-build.
+)doc");
+
+    m.def("gpu_error_message",
+          [](elips::gpu::GpuError error) {
+              return std::string(elips::gpu::to_string(error));
+          },
+          py::arg("error"),
+          "Return the human-readable name of a :class:`GpuError` value.");
+
+    // =====================  GPU memory / profiling  =====================
+
+    py::class_<elips::gpu::GpuMemoryManager,
+               std::unique_ptr<elips::gpu::GpuMemoryManager, py::nodelete>>(
+        m, "GpuMemory",
+        "Read-only view of a device memory pool. Obtained from "
+        ":attr:`GpuDevice.memory`; allocation itself stays in C++, since a "
+        "Python-held device pointer outliving its pool is unrecoverable.")
+        .def("initialize",
+             [](elips::gpu::GpuMemoryManager& mem, std::size_t pool_bytes) {
+                 const auto result = mem.initialize(pool_bytes);
+                 if (!result.has_value()) {
+                     raise_gpu_error(result.error(), "pool initialization");
+                 }
+             },
+             py::arg("pool_bytes") = 0,
+             "Size the suballocator's pool. ``0`` uses 80% of device memory.")
+        .def_property_readonly("bytes_used",
+                               &elips::gpu::GpuMemoryManager::bytes_used,
+                               "Bytes currently handed out to callers.")
+        .def_property_readonly("bytes_available",
+                               &elips::gpu::GpuMemoryManager::bytes_available,
+                               "Bytes a caller could still obtain: the free "
+                               "list plus uncommitted pool headroom.")
+        .def_property_readonly("peak_bytes_used",
+                               &elips::gpu::GpuMemoryManager::peak_bytes_used,
+                               "High-water mark of :attr:`bytes_used`.")
+        .def("__repr__", [](const elips::gpu::GpuMemoryManager& mem) {
+            return "<GpuMemory used=" + std::to_string(mem.bytes_used()) +
+                   " available=" + std::to_string(mem.bytes_available()) + ">";
+        });
+
+    py::class_<elips::gpu::GpuProfiler,
+               std::unique_ptr<elips::gpu::GpuProfiler, py::nodelete>>(
+        m, "GpuProfiler",
+        "Per-kernel timing log. Obtained from :attr:`GpuDevice.profiler`.")
+        .def("record",
+             [](elips::gpu::GpuProfiler& profiler, const std::string& kernel,
+                std::int64_t duration_us, std::size_t work_items) {
+                 profiler.record(kernel,
+                                 std::chrono::microseconds(duration_us),
+                                 work_items);
+             },
+             py::arg("kernel"), py::arg("duration_us"),
+             py::arg("work_items") = 0,
+             "Record a kernel execution. Exposed so callers can log their own "
+             "GPU work alongside the engine's.")
+        .def("recent_timings", &elips::gpu::GpuProfiler::recent_timings,
+             py::arg("max_count") = 100,
+             "Return up to ``max_count`` recent :class:`KernelTiming` entries, "
+             "newest last.")
+        .def_property_readonly("total_launches",
+                               &elips::gpu::GpuProfiler::total_launches,
+                               "Total kernel launches recorded.")
+        .def("clear", &elips::gpu::GpuProfiler::clear,
+             "Discard all recorded timings.")
+        .def("__repr__", [](const elips::gpu::GpuProfiler& profiler) {
+            return "<GpuProfiler launches=" +
+                   std::to_string(profiler.total_launches()) + ">";
+        });
+
+    py::class_<elips::gpu::DynamicBatcher::BatchStats>(
+        m, "BatchStats",
+        "Coalescing statistics from the dynamic query batcher.")
+        .def(py::init<>())
+        .def_readonly("queries_coalesced",
+                      &elips::gpu::DynamicBatcher::BatchStats::queries_coalesced,
+                      "Queries merged into shared kernel launches.")
+        .def_readonly("kernel_launches",
+                      &elips::gpu::DynamicBatcher::BatchStats::kernel_launches,
+                      "Kernel launches issued.")
+        .def_readonly("avg_batch_size",
+                      &elips::gpu::DynamicBatcher::BatchStats::avg_batch_size,
+                      "Mean queries per launch.")
+        .def_readonly("p99_latency_us",
+                      &elips::gpu::DynamicBatcher::BatchStats::p99_latency_us,
+                      "99th-percentile end-to-end batch latency.")
+        .def("__repr__",
+             [](const elips::gpu::DynamicBatcher::BatchStats& stats) {
+                 return "<BatchStats coalesced=" +
+                        std::to_string(stats.queries_coalesced) +
+                        " launches=" + std::to_string(stats.kernel_launches) +
+                        ">";
+             });
+
+    // =====================  GpuDevice  =====================
+
+    py::class_<GpuDeviceHandle>(m, "GpuDevice", R"doc(A live handle to a selected GPU backend.
+
+Obtain one with :func:`gpu_select`. The handle owns the backend, so keep it
+alive for as long as you use it, and call :meth:`close` (or use it as a
+context manager) when done::
+
+    with elips.gpu_select(cfg) as device:
+        dists = device.compute_distances(queries, database, metric="cosine")
+        idx, vals = device.top_k(dists, k=10)
+
+Raw device allocation, upload, and download are intentionally not exposed:
+they take a caller-supplied byte count against a raw pointer, where a wrong
+value corrupts device memory instead of raising. The kernels below derive
+their sizes from the arrays you pass in.
+)doc")
+        .def_property_readonly(
+            "device_info",
+            [](GpuDeviceHandle& handle) { return handle.port().device_info(); },
+            "The :class:`GpuDeviceInfo` for this backend.")
+        .def_property_readonly(
+            "available",
+            [](GpuDeviceHandle& handle) { return handle.port().is_available(); },
+            "True while the backend is usable.")
+        .def_property_readonly(
+            "idle",
+            [](GpuDeviceHandle& handle) { return handle.port().is_idle(); },
+            "True when no work is outstanding on the device.")
+        .def_property_readonly(
+            "backend",
+            [](GpuDeviceHandle& handle) {
+                return handle.port().device_info().backend;
+            },
+            "Backend name, e.g. ``\"metal\"`` or ``\"cuda\"``.")
+        .def_property_readonly(
+            "memory",
+            [](GpuDeviceHandle& handle) { return &handle.memory(); },
+            py::return_value_policy::reference_internal,
+            "The :class:`GpuMemory` telemetry view for this device.")
+        .def_property_readonly(
+            "profiler",
+            [](GpuDeviceHandle& handle) { return &handle.profiler(); },
+            py::return_value_policy::reference_internal,
+            "The :class:`GpuProfiler` for this device.")
+        .def("synchronize",
+             [](GpuDeviceHandle& handle) {
+                 py::gil_scoped_release release;
+                 handle.port().synchronize();
+             },
+             "Block until all outstanding device work completes.")
+        .def("compute_distances",
+             [](GpuDeviceHandle& handle, const py::iterable& queries,
+                const py::iterable& database, const py::object& metric_arg) {
+                 elips::Metric metric = elips::Metric::cosine;
+                 if (py::isinstance<py::str>(metric_arg)) {
+                     metric = elips::metric_from_string(
+                         metric_arg.cast<std::string>());
+                 } else {
+                     metric = metric_arg.cast<elips::Metric>();
+                 }
+
+                 std::size_t nq = 0;
+                 std::size_t nb = 0;
+                 auto query_flat = flatten_matrix(queries, 0, nq, "queries");
+                 auto db_flat = flatten_matrix(database, 0, nb, "database");
+                 if (nq == 0 || nb == 0) {
+                     throw py::value_error(
+                         "queries and database must both be non-empty");
+                 }
+                 const std::size_t dim = query_flat.size() / nq;
+                 if (db_flat.size() / nb != dim) {
+                     throw elips::DimensionMismatch{
+                         "queries and database have different dimensions"};
+                 }
+
+                 std::vector<float> out(nq * nb);
+                 {
+                     py::gil_scoped_release release;
+                     const auto result = handle.port().compute_distances_batch(
+                         query_flat, db_flat, out, nq, nb, dim, metric);
+                     if (!result.has_value()) {
+                         py::gil_scoped_acquire acquire;
+                         raise_gpu_error(result.error(), "distance computation");
+                     }
+                 }
+
+                 py::list rows;
+                 for (std::size_t q = 0; q < nq; ++q) {
+                     py::list row;
+                     for (std::size_t b = 0; b < nb; ++b) {
+                         row.append(py::float_(out[(q * nb) + b]));
+                     }
+                     rows.append(row);
+                 }
+                 return rows;
+             },
+             py::arg("queries"), py::arg("database"),
+             py::arg("metric") = "cosine",
+             R"doc(Compute all pairwise distances between two batches on the GPU.
+
+Args:
+    queries: Sequence of query vectors, all the same length.
+    database: Sequence of database vectors, same dimension as ``queries``.
+    metric: A :class:`Metric` or one of ``"cosine"``, ``"euclidean"``,
+        ``"dot_product"``.
+
+Returns:
+    A list of ``len(queries)`` rows, each holding ``len(database)``
+    distances, ordering-normalized so smaller always means closer.
+
+Raises:
+    DimensionMismatch: If query and database dimensions differ.
+    StorageError: If the GPU kernel fails.
+)doc")
+        .def("top_k",
+             [](GpuDeviceHandle& handle, const py::iterable& distances,
+                std::size_t k) {
+                 std::size_t nq = 0;
+                 auto flat = flatten_matrix(distances, 0, nq, "distances");
+                 if (nq == 0 || k == 0) {
+                     return py::make_tuple(py::list{}, py::list{});
+                 }
+                 const std::size_t nb = flat.size() / nq;
+                 if (k > nb) {
+                     throw py::value_error(
+                         "k exceeds the number of database entries per row");
+                 }
+
+                 std::vector<std::uint32_t> indices(nq * k);
+                 std::vector<float> values(nq * k);
+                 {
+                     py::gil_scoped_release release;
+                     const auto result = handle.port().top_k(flat, indices,
+                                                             values, nq, nb, k);
+                     if (!result.has_value()) {
+                         py::gil_scoped_acquire acquire;
+                         raise_gpu_error(result.error(), "top-k selection");
+                     }
+                 }
+
+                 py::list index_rows;
+                 py::list value_rows;
+                 for (std::size_t q = 0; q < nq; ++q) {
+                     py::list index_row;
+                     py::list value_row;
+                     for (std::size_t i = 0; i < k; ++i) {
+                         index_row.append(py::int_(indices[(q * k) + i]));
+                         value_row.append(py::float_(values[(q * k) + i]));
+                     }
+                     index_rows.append(index_row);
+                     value_rows.append(value_row);
+                 }
+                 return py::make_tuple(index_rows, value_rows);
+             },
+             py::arg("distances"), py::arg("k"),
+             R"doc(Select the k smallest entries per row on the GPU.
+
+Args:
+    distances: Rows of distances, e.g. the output of
+        :meth:`compute_distances`.
+    k: Number of results per row. Must not exceed the row width.
+
+Returns:
+    A ``(indices, values)`` tuple of parallel row lists, ascending by
+    distance.
+
+Raises:
+    ValueError: If ``k`` exceeds the row width.
+    StorageError: If the GPU kernel fails.
+)doc")
+        .def("close", &GpuDeviceHandle::close,
+             "Release the backend and its memory pool. Idempotent.")
+        .def_property_readonly("closed", &GpuDeviceHandle::closed,
+                               "True once :meth:`close` has run.")
+        .def("__enter__", [](py::object self) { return self; })
+        .def("__exit__",
+             [](GpuDeviceHandle& handle, const py::object&, const py::object&,
+                const py::object&) { handle.close(); })
+        .def("__repr__", [](GpuDeviceHandle& handle) {
+            if (handle.closed()) {
+                return std::string("<GpuDevice closed>");
+            }
+            const auto info = handle.port().device_info();
+            return "<GpuDevice name='" + info.name + "' backend=" +
+                   info.backend + ">";
+        });
+
+    m.def("gpu_select",
+          [](const elips::gpu::GpuConfig& config) -> std::unique_ptr<GpuDeviceHandle> {
+              elips::gpu::GpuDeviceManager manager;
+              const auto devices = manager.probe_all_devices();
+              if (devices.empty()) {
+                  return nullptr;
+              }
+              auto selected = manager.select(config, devices);
+              if (!selected.has_value() || *selected == nullptr) {
+                  return nullptr;
+              }
+              return std::make_unique<GpuDeviceHandle>(std::move(*selected));
+          },
+          py::arg("config") = elips::gpu::GpuConfig{},
+          R"doc(Select and initialize a GPU backend.
+
+Args:
+    config: Selection policy and tuning. The default picks the best
+        available device.
+
+Returns:
+    A :class:`GpuDevice` handle, or ``None`` when no compatible device is
+    present. ``None`` is the expected result on CPU-only machines; check
+    for it rather than assuming a device exists.
+
+The returned handle owns the backend independently of any
+:class:`Database`. Close it when done, or use it as a context manager.
+)doc");
 
     py::class_<elips::gpu::GpuMetricsSnapshot>(m, "GpuMetricsSnapshot")
         .def(py::init<>())
@@ -967,6 +1530,80 @@ PYBIND11_MODULE(_core, m) {
         .def("and_", &elips::Filter::and_)
         .def("or_", &elips::Filter::or_)
         .def_static("not_", &elips::Filter::not_)
+        .def_static("compare",
+                    [](std::string field, const py::object& op,
+                       const py::handle& value) {
+                        elips::Comparator comparator{};
+                        if (py::isinstance<py::str>(op)) {
+                            comparator = comparator_from_string(
+                                op.cast<std::string>());
+                        } else {
+                            comparator = op.cast<elips::Comparator>();
+                        }
+                        return elips::Filter::compare(std::move(field),
+                                                      comparator,
+                                                      to_meta(value));
+                    },
+                    py::arg("field"), py::arg("op"), py::arg("value"),
+                    R"doc(Build a single comparison predicate.
+
+Args:
+    field: Payload key to test.
+    op: A :class:`Comparator` or one of ``"eq"``, ``"ne"``, ``"lt"``,
+        ``"le"``, ``"gt"``, ``"ge"``.
+    value: Value to compare against (``int``, ``float``, ``bool``, ``str``).
+
+Returns:
+    A :class:`Filter` matching records whose ``field`` satisfies ``op``.
+)doc")
+        .def_static("in_set",
+                    [](std::string field, const py::iterable& values) {
+                        std::vector<elips::MetaValue> set;
+                        for (const auto& value : values) {
+                            set.push_back(to_meta(value));
+                        }
+                        return elips::Filter::in_set(std::move(field),
+                                                     std::move(set));
+                    },
+                    py::arg("field"), py::arg("values"),
+                    "Build a predicate matching records whose ``field`` equals "
+                    "any of ``values``.")
+        .def_static("has_substring", &elips::Filter::has_substring,
+                    py::arg("field"), py::arg("substring"),
+                    "Build a predicate matching records whose string ``field`` "
+                    "contains ``substring``.")
+        .def("matches",
+             [](const elips::Filter& f, const py::dict& payload) {
+                 return f.matches(to_payload(payload));
+             },
+             py::arg("payload"),
+             "Evaluate this filter against a payload dict, without touching "
+             "the database. Useful for client-side filtering and tests.")
+        .def("matches_all", &elips::Filter::matches_all,
+             "True when this filter is empty and therefore matches every "
+             "record.")
+        .def("exact_constraints",
+             [](const elips::Filter& f) -> py::object {
+                 const auto constraints = f.exact_constraints();
+                 if (!constraints.has_value()) {
+                     return py::none();
+                 }
+                 py::list out;
+                 for (const auto& [field, values] : *constraints) {
+                     py::list value_list;
+                     for (const auto& value : values) {
+                         value_list.append(from_meta(value));
+                     }
+                     out.append(py::make_tuple(py::str(field), value_list));
+                 }
+                 return out;
+             },
+             R"doc(Equality constraints this filter can satisfy via the metadata index.
+
+Returns:
+    A list of ``(field, [values])`` tuples the query planner can resolve
+    without a scan, or ``None`` when the filter is not index-accelerable.
+)doc")
         .def("__repr__", [](const elips::Filter& f) {
             return f.matches_all() ? "<Filter match-all>"
                                     : "<Filter>";
@@ -1213,12 +1850,41 @@ PYBIND11_MODULE(_core, m) {
              [](const elips::Vault& v) { return v.info(); })
         .def("count",
              [](const elips::Vault& v) { return v.info().count; })
-        .def("rebuild_index", &elips::Vault::rebuild_index)
+        .def("rebuild_index", &elips::Vault::rebuild_index,
+             "Rebuild the index from the authoritative record store. Useful "
+             "after bulk loads, or to recover index quality after heavy churn.")
         .def("vacuum", &elips::Vault::vacuum,
              "Reclaim index space held by deleted records.")
+        .def("records",
+             [](const elips::Vault& v) {
+                 py::list out;
+                 for (const auto& [id, record] : v.records()) {
+                     (void)id;
+                     out.append(record_to_dict(record));
+                 }
+                 return out;
+             },
+             R"doc(Snapshot every record in this vault.
+
+Returns a list of record dicts. This copies the whole vault, so prefer
+:meth:`scan` with a filter or ``limit`` for large vaults.
+)doc")
+        .def("set_read_only", &elips::Vault::set_read_only,
+             py::arg("read_only"),
+             "Toggle runtime read-only mode. While read-only, any mutation "
+             "raises :class:`StorageError`.")
+        .def_property_readonly("read_only", &elips::Vault::read_only,
+                               "True when this vault refuses mutations.")
+        .def_property_readonly(
+            "sealed", &elips::Vault::sealed,
+            "True once the owning database has been closed. Writes to a "
+            "sealed vault raise instead of silently failing to persist.")
         .def_property_readonly("pending_removals",
-                               &elips::Vault::pending_removals)
-        .def_property_readonly("name", &elips::Vault::name)
+                               &elips::Vault::pending_removals,
+                               "Records deleted from the index but not yet "
+                               "reclaimed. See :meth:`vacuum`.")
+        .def_property_readonly("name", &elips::Vault::name,
+                               "This vault's name.")
         .def("__repr__", [](const elips::Vault& v) {
             const auto vi = v.info();
             return "<Vault name='" + v.name() +
