@@ -1,10 +1,16 @@
 #include "elips/storage/WAL.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <cerrno>
 #include <cstring>
+#include <fstream>
 #include <iterator>
 #include <sstream>
 
 #include "elips/domain/Errors.hpp"
+#include "elips/storage/FileSync.hpp"
 #include "elips/storage/Serialization.hpp"
 
 namespace elips {
@@ -43,22 +49,48 @@ std::string encode_body(const WAL::Entry& entry) {
 
 WAL::WAL(std::filesystem::path path, bool sync_each_write)
     : path_(std::move(path)), sync_each_write_(sync_each_write) {
-    out_.open(path_, std::ios::binary | std::ios::app);
-    if (!out_) {
+    fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd_ < 0) {
         throw StorageError{"cannot open WAL for appending"};
+    }
+}
+
+WAL::~WAL() {
+    if (fd_ >= 0) {
+        ::close(fd_);
+    }
+}
+
+void WAL::write_all(const char* data, std::size_t size) {
+    std::size_t written = 0;
+    while (written < size) {
+        const ssize_t n = ::write(fd_, data + written, size - written);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw StorageError{"WAL append failed"};
+        }
+        written += static_cast<std::size_t>(n);
     }
 }
 
 void WAL::append(const Entry& entry) {
     const std::string body = encode_body(entry);
     const std::uint32_t crc = detail::crc32c(body.data(), body.size());
-    out_.write(body.data(), static_cast<std::streamsize>(body.size()));
-    detail::put<std::uint32_t>(out_, crc);
+    // One write() per record so a crash can only ever truncate the tail, never
+    // interleave two records.
+    std::string record = body;
+    record.append(reinterpret_cast<const char*>(&crc), sizeof(crc));
+    write_all(record.data(), record.size());
     if (sync_each_write_) {
-        out_.flush();  // hand off to the OS before acknowledging the write
+        detail::sync_file_data(fd_);  // reach stable storage before acknowledging
     }
-    if (!out_) {
-        throw StorageError{"WAL append failed"};
+}
+
+void WAL::sync() {
+    if (fd_ >= 0) {
+        detail::sync_file_data(fd_);
     }
 }
 
@@ -77,13 +109,65 @@ void WAL::append_erase(const std::string& vault, const RecordID& id) {
                  std::nullopt});
 }
 
+void WAL::append_txn_begin() {
+    append(Entry{Op::txn_begin, {}, RecordID{}, {}, {}, std::nullopt,
+                 std::nullopt, std::nullopt});
+}
+
+void WAL::append_txn_commit() {
+    append(Entry{Op::txn_commit, {}, RecordID{}, {}, {}, std::nullopt,
+                 std::nullopt, std::nullopt});
+}
+
 void WAL::reset() {
-    out_.close();
-    out_.open(path_, std::ios::binary | std::ios::trunc);
-    if (!out_) {
+    if (fd_ >= 0) {
+        ::close(fd_);
+    }
+    fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_ < 0) {
         throw StorageError{"cannot truncate WAL"};
     }
+    detail::sync_file_data(fd_);
+    detail::sync_directory(path_.parent_path());
 }
+
+namespace {
+
+// Read-only streambuf over an existing buffer: lets replay() parse each record
+// in place instead of copying the remaining log tail per iteration (which made
+// replay O(n^2) in record count).
+class SpanBuf final : public std::streambuf {
+public:
+    SpanBuf(const char* data, std::size_t size) {
+        auto* base = const_cast<char*>(data);
+        setg(base, base, base + size);
+    }
+
+protected:
+    pos_type seekoff(off_type off, std::ios_base::seekdir dir,
+                     std::ios_base::openmode which) override {
+        if ((which & std::ios_base::in) == 0) {
+            return pos_type(off_type(-1));
+        }
+        off_type target = off;
+        if (dir == std::ios_base::cur) {
+            target += gptr() - eback();
+        } else if (dir == std::ios_base::end) {
+            target += egptr() - eback();
+        }
+        if (target < 0 || target > egptr() - eback()) {
+            return pos_type(off_type(-1));
+        }
+        setg(eback(), eback() + target, egptr());
+        return pos_type(target);
+    }
+
+    pos_type seekpos(pos_type pos, std::ios_base::openmode which) override {
+        return seekoff(off_type(pos), std::ios_base::beg, which);
+    }
+};
+
+}  // namespace
 
 std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
     std::vector<Entry> entries;
@@ -113,29 +197,35 @@ std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
         if (!read_u32(magic) || magic != wal_magic) {
             break;  // corrupt/truncated tail: stop cleanly
         }
-        std::istringstream body(std::string(blob.data() + record_start, remaining() + 4),
-                                std::ios::binary);
+        SpanBuf buf(blob.data() + record_start, n - record_start);
+        std::istream body(&buf);
         // Re-parse from the record start using a stream view.
         body.seekg(static_cast<std::streamoff>(4));  // skip magic (validated)
-        const auto op = static_cast<Op>(detail::get<std::uint8_t>(body));
         Entry entry;
-        entry.op = op;
-        entry.vault = detail::get_string(body);
-        RecordID::Bytes id_bytes{};
-        body.read(reinterpret_cast<char*>(id_bytes.data()),
-                  static_cast<std::streamsize>(id_bytes.size()));
-        entry.id = RecordID{id_bytes};
-        if (op == Op::insert || op == Op::insert_ex) {
-            const auto dim = detail::get<std::uint16_t>(body);
-            entry.vector.resize(dim);
-            body.read(reinterpret_cast<char*>(entry.vector.data()),
-                      static_cast<std::streamsize>(dim) * sizeof(float));
-            entry.payload = detail::get_payload(body);
-            if (op == Op::insert_ex) {
-                entry.document = detail::get_document_attachment(body);
-                entry.chunk = detail::get_chunk_info(body);
-                entry.lineage = detail::get_embedding_lineage(body);
+        try {
+            const auto op = static_cast<Op>(detail::get<std::uint8_t>(body));
+            entry.op = op;
+            entry.vault = detail::get_string(body);
+            RecordID::Bytes id_bytes{};
+            body.read(reinterpret_cast<char*>(id_bytes.data()),
+                      static_cast<std::streamsize>(id_bytes.size()));
+            entry.id = RecordID{id_bytes};
+            if (op == Op::insert || op == Op::insert_ex) {
+                const auto dim = detail::get<std::uint16_t>(body);
+                detail::check_length(
+                    body, static_cast<std::uint64_t>(dim) * sizeof(float));
+                entry.vector.resize(dim);
+                body.read(reinterpret_cast<char*>(entry.vector.data()),
+                          static_cast<std::streamsize>(dim) * sizeof(float));
+                entry.payload = detail::get_payload(body);
+                if (op == Op::insert_ex) {
+                    entry.document = detail::get_document_attachment(body);
+                    entry.chunk = detail::get_chunk_info(body);
+                    entry.lineage = detail::get_embedding_lineage(body);
+                }
             }
+        } catch (const StorageError&) {
+            break;  // malformed record: treat like a corrupt tail
         }
         if (!body) {
             break;  // truncated record
@@ -154,7 +244,36 @@ std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
         entries.push_back(std::move(entry));
         pos = record_start + body_len + 4;
     }
-    return entries;
+
+    // Apply transaction framing: ops inside an unterminated txn_begin..(no
+    // commit) window never happened as far as recovery is concerned.
+    std::vector<Entry> applied;
+    applied.reserve(entries.size());
+    std::vector<Entry> pending;
+    bool in_txn = false;
+    for (auto& entry : entries) {
+        switch (entry.op) {
+            case Op::txn_begin:
+                in_txn = true;
+                pending.clear();
+                break;
+            case Op::txn_commit:
+                for (auto& op : pending) {
+                    applied.push_back(std::move(op));
+                }
+                pending.clear();
+                in_txn = false;
+                break;
+            default:
+                if (in_txn) {
+                    pending.push_back(std::move(entry));
+                } else {
+                    applied.push_back(std::move(entry));
+                }
+                break;
+        }
+    }
+    return applied;
 }
 
 }  // namespace elips

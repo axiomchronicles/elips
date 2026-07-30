@@ -106,7 +106,16 @@ public:
     }
     void set_wal(WAL* wal) noexcept { wal_ = wal; }
     void set_read_only(bool read_only) noexcept { read_only_ = read_only; }
+    [[nodiscard]] bool read_only() const noexcept { return read_only_; }
     void rebuild_index();
+
+    // Transaction rollback hook: restores one record to a prior state (or
+    // removes it when `previous` is empty) touching only in-memory structures.
+    // Deliberately skips the WAL and the read-only guard -- the WAL's
+    // transaction markers already exclude the uncommitted batch from replay,
+    // and undo must work even when the WAL write is what failed.
+    void restore_for_undo(const RecordID& id,
+                          const std::optional<Record>& previous);
 
 private:
     [[nodiscard]] QueryPlan plan_seek(
@@ -157,6 +166,7 @@ public:
     void compact();
     void close();
     void abandon() noexcept { closed_ = true; }
+    [[nodiscard]] WAL* wal() const noexcept { return wal_.get(); }
 
     [[nodiscard]] const Config& config() const noexcept { return config_; }
 
@@ -224,7 +234,11 @@ public:
         return TransactionVault{*this, name};
     }
 
+    // Applies every enqueued op or none: a failure partway through (read-only
+    // vault, disk-full WAL write) undoes the ops already applied and rethrows.
     void commit();
+    // Discards the batch. Safe to call after a failed commit(); the failed
+    // commit has already restored the pre-batch state.
     void rollback() noexcept { ops_.clear(); done_ = true; }
 
 private:
@@ -236,9 +250,16 @@ private:
         Payload payload;
         std::optional<RecordID> id;
     };
+    // What the vault held before an op was applied, so it can be restored.
+    struct UndoEntry {
+        std::string vault;
+        RecordID id;
+        std::optional<Record> previous;  // nullopt = record did not exist
+    };
     void enqueue_place(std::string vault, const Vector& vector, Payload payload,
                        std::optional<RecordID> id);
     void enqueue_erase(std::string vault, const RecordID& id);
+    void undo(const std::vector<UndoEntry>& entries) noexcept;
 
     ElipsInstance* db_;
     std::vector<PendingOp> ops_;

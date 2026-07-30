@@ -30,6 +30,46 @@ T get(std::istream& in) {
     return value;
 }
 
+// Bytes left before end-of-stream, or -1 when the stream is not seekable (in
+// which case callers fall back to the hard cap below).
+inline std::streamoff stream_remaining(std::istream& in) {
+    if (!in) {
+        return 0;
+    }
+    const std::streampos cur = in.tellg();
+    if (cur < 0) {
+        return -1;
+    }
+    in.seekg(0, std::ios::end);
+    const std::streampos end = in.tellg();
+    in.seekg(cur, std::ios::beg);
+    if (end < cur) {
+        return 0;
+    }
+    return end - cur;
+}
+
+// Ceiling for a single length-prefixed field on a non-seekable stream. Any
+// legitimate string/blob in this format is far smaller.
+constexpr std::uint64_t max_field_bytes = 64ULL * 1024 * 1024;
+
+// Reject a length prefix that cannot possibly be satisfied by the remaining
+// bytes, *before* allocating for it. Corrupt or hostile input would otherwise
+// request up to 4 GiB (or spin a 4-billion-iteration loop) ahead of the CRC
+// check that is supposed to catch it.
+inline void check_length(std::istream& in, std::uint64_t bytes_needed) {
+    const std::streamoff avail = stream_remaining(in);
+    if (avail < 0) {
+        if (bytes_needed > max_field_bytes) {
+            throw StorageError{"length prefix exceeds maximum field size"};
+        }
+        return;
+    }
+    if (bytes_needed > static_cast<std::uint64_t>(avail)) {
+        throw StorageError{"length prefix exceeds remaining input"};
+    }
+}
+
 inline void put_string(std::ostream& out, const std::string& s) {
     put<std::uint32_t>(out, static_cast<std::uint32_t>(s.size()));
     out.write(s.data(), static_cast<std::streamsize>(s.size()));
@@ -37,8 +77,12 @@ inline void put_string(std::ostream& out, const std::string& s) {
 
 inline std::string get_string(std::istream& in) {
     const auto len = get<std::uint32_t>(in);
+    check_length(in, len);
     std::string s(len, '\0');
     in.read(s.data(), static_cast<std::streamsize>(len));
+    if (!in) {
+        throw StorageError{"truncated string field"};
+    }
     return s;
 }
 
@@ -63,7 +107,12 @@ inline void put_payload(std::ostream& out, const Payload& payload) {
 inline Payload get_payload(std::istream& in) {
     Payload payload;
     const auto count = get<std::uint32_t>(in);
+    // Cheapest possible entry is 4-byte key length + 1-byte tag + 1-byte value.
+    check_length(in, static_cast<std::uint64_t>(count) * 6ULL);
     for (std::uint32_t i = 0; i < count; ++i) {
+        if (!in) {
+            throw StorageError{"truncated payload"};
+        }
         std::string key = get_string(in);
         const auto tag = get<std::uint8_t>(in);
         switch (tag) {
@@ -82,6 +131,9 @@ inline Payload get_payload(std::istream& in) {
             default:
                 throw StorageError{"unknown payload value type tag"};
         }
+    }
+    if (!in) {
+        throw StorageError{"truncated payload"};
     }
     return payload;
 }

@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -13,13 +13,20 @@
 
 namespace elips {
 
-// Write-ahead log: every mutation is appended (and flushed) before it is
-// acknowledged, so writes survive a crash before the next checkpoint. On open
-// the log is replayed on top of the last snapshot. Truncated/corrupt tail
-// records are detected via CRC32C and cleanly dropped (no partial apply).
+// Write-ahead log: every mutation is appended and (unless durability is
+// relaxed) fsync'd before it is acknowledged, so writes survive both a process
+// crash and an OS crash / power loss before the next checkpoint. On open the log
+// is replayed on top of the last snapshot. Truncated/corrupt tail records are
+// detected via CRC32C and cleanly dropped (no partial apply).
 class WAL {
 public:
-    enum class Op : std::uint8_t { insert = 1, erase = 3, insert_ex = 4 };
+    enum class Op : std::uint8_t {
+        insert = 1,
+        erase = 3,
+        insert_ex = 4,
+        txn_begin = 5,
+        txn_commit = 6,
+    };
 
     struct Entry {
         Op op{Op::insert};
@@ -33,6 +40,12 @@ public:
     };
 
     explicit WAL(std::filesystem::path path, bool sync_each_write = true);
+    ~WAL();
+
+    WAL(const WAL&) = delete;
+    WAL& operator=(const WAL&) = delete;
+    WAL(WAL&&) = delete;
+    WAL& operator=(WAL&&) = delete;
 
     void append_insert(const std::string& vault, const RecordID& id,
                        std::span<const float> vector, const Payload& payload,
@@ -40,6 +53,16 @@ public:
                        const std::optional<ChunkInfo>& chunk = std::nullopt,
                        const std::optional<EmbeddingLineage>& lineage = std::nullopt);
     void append_erase(const std::string& vault, const RecordID& id);
+
+    // Transaction framing. Records between begin and commit are only applied on
+    // replay if the matching commit marker is present, so a crash (or an I/O
+    // failure) partway through a batch cannot resurrect half of it.
+    void append_txn_begin();
+    void append_txn_commit();
+
+    // Force any buffered records to stable storage (used before checkpointing
+    // and by relaxed durability on close).
+    void sync();
 
     // Truncate the log (called after a checkpoint has durably captured state).
     void reset();
@@ -50,9 +73,10 @@ public:
 
 private:
     void append(const Entry& entry);
+    void write_all(const char* data, std::size_t size);
 
     std::filesystem::path path_;
-    std::ofstream out_;
+    int fd_{-1};
     bool sync_each_write_{true};
 };
 

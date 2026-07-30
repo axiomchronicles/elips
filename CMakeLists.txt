@@ -111,6 +111,7 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/filter_edge_test.cpp
         tests/unit/scan_test.cpp
         tests/unit/durability_test.cpp
+        tests/unit/m1_durability_atomicity_test.cpp
         tests/unit/eql_edge_test.cpp
         tests/integration/roundtrip_test.cpp
         tests/integration/local_text_embedder_test.cpp

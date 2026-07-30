@@ -16,6 +16,7 @@
 #include "elips/domain/Errors.hpp"
 #include "elips/index_engine/IndexFactory.hpp"
 #include "elips/kernel/LockManager.hpp"
+#include "elips/storage/FileSync.hpp"
 #include "elips/storage/Serialization.hpp"
 #include "elips/storage/WAL.hpp"
 #include "elips/vector_engine/Metrics.hpp"
@@ -211,7 +212,7 @@ void write_text_embedder_manifest(const fs::path& path,
         }
     }
 
-    fs::rename(tmp, path / text_embedder_file);
+    detail::durable_rename(tmp, path / text_embedder_file);
 }
 
 std::optional<PersistedTextEmbedder> read_text_embedder_manifest(
@@ -452,15 +453,19 @@ Record get_record(std::istream& in, bool with_extras) {
 }
 
 void write_identity(const fs::path& file, const Config& config) {
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        throw StorageError{"cannot write IDENTITY"};
+    {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            throw StorageError{"cannot write IDENTITY"};
+        }
+        put<std::uint32_t>(out, identity_magic);
+        put<std::uint32_t>(out, snapshot_version);
+        put<std::uint16_t>(out, config.dimension());
+        put<std::uint8_t>(out, static_cast<std::uint8_t>(config.metric()));
+        put<std::uint8_t>(out, static_cast<std::uint8_t>(config.index()));
     }
-    put<std::uint32_t>(out, identity_magic);
-    put<std::uint32_t>(out, snapshot_version);
-    put<std::uint16_t>(out, config.dimension());
-    put<std::uint8_t>(out, static_cast<std::uint8_t>(config.metric()));
-    put<std::uint8_t>(out, static_cast<std::uint8_t>(config.index()));
+    detail::sync_file_path(file);
+    detail::sync_directory(file.parent_path());
 }
 
 Identity read_identity(const fs::path& file) {
@@ -504,7 +509,7 @@ void write_snapshot_file(
         }
     }
 
-    fs::rename(tmp, path / snapshot_file);
+    detail::durable_rename(tmp, path / snapshot_file);
 }
 
 void write_segment_file(const fs::path& file, const std::string& vault_name,
@@ -549,7 +554,7 @@ void write_manifest_file(const fs::path& path, const Config& config,
         }
     }
 
-    fs::rename(tmp, path / manifest_file);
+    detail::durable_rename(tmp, path / manifest_file);
 }
 
 std::vector<SegmentManifestEntry> read_manifest_file(const fs::path& file) {
@@ -1080,6 +1085,26 @@ bool Vault::erase(const RecordID& id) {
     return true;
 }
 
+void Vault::restore_for_undo(const RecordID& id,
+                             const std::optional<Record>& previous) {
+    const auto existing = records_.find(id);
+    if (existing != records_.end()) {
+        if (config_.metadata_acceleration()) {
+            metadata_index_.remove(id, existing->second.payload);
+        }
+        index_->remove(id);
+        records_.erase(existing);
+    }
+    if (!previous.has_value()) {
+        return;
+    }
+    index_->insert(id, previous->vector.values());
+    if (config_.metadata_acceleration()) {
+        metadata_index_.insert(id, previous->payload);
+    }
+    records_[id] = *previous;
+}
+
 void Vault::rebuild_index() {
     ensure_writable();
 
@@ -1201,7 +1226,7 @@ void ElipsInstance::checkpoint() {
             const fs::path tmp_path = segments_root / (file_name + ".tmp");
             const fs::path final_path = segments_root / file_name;
             write_segment_file(tmp_path, name, *vault);
-            fs::rename(tmp_path, final_path);
+            detail::durable_rename(tmp_path, final_path);
             entries.push_back(SegmentManifestEntry{name, file_name});
         }
 
@@ -1386,14 +1411,57 @@ void Transaction::enqueue_erase(std::string vault, const RecordID& id) {
     ops_.push_back(PendingOp{true, std::move(vault), Vector{}, Payload{}, id});
 }
 
-void Transaction::commit() {
-    for (auto& op : ops_) {
-        Vault& vault = db_->vault(op.vault);
-        if (op.is_erase) {
-            vault.erase(*op.id);
-        } else {
-            vault.place(op.vector, op.payload, op.id);
+void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
+    // Reverse order so repeated writes to the same id land on the oldest state.
+    for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+        try {
+            db_->vault(it->vault).restore_for_undo(it->id, it->previous);
+        } catch (...) {
+            // Undo is a best-effort in-memory operation on structures that were
+            // just successfully mutated; nothing here can be usefully retried.
         }
+    }
+}
+
+void Transaction::commit() {
+    // Eager checks that cover every failure mode we can see before mutating:
+    // vault existence and writability. Runtime I/O failure is still possible,
+    // which is what the undo log below is for.
+    for (const auto& op : ops_) {
+        if (db_->vault(op.vault).read_only()) {
+            throw StorageError{"vault is opened in read-only mode"};
+        }
+    }
+
+    WAL* wal = db_->wal();
+    if (wal != nullptr) {
+        wal->append_txn_begin();
+    }
+
+    std::vector<UndoEntry> undo_log;
+    undo_log.reserve(ops_.size());
+    try {
+        for (auto& op : ops_) {
+            Vault& vault = db_->vault(op.vault);
+            const RecordID target =
+                op.id.value_or(op.is_erase ? RecordID{} : RecordID::generate());
+            undo_log.push_back(
+                UndoEntry{op.vault, target, vault.fetch(target)});
+            if (op.is_erase) {
+                vault.erase(target);
+            } else {
+                vault.place(op.vector, op.payload, target);
+            }
+        }
+    } catch (...) {
+        undo(undo_log);
+        // No commit marker is written, so replay discards the WAL records this
+        // batch already appended.
+        throw;
+    }
+
+    if (wal != nullptr) {
+        wal->append_txn_commit();
     }
     ops_.clear();
     done_ = true;
