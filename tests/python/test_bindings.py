@@ -902,7 +902,15 @@ def test_public_facades_and_structured_record_api():
     assert pulled[3].document is not None
     assert pulled[3].text == "gamma note"
 
-    hit = arena.probe_text("alpha", top=1, include_vectors=True)[0]
+    # "alpha note" and the legacy record both embed to [1.0, 0.0], so they tie
+    # at distance 0.0 and the winner is decided by record-ID ordering, which is
+    # random. Filter to the record under test rather than asserting on the tie.
+    hit = arena.probe_text(
+        "alpha",
+        top=1,
+        include_vectors=True,
+        where=elips.Filter().field("kind").equals("alpha"),
+    )[0]
     assert hit.document is not None
     assert hit.text == "alpha note"
     assert len(hit.vector) == 2

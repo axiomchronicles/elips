@@ -12,23 +12,35 @@ Examples::
 """
 
 from ._modern import (
+    Accelerator,
+    AcceleratorSpec,
     Arena,
+    ArenaHealth,
     Embedder,
     Engine,
     Hit,
     RecordInput,
     Row,
+    WalRecord,
+    accelerator,
+    accelerators,
     connect,
     connect_with_config,
 )
 
 __all__ = [
+    "Accelerator",
+    "AcceleratorSpec",
     "Arena",
+    "ArenaHealth",
     "Embedder",
     "Engine",
     "Hit",
     "RecordInput",
     "Row",
+    "WalRecord",
+    "accelerator",
+    "accelerators",
     "connect",
     "connect_with_config",
 ]

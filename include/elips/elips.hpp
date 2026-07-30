@@ -215,6 +215,10 @@ public:
     [[nodiscard]] WAL* wal() const noexcept { return wal_.get(); }
 
     [[nodiscard]] const Config& config() const noexcept { return config_; }
+    // Directory this database was opened from, or ":memory:".
+    [[nodiscard]] const std::string& path() const noexcept { return path_; }
+    [[nodiscard]] bool persistent() const noexcept { return persistent_; }
+    [[nodiscard]] bool closed() const noexcept { return closed_; }
 
 #ifdef ELIPS_GPU_ENABLED
     [[nodiscard]] gpu::GpuDeviceInfo gpu_info() const;

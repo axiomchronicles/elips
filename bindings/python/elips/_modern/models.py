@@ -346,4 +346,149 @@ class Hit:
         return self.document.text
 
 
-__all__ = ["Hit", "RecordInput", "Row"]
+@dataclass(frozen=True, slots=True)
+class WalRecord:
+    r"""WalRecord(*, op, arena, key, vector=None, meta=None, document=None, chunk=None, lineage=None) -> WalRecord
+
+    One acknowledged write-ahead log record, as returned by
+    :meth:`elips.Engine.pending_writes`.
+
+    Args:
+        op ("insert" | "erase" | "insert_ex"): Kind of mutation. Transaction
+            markers are resolved during replay and never surface here.
+        arena (str): Arena the mutation targeted.
+        key (str): Record identifier.
+        vector (tuple[float, ...], optional): Stored vector; empty for erases.
+            Default: ``None``.
+        meta (dict[str, MetaValue], optional): Metadata payload. Default:
+            ``None``.
+        document (DocumentAttachment, optional): Attached document. Default:
+            ``None``.
+        chunk (ChunkInfo, optional): Chunk lineage. Default: ``None``.
+        lineage (EmbeddingLineage, optional): Embedding provenance. Default:
+            ``None``.
+
+    Examples::
+
+        >>> import elips
+        >>> record = elips.WalRecord(op="insert", arena="documents", key="abc")
+        >>> record.is_delete
+        False
+    """
+
+    op: str
+    arena: str
+    key: str
+    vector: tuple[float, ...] | None = None
+    meta: dict[str, MetaValue] | None = None
+    document: DocumentAttachment | None = None
+    chunk: ChunkInfo | None = None
+    lineage: EmbeddingLineage | None = None
+
+    @property
+    def is_delete(self) -> bool:
+        r"""is_delete -> bool
+
+        True when this record removed a key rather than writing one.
+
+        Examples::
+
+            >>> import elips
+            >>> elips.WalRecord(op="erase", arena="a", key="k").is_delete
+            True
+        """
+
+        return self.op == "erase"
+
+    @classmethod
+    def from_entry(cls, entry: Any) -> WalRecord:
+        r"""from_entry(entry) -> WalRecord
+
+        Build a typed record from a low-level :class:`elips.WalEntry`.
+
+        Args:
+            entry (WalEntry): Entry produced by :func:`elips.replay_wal`.
+
+        Returns:
+            WalRecord: Typed, immutable view of the same record.
+        """
+
+        return cls(
+            op=entry.op.name,
+            arena=entry.vault,
+            key=entry.id,
+            vector=tuple(entry.vector) or None,
+            meta=dict(entry.data) or None,
+            document=entry.document,
+            chunk=entry.chunk,
+            lineage=entry.lineage,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ArenaHealth:
+    r"""ArenaHealth(*, name, live, pending_removals, dimension, metric, read_only, sealed) -> ArenaHealth
+
+    A point-in-time health snapshot of one arena, from
+    :meth:`elips.Arena.health`.
+
+    Args:
+        name (str): Arena name.
+        live (int): Records currently searchable.
+        pending_removals (int): Deleted records not yet reclaimed. Tombstones
+            occupy the search beam and hold memory until compaction, so a large
+            value relative to ``live`` is a signal to call
+            :meth:`elips.Arena.vacuum`.
+        dimension (int): Vector dimension.
+        metric ("cosine" | "euclidean" | "dot_product"): Similarity metric.
+        read_only (bool): Whether the arena currently refuses writes.
+        sealed (bool): Whether the owning engine has been closed.
+
+    Examples::
+
+        >>> import elips
+        >>> engine = elips.connect(":memory:", dimension=2)
+        >>> arena = engine.arena("documents")
+        >>> _ = arena.write(vector=[1.0, 0.0])
+        >>> health = arena.health()
+        >>> (health.live, health.pending_removals)
+        (1, 0)
+        >>> engine.close()
+    """
+
+    name: str
+    live: int
+    pending_removals: int
+    dimension: int
+    metric: str
+    read_only: bool
+    sealed: bool
+
+    @property
+    def tombstone_ratio(self) -> float:
+        r"""tombstone_ratio -> float
+
+        Fraction of graph nodes that are tombstones, in ``[0.0, 1.0]``.
+
+        Compare against the arena's configured ``compaction_ratio`` to predict
+        whether the next delete will trigger an automatic rebuild.
+
+        Examples::
+
+            >>> import elips
+            >>> health = elips.ArenaHealth(
+            ...     name="a", live=8, pending_removals=2,
+            ...     dimension=2, metric="cosine",
+            ...     read_only=False, sealed=False,
+            ... )
+            >>> health.tombstone_ratio
+            0.2
+        """
+
+        total = self.live + self.pending_removals
+        if total == 0:
+            return 0.0
+        return self.pending_removals / total
+
+
+__all__ = ["ArenaHealth", "Hit", "RecordInput", "Row", "WalRecord"]

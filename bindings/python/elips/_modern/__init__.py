@@ -13,16 +13,23 @@ Examples::
 from .arena import Arena
 from .connect import connect, connect_with_config
 from .engine import Engine
-from .models import Hit, RecordInput, Row
+from .gpu import Accelerator, AcceleratorSpec, accelerator, accelerators
+from .models import ArenaHealth, Hit, RecordInput, Row, WalRecord
 from .typing import Embedder
 
 __all__ = [
+    "Accelerator",
+    "AcceleratorSpec",
     "Arena",
+    "ArenaHealth",
     "Embedder",
     "Engine",
     "Hit",
     "RecordInput",
     "Row",
+    "WalRecord",
+    "accelerator",
+    "accelerators",
     "connect",
     "connect_with_config",
 ]

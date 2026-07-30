@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from ..core import Config, Database
+import os
+from types import TracebackType
+
+from ..core import Config, Database, replay_wal
 from .arena import Arena
+from .models import WalRecord
 from .typing import Embedder
 
 DEFAULT_TEXT_SLOT = "__elips_text__"
@@ -110,10 +114,89 @@ class Engine:
 
         self._db.compact()
 
+    def vacuum(self) -> None:
+        r"""vacuum() -> None
+
+        Reclaim index space held by deleted records across every arena.
+
+        Deletes leave tombstones so graph navigation stays intact. Each arena
+        compacts itself once tombstones pass its configured
+        ``compaction_ratio``, but after a bulk delete it is worth reclaiming
+        immediately. Unlike :meth:`compact`, this does not rewrite the on-disk
+        snapshot and works on in-memory databases.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> arena = engine.arena("documents")
+            >>> key = arena.write(text="alpha note")
+            >>> _ = arena.discard([key])
+            >>> engine.vacuum()
+            >>> arena.pending_removals
+            0
+            >>> engine.close()
+        """
+
+        self._db.vacuum()
+
+    def vault_names(self) -> list[str]:
+        r"""vault_names() -> list[str]
+
+        Return the names of every arena that currently exists.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> _ = engine.arena("documents").write(text="alpha note")
+            >>> engine.vault_names()
+            ['documents']
+            >>> engine.close()
+        """
+
+        return self._db.list_vaults()
+
+    def pending_writes(self) -> list[WalRecord]:
+        r"""pending_writes() -> list[WalRecord]
+
+        Read this database's write-ahead log without mutating anything.
+
+        Returns every record the log acknowledged, in log order. Records inside
+        an unterminated transaction are omitted, matching what recovery would
+        apply, and a corrupt tail is dropped rather than raised. Returns an
+        empty list for in-memory databases, and after :meth:`checkpoint`, which
+        truncates the log.
+
+        Returns:
+            list[WalRecord]: Acknowledged log records.
+
+        Examples::
+
+            >>> import elips, tempfile
+            >>> path = tempfile.mkdtemp()
+            >>> engine = elips.connect(path, dimension=2)
+            >>> _ = engine.arena("documents").write(vector=[1.0, 0.0])
+            >>> [record.op for record in engine.pending_writes()]
+            ['insert']
+            >>> engine.close()
+        """
+
+        path = self._db.path
+        if not path or path == ":memory:":
+            return []
+        wal_path = os.path.join(path, "wal.log")
+        if not os.path.exists(wal_path):
+            return []
+        return [WalRecord.from_entry(entry) for entry in replay_wal(wal_path)]
+
     def close(self) -> None:
         r"""close() -> None
 
         Close the underlying database handle.
+
+        Checkpoints, releases the cross-process lock, and seals every arena so
+        later writes raise instead of silently failing to persist.
         """
 
         self._db.close()
@@ -121,7 +204,12 @@ class Engine:
     def __enter__(self) -> Engine:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
 

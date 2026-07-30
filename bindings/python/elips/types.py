@@ -11,7 +11,7 @@ Examples::
 """
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, Union
 
 if TYPE_CHECKING:
     from .core import ChunkInfo, DocumentAttachment, EmbeddingLineage
@@ -22,10 +22,31 @@ Vector = Sequence[float]
 PayloadLike = Mapping[str, MetaValue]
 Metadata = dict[str, MetaValue]
 
+# A batch of vectors: rows of equal length, as accepted by the GPU kernels.
+VectorBatch = Sequence[Vector]
+# Rows of distances, as returned by GpuDevice.compute_distances.
+DistanceMatrix = Sequence[Sequence[float]]
+
 # Literal-friendly names used by the pure-Python facade
 MetricName = Literal["cosine", "euclidean", "dot_product"]
 IndexName = Literal["graph", "exact"]
 AccessModeName = Literal["read_write", "read_only"]
+DurabilityName = Literal["paranoid", "standard", "relaxed", "ephemeral"]
+ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
+GpuPolicyName = Literal["auto", "prefer_gpu", "require_gpu", "cpu_only", "specific"]
+GpuAlgorithmName = Literal["auto", "cagra", "ivf_flat", "ivf_pq", "brute_force"]
+GpuPrecisionName = Literal["fp32", "fp16", "int8", "auto"]
+WalOpName = Literal["insert", "erase", "insert_ex", "txn_begin", "txn_commit"]
+
+
+class TextEmbedderFn(Protocol):
+    r"""Callable accepted by ``Config.text_embedder`` and ``open(embedder=...)``.
+
+    Receives a batch of strings and must return one vector per input, in order,
+    all of the database's dimension.
+    """
+
+    def __call__(self, texts: Sequence[str], /) -> Sequence[Vector]: ...
 
 
 class RecordInputDict(TypedDict, total=False):
@@ -67,11 +88,19 @@ FetchResult = StoredRecord
 ScanResult = StoredRecord
 QueryBindings = Mapping[str, Vector]
 RecordDict = BatchRecord
+# (indices, values) as returned by GpuDevice.top_k.
+TopKResult = tuple[Sequence[Sequence[int]], Sequence[Sequence[float]]]
 
 __all__ = [
     "AccessModeName",
     "BatchRecord",
+    "ComparatorName",
+    "DistanceMatrix",
+    "DurabilityName",
     "FetchResult",
+    "GpuAlgorithmName",
+    "GpuPolicyName",
+    "GpuPrecisionName",
     "IndexName",
     "MetaValue",
     "Metadata",
@@ -82,5 +111,9 @@ __all__ = [
     "RecordInputDict",
     "ScanResult",
     "StoredRecord",
+    "TextEmbedderFn",
+    "TopKResult",
     "Vector",
+    "VectorBatch",
+    "WalOpName",
 ]

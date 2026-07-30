@@ -15,7 +15,7 @@ from ..core import (
 )
 from ..types import PayloadLike, StoredRecord, Vector
 from ._records import build_record_inputs_from_columns, coerce_record_input
-from .models import Hit, RecordInput, Row
+from .models import ArenaHealth, Hit, RecordInput, Row
 from .typing import Embedder, RecordInputLike
 
 
@@ -98,6 +98,8 @@ class Arena:
     @overload
     def write(
         self,
+        record: None = ...,
+        /,
         *,
         vector: Vector | None = ...,
         text: str | None = ...,
@@ -264,6 +266,8 @@ class Arena:
     @overload
     def ingest(
         self,
+        records: None = ...,
+        /,
         *,
         vectors: Sequence[Vector | None] | None = ...,
         texts: Sequence[str | None] | None = ...,
@@ -394,8 +398,12 @@ class Arena:
             >>> engine.close()
         """
 
+        # Route explicitly: `ingest` overloads the structured and
+        # column-oriented forms as mutually exclusive, so forwarding both
+        # argument groups in one call matches neither signature.
+        if records is not None:
+            return self.ingest(records)
         return self.ingest(
-            records,
             vectors=vectors,
             texts=texts,
             meta=meta,
@@ -703,6 +711,157 @@ class Arena:
         for key in victims:
             removed += int(self._vault.erase(key))
         return removed
+
+    # ---- maintenance and introspection ----
+
+    @property
+    def pending_removals(self) -> int:
+        r"""pending_removals -> int
+
+        Records deleted from the index but not yet reclaimed.
+
+        Deletes are tombstones: the node stays in the graph as a routing
+        waypoint so live neighbours do not become unreachable. Search widens its
+        beam to compensate, so recall holds, but the vectors and edges keep
+        consuming memory until compaction.
+
+        The index compacts itself as soon as tombstones reach its configured
+        ``compaction_ratio``, so on a small arena this often reads ``0``
+        immediately after a delete.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> arena = engine.arena("documents")
+            >>> keys = [arena.write(vector=[float(i), 1.0]) for i in range(20)]
+            >>> _ = arena.discard(keys[:2])        # 2/20 = 0.1, under the 0.2 default
+            >>> arena.pending_removals
+            2
+            >>> engine.close()
+        """
+
+        return self._vault.pending_removals
+
+    @property
+    def read_only(self) -> bool:
+        r"""read_only -> bool
+
+        Whether this arena currently refuses writes.
+        """
+
+        return self._vault.read_only
+
+    @property
+    def sealed(self) -> bool:
+        r"""sealed -> bool
+
+        Whether the owning engine has been closed.
+
+        Writes to a sealed arena raise :class:`elips.StorageError` rather than
+        succeeding and then failing to persist.
+        """
+
+        return self._vault.sealed
+
+    def freeze(self, frozen: bool = True) -> None:
+        r"""freeze(frozen=True) -> None
+
+        Make this arena reject writes, or allow them again.
+
+        Useful while serving a snapshot you do not want mutated, without
+        reopening the whole database read-only.
+
+        Args:
+            frozen (bool, optional): ``True`` to refuse writes. Default:
+                ``True``.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> arena = engine.arena("documents")
+            >>> arena.freeze()
+            >>> try:
+            ...     arena.write(vector=[1.0, 0.0])
+            ... except elips.StorageError:
+            ...     print("refused")
+            refused
+            >>> arena.freeze(False)
+            >>> isinstance(arena.write(vector=[1.0, 0.0]), str)
+            True
+            >>> engine.close()
+        """
+
+        self._vault.set_read_only(frozen)
+
+    def vacuum(self) -> None:
+        r"""vacuum() -> None
+
+        Reclaim index space held by deleted records in this arena.
+
+        The index compacts itself once tombstones pass its configured
+        ``compaction_ratio``, so routine churn needs no intervention. Call this
+        after a bulk delete, when waiting for the threshold would hold a large
+        amount of dead memory.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> arena = engine.arena("documents")
+            >>> keys = [arena.write(vector=[float(i), 1.0]) for i in range(20)]
+            >>> _ = arena.discard(keys[:2])
+            >>> arena.vacuum()
+            >>> arena.pending_removals
+            0
+            >>> engine.close()
+        """
+
+        self._vault.vacuum()
+
+    def rebuild(self) -> None:
+        r"""rebuild() -> None
+
+        Rebuild the index from the authoritative record store.
+
+        Worth doing after a bulk load, since inserting in arrival order yields a
+        lower-quality graph than rebuilding once the full set is known.
+        """
+
+        self._vault.rebuild_index()
+
+    def health(self) -> ArenaHealth:
+        r"""health() -> ArenaHealth
+
+        Return a point-in-time health snapshot of this arena.
+
+        Returns:
+            ArenaHealth: Live count, tombstone count, dimension, metric, and
+            lifecycle flags.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=2)
+            >>> arena = engine.arena("documents")
+            >>> _ = arena.write(vector=[1.0, 0.0])
+            >>> health = arena.health()
+            >>> (health.live, health.tombstone_ratio)
+            (1, 0.0)
+            >>> engine.close()
+        """
+
+        info = self._vault.info()
+        return ArenaHealth(
+            name=self._vault.name,
+            live=info.count,
+            pending_removals=self._vault.pending_removals,
+            dimension=info.dimension,
+            metric=info.metric,
+            read_only=self._vault.read_only,
+            sealed=self._vault.sealed,
+        )
 
     def _resolve_vectors(
         self,

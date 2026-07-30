@@ -890,7 +890,53 @@ Returns:
 
     // =====================  Config  =====================
 
-    py::class_<elips::Config>(m, "Config")
+    py::class_<elips::Config>(m, "Config", R"doc(A fluent builder for everything fixed at database-open time.
+
+Use this instead of :func:`open`'s keyword arguments when you need durability,
+graph tuning, segmented storage, or GPU settings. Pass the result to
+:func:`open_with_config`.
+
+Dimension, metric, and index type become part of the database's persisted
+identity: reopening with conflicting values raises ``ConfigError`` rather than
+silently reinterpreting stored vectors.
+
+Example:
+    Tune for a write-heavy ingest, then reopen the same database read-only for
+    serving -- the two-phase pattern behind most production deployments::
+
+        import elips
+
+        # 1. Ingest phase: relaxed durability trades crash safety for
+        #    throughput, since the source data can be replayed. A wide
+        #    ef_construction builds a higher-recall graph once, up front.
+        ingest_cfg = (elips.Config()
+                      .dimension(768)
+                      .metric("cosine")
+                      .index("graph")
+                      .durability("relaxed")
+                      .graph_params(elips.GraphParams(
+                          max_connections=32,      # denser graph, better recall
+                          ef_construction=400,
+                          ef_search=100,
+                          compaction_ratio=0.0,    # no compaction mid-ingest
+                      ))
+                      .segmented_storage(True)     # per-vault segment files
+                      .metadata_acceleration(True))
+
+        db = elips.open_with_config("/data/index", ingest_cfg)
+        ...                                        # bulk load
+        db.compact()                               # rebuild + checkpoint
+        db.close()
+
+        # 2. Serving phase: read-only takes a shared lock, so many worker
+        #    processes can serve the same directory concurrently.
+        serve_cfg = elips.Config().access_mode("read_only")
+        db = elips.open_with_config("/data/index", serve_cfg)
+
+        # 3. Dimension and metric come from the persisted identity; they do not
+        #    need repeating, and conflicting values would raise ConfigError.
+        print(db.config().dimension_val, db.config().metric_val)
+)doc")
         .def(py::init<>())
         .def("dimension",
              [](elips::Config& c, std::uint16_t dim) -> elips::Config& {
@@ -1754,7 +1800,50 @@ The returned handle owns the backend independently of any
 
     // =====================  Filter  =====================
 
-    py::class_<elips::Filter>(m, "Filter")
+    py::class_<elips::Filter>(m, "Filter", R"doc(A metadata predicate applied during search and scan.
+
+Two styles, which compose:
+
+* fluent builder -- ``Filter().field("year").ge(2023)``; chained predicates are
+  AND-ed together
+* static leaf factories -- :meth:`compare`, :meth:`in_set`,
+  :meth:`has_substring` -- combined with :meth:`and_`, :meth:`or_`, :meth:`not_`
+
+Equality and set predicates can be served straight from the metadata index
+(see :meth:`exact_constraints`), which lets the planner skip the vector scan
+entirely. Range and substring predicates are evaluated per candidate.
+
+Example:
+    Build a tenant-scoped filter, check it before issuing the query, and reuse
+    it for client-side validation::
+
+        import elips
+
+        # 1. Hard tenant scope, AND-ed with a freshness window.
+        scope = (elips.Filter()
+                 .field("tenant").equals("acme")
+                 .field("year").ge(2023))
+
+        # 2. OR in a second branch: either tier is acceptable.
+        tier = elips.Filter.in_set("tier", ["pro", "enterprise"])
+        where = scope.and_(tier)
+
+        # 3. Before running an expensive query, confirm the planner can use
+        #    the metadata index rather than falling back to a full scan.
+        if where.exact_constraints() is None:
+            print("warning: this filter needs a scan")
+
+        hits = db.vault("docs").seek(query_vector, top=10, where=where)
+
+        # 4. The same filter object evaluates payloads locally -- handy for
+        #    testing, or for filtering results that arrived from elsewhere.
+        assert where.matches({"tenant": "acme", "year": 2024, "tier": "pro"})
+        assert not where.matches({"tenant": "other", "year": 2024, "tier": "pro"})
+
+        # 5. Negation wraps a whole subtree.
+        exclude_drafts = elips.Filter.not_(
+            elips.Filter().field("status").equals("draft"))
+)doc")
         .def(py::init<>())
         .def("field", &elips::Filter::field,
              py::return_value_policy::reference_internal)
@@ -1921,7 +2010,59 @@ Returns:
     // =====================  Vault  =====================
 
     py::class_<elips::Vault, std::unique_ptr<elips::Vault, py::nodelete>>(
-        m, "Vault")
+        m, "Vault", R"doc(A named partition of records: the unit of search.
+
+A vault owns one index and one record store. Records in a vault share a
+dimension and metric, inherited from the database. Vaults are created lazily by
+:meth:`Database.vault`, so there is no separate "create collection" step.
+
+Thread safety: every method is safe to call concurrently. Readers share access;
+writers exclude. A background ingest thread and a request-handling thread pool
+can share one vault without external locking.
+
+Example:
+    A full ingest and retrieval cycle, including the parts most tutorials skip
+    -- metadata filtering, deletion, and index maintenance::
+
+        import elips
+
+        db = elips.open("/data/kb", dimension=384, metric="cosine")
+        chunks = db.vault("chunks")
+
+        # 1. Ingest. Payload keys are indexed for filtering, so put anything
+        #    you will filter on here rather than only in the document text.
+        ids = []
+        for page, text in enumerate(pages):
+            ids.append(chunks.place(
+                embed(text),                       # your embedding model
+                {"doc": "handbook", "page": page, "public": True},
+            ))
+
+        # 2. Retrieve, restricted to public handbook pages. The filter is
+        #    applied inside the search and the beam widens automatically when
+        #    the filter is selective, so you still get `top` results back.
+        hits = chunks.seek(
+            embed("how do I request leave?"),
+            top=5,
+            where=elips.Filter().field("doc").equals("handbook")
+                                .field("public").equals(True),
+        )
+        for hit in hits:
+            print(f"{hit.distance:.4f}  page {hit.data['page']}")
+
+        # 3. The document was updated: drop its old chunks.
+        for rid in ids:
+            chunks.erase(rid)
+
+        # 4. Deletes are tombstones. The index self-compacts once they pass
+        #    GraphParams.compaction_ratio, but after a bulk delete it is worth
+        #    reclaiming immediately.
+        print("tombstones:", chunks.pending_removals)
+        chunks.vacuum()
+        print("after vacuum:", chunks.pending_removals)
+
+        db.close()
+)doc")
         .def("place",
              [](elips::Vault& v, const py::iterable& vector,
                 const py::dict& data, const py::object& id,
@@ -2165,7 +2306,56 @@ Returns a list of record dicts. This copies the whole vault, so prefer
 
     // =====================  Database  =====================
 
-    py::class_<elips::ElipsInstance>(m, "Database")
+    py::class_<elips::ElipsInstance>(m, "Database", R"doc(A database handle: one per directory, owning every vault and all persistence.
+
+Durability model: writes are appended to a write-ahead log and ``fsync``'d
+before :meth:`Vault.place` returns, so an acknowledged write survives an OS
+crash or power loss. :meth:`checkpoint` folds the log into a snapshot.
+:meth:`close` checkpoints, releases the cross-process lock, and seals every
+vault so later writes raise instead of silently vanishing.
+
+Concurrency: a ``flock`` keeps other processes out; in-process reader/writer
+locks make the handle safe to share across threads.
+
+Example:
+    Batch ingest with atomic transactions, then verify durability across a
+    reopen -- the shape of a real ingest job::
+
+        import elips
+
+        db = elips.open("/data/catalog", dimension=768, metric="cosine")
+
+        # 1. Batch writes in a transaction. Either every record in the batch
+        #    lands or none does: a disk-full error mid-batch rolls back the
+        #    records already applied, and a crash mid-commit recovers to the
+        #    pre-batch state.
+        for batch in chunked(products, 1000):
+            with db.begin_transaction() as txn:
+                shelf = txn.vault("products")
+                for product in batch:
+                    shelf.place(embed(product.text), {"sku": product.sku})
+            # commit() runs on a clean __exit__; an exception rolls back.
+
+        # 2. Fold the WAL into a snapshot so recovery has less to replay.
+        db.checkpoint()
+
+        # 3. Query with EQL when the query text comes from elsewhere -- a
+        #    saved report, a config file, an API request.
+        rows = db.query(
+            'seek in products nearest $q top 10 where sku = "A-1" yield',
+            {"q": embed("wireless keyboard")},
+        )
+
+        # 4. Rebuild indexes and reclaim tombstones, then close cleanly.
+        db.compact()
+        db.close()
+
+        # 5. Reopening reads the snapshot plus any WAL tail. The dimension and
+        #    metric come from the persisted identity, so they need not be
+        #    repeated -- and conflicting values raise ConfigError.
+        db = elips.open("/data/catalog")
+        print(db.vault("products").count())
+)doc")
         .def("vault", &elips::ElipsInstance::vault,
              py::return_value_policy::reference_internal)
         .def("list_vaults", &elips::ElipsInstance::list_vaults)
@@ -2181,6 +2371,15 @@ Returns a list of record dicts. This copies the whole vault, so prefer
              "Reclaim tombstoned index space across every vault.")
         .def("close", &elips::ElipsInstance::close)
         .def("abandon", &elips::ElipsInstance::abandon)
+        .def_property_readonly(
+            "path", &elips::ElipsInstance::path,
+            "The directory this database was opened from, or ``\":memory:\"``.")
+        .def_property_readonly(
+            "persistent", &elips::ElipsInstance::persistent,
+            "False for in-memory databases, which have no WAL or snapshot.")
+        .def_property_readonly(
+            "closed", &elips::ElipsInstance::closed,
+            "True once :meth:`close` or :meth:`abandon` has run.")
         .def("query",
              [](elips::ElipsInstance& db, const std::string& eql,
                 const py::dict& bindings) {

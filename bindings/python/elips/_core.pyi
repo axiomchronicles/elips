@@ -1,11 +1,38 @@
 from enum import IntEnum
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Union
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    TypedDict,
+    Union,
+)
 
 # -- Type aliases --------------------------------------------------------------
 
 MetaValue = Union[bool, int, float, str]
 Vector = Sequence[float]
 PayloadLike = Mapping[str, MetaValue]
+
+MetricName = Literal["cosine", "euclidean", "dot_product"]
+IndexName = Literal["graph", "exact"]
+DurabilityName = Literal["paranoid", "standard", "relaxed", "ephemeral"]
+AccessModeName = Literal["read_write", "read_only"]
+ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
+
+class StoredRecord(TypedDict):
+    """Record mapping returned by :meth:`Vault.fetch`, :meth:`Vault.scan`, and
+    :meth:`Vault.records`."""
+
+    id: str
+    vector: tuple[float, ...]
+    data: dict[str, MetaValue]
+    document: Optional["DocumentAttachment"]
+    chunk: Optional["ChunkInfo"]
+    lineage: Optional["EmbeddingLineage"]
 
 # -- Error hierarchy ----------------------------------------------------------
 
@@ -37,58 +64,58 @@ class ParseError(ElipsError):
 
 class Metric(IntEnum):
     """Similarity metrics supported by ELIPS."""
-    cosine: int
-    euclidean: int
-    dot_product: int
+    cosine = ...
+    euclidean = ...
+    dot_product = ...
 
 class IndexType(IntEnum):
     """Index backends."""
-    graph: int
-    exact: int
+    graph = ...
+    exact = ...
 
 class Durability(IntEnum):
     """Durability levels trading write throughput against crash safety."""
-    paranoid: int
-    standard: int
-    relaxed: int
-    ephemeral: int
+    paranoid = ...
+    standard = ...
+    relaxed = ...
+    ephemeral = ...
 
 class Comparator(IntEnum):
     """Metadata comparison operators."""
-    eq: int
-    ne: int
-    lt: int
-    le: int
-    gt: int
-    ge: int
+    eq = ...
+    ne = ...
+    lt = ...
+    le = ...
+    gt = ...
+    ge = ...
 
 class AccessMode(IntEnum):
     """Database access mode."""
-    read_write: int
-    read_only: int
+    read_write = ...
+    read_only = ...
 
 class QueryStrategy(IntEnum):
     """Planner strategy chosen for a query."""
-    ann_index: int
-    exact_candidates: int
-    full_scan: int
-    text_probe: int
-    hybrid_fusion: int
+    ann_index = ...
+    exact_candidates = ...
+    full_scan = ...
+    text_probe = ...
+    hybrid_fusion = ...
 
 class TextEmbedderKind(IntEnum):
     """Runtime kind of text embedder attached to the database."""
-    external: int
-    local_builtin: int
+    external = ...
+    local_builtin = ...
 
 # -- EQL token types ----------------------------------------------------------
 
 class TokenKind(IntEnum):
     """EQL token categories."""
-    word: int
-    number: int
-    string: int
-    punct: int
-    end: int
+    word = ...
+    number = ...
+    string = ...
+    punct = ...
+    end = ...
 
 class Token:
     """A single EQL token produced by the lexer."""
@@ -109,6 +136,7 @@ class GraphParams:
         max_connections: int = 16,
         ef_construction: int = 200,
         ef_search: int = 50,
+        compaction_ratio: float = 0.2,
     ) -> None: ...
 
     max_connections: int
@@ -119,6 +147,9 @@ class GraphParams:
 
     ef_search: int
     """Beam width during search."""
+
+    compaction_ratio: float
+    """Tombstone fraction that triggers automatic compaction; 0.0 disables it."""
 
     def __repr__(self) -> str: ...
 
@@ -228,6 +259,18 @@ class Config:
     def auto_text_embedder_enabled(self) -> bool:
         """Return whether automatic default local embedding is enabled."""
     @property
+    def durability_val(self) -> str:
+        """Get the durability level as a string."""
+    @property
+    def has_gpu(self) -> bool:
+        """True when a GPU policy other than CPU-only is configured."""
+    @property
+    def has_pending_local_text_embedder(self) -> bool:
+        """True when a local embedder is configured but not yet instantiated."""
+    @property
+    def local_text_embedder_config(self) -> Optional[LocalEmbedderConfig]:
+        """The pending local embedder configuration, or None."""
+    @property
     def has_text_embedder(self) -> bool:
         """Return whether a text embedder is configured."""
     @property
@@ -243,49 +286,49 @@ class Config:
 
 class GpuPolicy(IntEnum):
     """GPU usage policy."""
-    auto: int
-    prefer_gpu: int
-    require_gpu: int
-    cpu_only: int
-    specific: int
+    auto = ...
+    prefer_gpu = ...
+    require_gpu = ...
+    cpu_only = ...
+    specific = ...
 
 class IndexBuildMode(IntEnum):
     """GPU index build vs. serve mode."""
-    gpu_build_cpu_serve: int
-    gpu_build_gpu_serve: int
-    hybrid: int
+    gpu_build_cpu_serve = ...
+    gpu_build_gpu_serve = ...
+    hybrid = ...
 
 class GpuIndexAlgorithm(IntEnum):
     """GPU index algorithm selection."""
-    auto: int
-    cagra: int
-    ivf_flat: int
-    ivf_pq: int
-    brute_force: int
+    auto = ...
+    cagra = ...
+    ivf_flat = ...
+    ivf_pq = ...
+    brute_force = ...
 
 class GpuPrecision(IntEnum):
     """GPU computation precision."""
-    fp32: int
-    fp16: int
-    int8: int
-    auto: int
+    fp32 = ...
+    fp16 = ...
+    int8 = ...
+    auto = ...
 
 class GpuError(IntEnum):
     """GPU error codes."""
-    device_not_found: int
-    insufficient_memory: int
-    kernel_launch_failed: int
-    transfer_failed: int
-    index_build_failed: int
-    unsupported_metric: int
-    initialization_failed: int
-    backend_unavailable: int
+    device_not_found = ...
+    insufficient_memory = ...
+    kernel_launch_failed = ...
+    transfer_failed = ...
+    index_build_failed = ...
+    unsupported_metric = ...
+    initialization_failed = ...
+    backend_unavailable = ...
 
 class GraphBuildAlgo(IntEnum):
     """Graph index build algorithm."""
-    ivf_pq: int
-    nn_descent: int
-    iterative_search: int
+    ivf_pq = ...
+    nn_descent = ...
+    iterative_search = ...
 
 class GraphIndexBuildParams:
     """Parameters for GPU graph index construction."""
@@ -544,6 +587,31 @@ class Filter:
     @staticmethod
     def not_(inner: "Filter") -> "Filter": ...
 
+    @staticmethod
+    def compare(
+        field: str,
+        op: Union[Comparator, ComparatorName],
+        value: MetaValue,
+    ) -> "Filter":
+        """Build a single comparison predicate."""
+
+    @staticmethod
+    def in_set(field: str, values: Iterable[MetaValue]) -> "Filter":
+        """Build a predicate matching records whose field equals any value."""
+
+    @staticmethod
+    def has_substring(field: str, substring: str) -> "Filter":
+        """Build a predicate matching records whose string field contains substring."""
+
+    def matches(self, payload: PayloadLike) -> bool:
+        """Evaluate this filter against a payload dict, without touching the database."""
+
+    def matches_all(self) -> bool:
+        """True when this filter is empty and therefore matches every record."""
+
+    def exact_constraints(self) -> Optional[list[tuple[str, list[MetaValue]]]]:
+        """Equality constraints resolvable via the metadata index, or None."""
+
     def __repr__(self) -> str: ...
 
 # -- TransactionVault ---------------------------------------------------------
@@ -738,6 +806,34 @@ class Vault:
     def rebuild_index(self) -> None:
         """Rebuild the backing index from authoritative stored records."""
 
+    def vacuum(self) -> None:
+        """Reclaim index space held by deleted records."""
+
+    def records(self) -> list[StoredRecord]:
+        """Snapshot every record in this vault.
+
+        Copies the whole vault; prefer :meth:`scan` with a filter or limit for
+        large vaults.
+        """
+
+    def set_read_only(self, read_only: bool) -> None:
+        """Toggle runtime read-only mode. Mutations then raise StorageError."""
+
+    @property
+    def read_only(self) -> bool:
+        """True when this vault refuses mutations."""
+
+    @property
+    def sealed(self) -> bool:
+        """True once the owning database has been closed.
+
+        Writes to a sealed vault raise rather than silently failing to persist.
+        """
+
+    @property
+    def pending_removals(self) -> int:
+        """Records deleted from the index but not yet reclaimed by vacuum()."""
+
     def __repr__(self) -> str: ...
 
 # -- Database -----------------------------------------------------------------
@@ -767,14 +863,33 @@ class Database:
     def compact(self) -> None:
         """Compact persistent state and rebuild indexes."""
 
+    def vacuum(self) -> None:
+        """Reclaim tombstoned index space across every vault.
+
+        Unlike :meth:`compact`, this does not rewrite the on-disk snapshot and
+        works on in-memory databases.
+        """
+
     def close(self) -> None:
-        """Checkpoint and release the lock."""
+        """Checkpoint, release the lock, and seal every vault against writes."""
 
     def abandon(self) -> None:
         """Drop handle without checkpointing (simulates crash exit).
 
         Only the WAL remains on disk. The next open() recovers via WAL replay.
         """
+
+    @property
+    def path(self) -> str:
+        """The directory this database was opened from, or ``":memory:"``."""
+
+    @property
+    def persistent(self) -> bool:
+        """False for in-memory databases, which have no WAL or snapshot."""
+
+    @property
+    def closed(self) -> bool:
+        """True once :meth:`close` or :meth:`abandon` has run."""
 
     def query(
         self, eql: str, bindings: Mapping[str, Vector] = ...
@@ -874,7 +989,585 @@ def tokenize_eql(source: str) -> list[Token]:
     """
 
 def gpu_devices() -> list[GpuDeviceInfo]:
-    """Probe all compile-time-enabled GPU backends and return detected devices."""
+    """Probe every GPU backend compiled into this build.
+
+    Returns:
+        One :class:`GpuDeviceInfo` per usable device. An empty list is the
+        normal result on CPU-only machines and should be treated as "run on
+        the CPU", not as an error.
+
+    Example:
+        Pick a device and size an index to it before ingesting::
+
+            import elips
+
+            devices = elips.gpu_devices()
+            if not devices:
+                print("no GPU; the CPU HNSW index will be used")
+            else:
+                dev = devices[0]
+                print(f"{dev.name} ({dev.backend}) {dev.memory_gb:.1f} GiB")
+
+                cfg = elips.GpuConfig()
+                cfg.policy = elips.GpuPolicy.prefer_gpu
+                cfg.algorithm = elips.GpuIndexAlgorithm.ivf_pq
+
+                # 2M vectors of 768 floats: will it fit in VRAM?
+                if elips.gpu_can_fit_index(dev, 2_000_000, 768, cfg):
+                    db = elips.open("/data/vectors", dimension=768, gpu=cfg)
+                else:
+                    cfg.algorithm = elips.GpuIndexAlgorithm.ivf_pq
+                    cfg.ivf_pq_params.pq_bits = 4   # compress harder
+                    db = elips.open("/data/vectors", dimension=768, gpu=cfg)
+    """
+
+def gpu_cpu_fallback_info() -> GpuDeviceInfo:
+    """Return the synthetic device info describing the CPU fallback path."""
+
+def gpu_runtime_device_info() -> GpuDeviceInfo:
+    """Return info for the device this process would select right now.
+
+    Falls back to :func:`gpu_cpu_fallback_info` when no GPU is present, so the
+    result is always usable for logging.
+    """
+
+def gpu_can_fit_index(
+    device: GpuDeviceInfo,
+    n_vectors: int,
+    dimension: int,
+    config: GpuConfig = ...,
+) -> bool:
+    """Check whether an index of the given shape fits in device memory.
+
+    Args:
+        device: Target device, from :func:`gpu_devices`.
+        n_vectors: Number of vectors the index will hold.
+        dimension: Vector dimensionality.
+        config: GPU configuration; precision and pool settings affect the estimate.
+
+    Returns:
+        True when the index is expected to fit.
+
+    Use this for capacity planning before a large ingest, rather than
+    discovering the limit part-way through a multi-hour build.
+    """
+
+def gpu_error_message(error: GpuError) -> str:
+    """Return the human-readable name of a :class:`GpuError` value."""
+
+def gpu_select(config: GpuConfig = ...) -> Optional[GpuDevice]:
+    """Select and initialize a GPU backend.
+
+    Args:
+        config: Selection policy and tuning. The default picks the best
+            available device.
+
+    Returns:
+        A :class:`GpuDevice` handle, or ``None`` when no compatible device is
+        present. Check for ``None`` rather than assuming a device exists.
+
+    The handle owns the backend independently of any :class:`Database`, so it
+    can be used for standalone GPU work.
+
+    Example:
+        Brute-force top-k over an in-memory matrix, entirely on the GPU --
+        the FAISS ``IndexFlatIP`` pattern, without an index object::
+
+            import elips
+
+            device = elips.gpu_select()
+            if device is None:
+                raise SystemExit("this example needs a GPU")
+
+            with device:
+                # 1. Size the pool up front so the suballocator does not have
+                #    to grow mid-run.
+                device.memory.initialize(512 * 1024 * 1024)
+
+                # 2. Your corpus and queries as plain nested sequences.
+                corpus = [[0.1, 0.2, 0.9], [0.9, 0.1, 0.0], [0.0, 1.0, 0.0]]
+                queries = [[0.1, 0.2, 0.88], [0.85, 0.15, 0.0]]
+
+                # 3. One kernel launch computes every pairwise distance.
+                #    Result is len(queries) rows x len(corpus) columns.
+                dists = device.compute_distances(queries, corpus, metric="cosine")
+
+                # 4. A second kernel selects the nearest 2 per row.
+                indices, values = device.top_k(dists, k=2)
+                for qi, (row_idx, row_val) in enumerate(zip(indices, values)):
+                    print(f"query {qi}: {list(zip(row_idx, row_val))}")
+
+                # 5. Telemetry: what did that cost?
+                print("peak VRAM bytes:", device.memory.peak_bytes_used)
+                print("kernel launches:", device.profiler.total_launches)
+    """
+
+# -- GPU device handle --------------------------------------------------------
+
+class GpuMemory:
+    """Read-only view of a device memory pool.
+
+    Obtained from :attr:`GpuDevice.memory`. Allocation itself stays in C++: a
+    Python-held device pointer that outlives its pool is unrecoverable, so only
+    pool sizing and telemetry are exposed.
+    """
+
+    def initialize(self, pool_bytes: int = 0) -> None:
+        """Size the suballocator's pool. ``0`` uses 80% of device memory."""
+
+    @property
+    def bytes_used(self) -> int:
+        """Bytes currently handed out to callers."""
+    @property
+    def bytes_available(self) -> int:
+        """Bytes still obtainable: free list plus uncommitted pool headroom."""
+    @property
+    def peak_bytes_used(self) -> int:
+        """High-water mark of :attr:`bytes_used`."""
+    def __repr__(self) -> str: ...
+
+class GpuProfiler:
+    """Per-kernel timing log. Obtained from :attr:`GpuDevice.profiler`."""
+
+    def record(self, kernel: str, duration_us: int, work_items: int = 0) -> None:
+        """Record a kernel execution, so caller GPU work appears alongside the engine's."""
+
+    def recent_timings(self, max_count: int = 100) -> list[KernelTiming]:
+        """Return up to ``max_count`` recent timings, newest last."""
+
+    @property
+    def total_launches(self) -> int:
+        """Total kernel launches recorded."""
+    def clear(self) -> None:
+        """Discard all recorded timings."""
+    def __repr__(self) -> str: ...
+
+class BatchStats:
+    """Coalescing statistics from the dynamic query batcher."""
+
+    def __init__(self) -> None: ...
+
+    queries_coalesced: int
+    """Queries merged into shared kernel launches."""
+    kernel_launches: int
+    """Kernel launches issued."""
+    avg_batch_size: float
+    """Mean queries per launch."""
+    p99_latency_us: float
+    """99th-percentile end-to-end batch latency."""
+
+    def __repr__(self) -> str: ...
+
+class GpuDevice:
+    """A live handle to a selected GPU backend.
+
+    Obtain one with :func:`gpu_select`. The handle owns the backend, so keep it
+    alive while in use and close it when done -- ideally via ``with``.
+
+    Raw device allocation, upload, and download are intentionally absent: they
+    take a caller-supplied byte count against a raw pointer, where a wrong
+    value corrupts device memory instead of raising. The kernels below derive
+    every size from the arrays passed in.
+    """
+
+    @property
+    def device_info(self) -> GpuDeviceInfo:
+        """The device metadata for this backend."""
+    @property
+    def available(self) -> bool:
+        """True while the backend is usable."""
+    @property
+    def idle(self) -> bool:
+        """True when no work is outstanding on the device."""
+    @property
+    def backend(self) -> str:
+        """Backend name, e.g. ``"metal"`` or ``"cuda"``."""
+    @property
+    def memory(self) -> GpuMemory:
+        """Memory-pool telemetry for this device."""
+    @property
+    def profiler(self) -> GpuProfiler:
+        """Kernel timing log for this device."""
+
+    def synchronize(self) -> None:
+        """Block until all outstanding device work completes."""
+
+    def compute_distances(
+        self,
+        queries: Iterable[Vector],
+        database: Iterable[Vector],
+        metric: Union[str, Metric] = "cosine",
+    ) -> list[list[float]]:
+        """Compute all pairwise distances between two batches on the GPU.
+
+        Args:
+            queries: Query vectors, all the same length.
+            database: Database vectors, same dimension as ``queries``.
+            metric: A :class:`Metric` or ``"cosine"`` / ``"euclidean"`` /
+                ``"dot_product"``.
+
+        Returns:
+            ``len(queries)`` rows of ``len(database)`` distances,
+            ordering-normalized so smaller always means closer.
+
+        Raises:
+            DimensionMismatch: If query and database dimensions differ.
+            StorageError: If the GPU kernel fails.
+        """
+
+    def top_k(
+        self,
+        distances: Iterable[Sequence[float]],
+        k: int,
+    ) -> tuple[list[list[int]], list[list[float]]]:
+        """Select the k smallest entries per row on the GPU.
+
+        Args:
+            distances: Rows of distances, e.g. from :meth:`compute_distances`.
+            k: Results per row; must not exceed the row width.
+
+        Returns:
+            An ``(indices, values)`` pair of parallel row lists, ascending by
+            distance.
+
+        Raises:
+            ValueError: If ``k`` exceeds the row width.
+            StorageError: If the GPU kernel fails.
+        """
+
+    def close(self) -> None:
+        """Release the backend and its memory pool. Idempotent."""
+
+    @property
+    def closed(self) -> bool:
+        """True once :meth:`close` has run."""
+
+    def __enter__(self) -> "GpuDevice": ...
+    def __exit__(self, *exc: object) -> None: ...
+    def __repr__(self) -> str: ...
+
+# -- EQL abstract syntax tree -------------------------------------------------
+
+class VectorRef:
+    """A query vector in a parsed EQL statement.
+
+    Either an inline literal or a named binding supplied at execution time.
+    """
+
+    def __init__(self) -> None: ...
+
+    literal: list[float]
+    """Inline vector values; empty when a binding is used."""
+    binding: str
+    """Binding name (``$name`` in EQL); empty for literals."""
+
+    def __repr__(self) -> str: ...
+
+class SearchStatement:
+    """A parsed EQL ``seek`` statement."""
+
+    def __init__(self) -> None: ...
+
+    vault: str
+    query: VectorRef
+    top: Optional[int]
+    """Result limit, or None when unspecified."""
+    threshold: Optional[float]
+    """Maximum distance, or None."""
+    where: Filter
+    """Metadata filter; matches everything when absent."""
+    rank_by: Optional[str]
+    """Ranking field, or None to rank by distance."""
+    projection: list[str]
+    """Requested fields; empty means all fields."""
+
+    def __repr__(self) -> str: ...
+
+class FetchStatement:
+    """A parsed EQL ``fetch`` statement."""
+
+    def __init__(self) -> None: ...
+    vault: str
+    id: str
+    def __repr__(self) -> str: ...
+
+class ScanStatement:
+    """A parsed EQL ``scan`` statement."""
+
+    def __init__(self) -> None: ...
+    vault: str
+    where: Filter
+    offset: Optional[int]
+    limit: Optional[int]
+    def __repr__(self) -> str: ...
+
+class InsertStatement:
+    """A parsed EQL insert statement."""
+
+    def __init__(self) -> None: ...
+    vault: str
+    vector: list[float]
+    data: dict[str, MetaValue]
+    def __repr__(self) -> str: ...
+
+class DeleteStatement:
+    """A parsed EQL ``erase`` statement."""
+
+    def __init__(self) -> None: ...
+    vault: str
+    id: str
+    def __repr__(self) -> str: ...
+
+Statement = Union[
+    SearchStatement,
+    FetchStatement,
+    ScanStatement,
+    InsertStatement,
+    DeleteStatement,
+]
+
+def parse_eql(source: str) -> Statement:
+    """Parse an EQL statement into its abstract syntax tree.
+
+    Args:
+        source: EQL source text.
+
+    Returns:
+        One of the statement classes above. Use ``isinstance`` to discriminate.
+
+    Raises:
+        ParseError: If the statement is not valid EQL.
+
+    Unlike :func:`validate_eql`, which discards the result, this returns the
+    tree, so callers can build linters, rewriters, and query builders.
+
+    Example:
+        Reject queries that would scan an entire vault unbounded -- the kind of
+        guardrail a multi-tenant service puts in front of user-supplied
+        queries::
+
+            import elips
+
+            MAX_TOP = 100
+
+            def check(query: str) -> None:
+                stmt = elips.parse_eql(query)          # raises ParseError
+
+                if isinstance(stmt, elips.SearchStatement):
+                    # 1. Refuse unbounded result sets.
+                    if stmt.top is None or stmt.top > MAX_TOP:
+                        raise ValueError(f"seek needs top <= {MAX_TOP}")
+
+                    # 2. Require a filter that the metadata index can serve,
+                    #    so the planner does not fall back to a full scan.
+                    if stmt.where.matches_all():
+                        raise ValueError("seek needs a where clause")
+                    if stmt.where.exact_constraints() is None:
+                        raise ValueError("where clause is not index-accelerable")
+
+                elif isinstance(stmt, elips.ScanStatement):
+                    # 3. Scans must be paginated.
+                    if stmt.limit is None:
+                        raise ValueError("scan needs a limit")
+
+            check('seek in docs nearest $q top 10 where tenant = "acme" yield')
+    """
+
+# -- Index snapshots ----------------------------------------------------------
+
+class IndexSnapshotKind(IntEnum):
+    """Which index produced a snapshot."""
+
+    unknown = ...
+    exact = ...
+    graph = ...
+    gpu_brute_force = ...
+    gpu_ivf_flat = ...
+    gpu_ivf_pq = ...
+    gpu_graph = ...
+    gpu_hybrid = ...
+    gpu_distributed = ...
+
+class IvfSnapshot:
+    """Inverted-file clustering state from an IVF index."""
+
+    def __init__(self) -> None: ...
+    n_lists: int
+    """Number of coarse clusters."""
+    n_probe: int
+    """Clusters visited per query."""
+    centroids: list[float]
+    """Row-major cluster centroids."""
+    assignments: list[int]
+    """Per-vector cluster assignment."""
+    def __repr__(self) -> str: ...
+
+class PqSnapshot:
+    """Product-quantization codebook and codes."""
+
+    def __init__(self) -> None: ...
+    pq_dim: int
+    """Number of subquantizers."""
+    pq_bits: int
+    """Bits per subquantizer code."""
+    codebook: list[float]
+    """Trained centroids for every subquantizer."""
+    codes: list[int]
+    """Encoded vectors."""
+    def __repr__(self) -> str: ...
+
+class IndexSnapshot:
+    """A portable dump of index contents.
+
+    Used to move an index between backends (CPU to GPU and back) or to inspect
+    it offline.
+    """
+
+    def __init__(self) -> None: ...
+    kind: IndexSnapshotKind
+    metric: Metric
+    dimension: int
+    @property
+    def ids(self) -> list[str]:
+        """Record identifiers, aligned with :attr:`vectors`."""
+    vectors: list[float]
+    """Row-major vector data."""
+    ivf: Optional[IvfSnapshot]
+    """IVF clustering state, when present."""
+    pq: Optional[PqSnapshot]
+    """Product-quantization state, when present."""
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+# -- Write-ahead log ----------------------------------------------------------
+
+class WalOp(IntEnum):
+    """Kind of a write-ahead log record."""
+
+    insert = ...
+    erase = ...
+    insert_ex = ...
+    """Insert carrying document, chunk, or lineage attachments."""
+    txn_begin = ...
+    """Start of a transaction batch."""
+    txn_commit = ...
+    """End of a transaction batch.
+
+    Records inside an unterminated begin..commit window are discarded on replay.
+    """
+
+class WalEntry:
+    """One replayed write-ahead log record."""
+
+    @property
+    def op(self) -> WalOp: ...
+    @property
+    def vault(self) -> str: ...
+    @property
+    def id(self) -> str:
+        """Record identifier this entry applies to."""
+    @property
+    def vector(self) -> tuple[float, ...]:
+        """Vector payload; empty for erases and transaction markers."""
+    @property
+    def data(self) -> dict[str, MetaValue]:
+        """Metadata payload."""
+    @property
+    def document(self) -> Optional[DocumentAttachment]: ...
+    @property
+    def chunk(self) -> Optional[ChunkInfo]: ...
+    @property
+    def lineage(self) -> Optional[EmbeddingLineage]: ...
+    def __repr__(self) -> str: ...
+
+def replay_wal(path: str) -> list[WalEntry]:
+    """Replay a write-ahead log file without opening the database.
+
+    Args:
+        path: Path to a ``wal.log`` file.
+
+    Returns:
+        :class:`WalEntry` records in log order. Records inside an unterminated
+        transaction window are omitted, matching what recovery would apply. A
+        corrupt or truncated tail is dropped rather than raised, so a partial
+        log still yields its valid prefix.
+
+    Intended for crash forensics and recovery tooling: it answers "what did the
+    database actually acknowledge before it died?" while mutating nothing.
+
+    Example:
+        After an unclean shutdown, reconcile the log against the recovered
+        state before letting an ingest job resume::
+
+            import elips
+            from collections import Counter
+
+            entries = elips.replay_wal("/data/vectors/wal.log")
+
+            # 1. What kinds of operations were pending?
+            print(Counter(e.op.name for e in entries))
+
+            # 2. Which record IDs did the WAL acknowledge but the last
+            #    checkpoint may not have captured?
+            acked = {e.id for e in entries if e.op != elips.WalOp.erase}
+            erased = {e.id for e in entries if e.op == elips.WalOp.erase}
+
+            # 3. Confirm recovery actually applied them.
+            db = elips.open("/data/vectors")
+            vault = db.vault(entries[0].vault) if entries else None
+            missing = [rid for rid in acked - erased
+                       if vault is not None and vault.fetch(rid) is None]
+            if missing:
+                raise SystemExit(f"{len(missing)} acknowledged writes lost")
+
+            # 4. Re-drive the upstream job from the last acknowledged offset.
+            print("recovered cleanly;", len(acked - erased), "live writes")
+    """
+
+def describe_local_embedder(
+    config: LocalEmbedderConfig = ...,
+    fallback_dimension: int = 0,
+    auto_attached: bool = False,
+) -> TextEmbedderInfo:
+    """Describe a local text embedder without instantiating it.
+
+    Args:
+        config: The embedder configuration to describe.
+        fallback_dimension: Dimension to assume when ``config.dimension`` is 0.
+        auto_attached: Whether the embedder would be attached automatically.
+
+    Returns:
+        Info with the resolved dimension, fingerprint, and storage path.
+
+    Use this to check compatibility with an existing database before opening
+    it, which otherwise raises ``ConfigError`` on a fingerprint mismatch.
+    """
+
+def generate_id() -> str:
+    """Generate a fresh record identifier.
+
+    Returns:
+        A new unique record ID, suitable as the ``id`` argument to
+        :meth:`Vault.place`.
+
+    Useful when the caller must know the identifier before the write happens --
+    for example to publish it to a queue in the same transaction.
+    """
+
+def is_valid_id(id: str) -> bool:
+    """Return True when ``id`` is a well-formed record identifier."""
+
+def normalize(vector: Vector) -> tuple[float, ...]:
+    """Return ``vector`` scaled to unit length.
+
+    A zero vector is returned unchanged. Cosine similarity requires normalized
+    inputs, but :meth:`Vault.place` and :meth:`Vault.seek` already normalize
+    internally when the vault metric needs it -- this is for callers doing
+    their own pre-processing.
+    """
+
+def magnitude(vector: Vector) -> float:
+    """Return the Euclidean length (L2 norm) of ``vector``."""
 
 # -- Module-level factory functions -------------------------------------------
 
