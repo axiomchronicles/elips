@@ -5,6 +5,7 @@
 #include <expected>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "elips/gpu_engine/GpuBuffer.hpp"
@@ -14,9 +15,13 @@
 
 namespace elips::gpu {
 
+// A span of device memory available for suballocation. `root` identifies which
+// backend allocation it came from; blocks from different roots are not
+// contiguous and must never be merged.
 struct FreeBlock {
     void* ptr;
     size_t bytes;
+    size_t root;
 };
 
 class GpuMemoryManager : public GpuMemoryPort {
@@ -49,12 +54,23 @@ public:
     void shutdown() noexcept;
 
 private:
+    struct LiveBlock {
+        size_t bytes;  // rounded-up size actually reserved
+        size_t root;
+    };
+
+    // Return a span to the free list, merging it with any physically adjacent
+    // free block from the same root allocation.
+    void release_locked(void* ptr, size_t bytes, size_t root) noexcept;
+
     GpuPort& backend_;
-    size_t pool_bytes_{0};
-    size_t allocated_{0};
+    size_t pool_bytes_{0};      // ceiling we are allowed to request from backend
+    size_t pool_committed_{0};  // bytes actually obtained from backend so far
+    size_t allocated_{0};       // bytes handed out to callers (rounded)
     size_t peak_allocated_{0};
     std::vector<FreeBlock> free_blocks_;
     std::vector<GpuBuffer> root_allocations_;
+    std::unordered_map<void*, LiveBlock> live_blocks_;
     std::vector<void*> pinned_blocks_;
     mutable std::mutex mutex_;
 };

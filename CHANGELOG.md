@@ -13,9 +13,36 @@ All notable changes to ELIPS are documented here. Format follows
   outstanding. `GraphParams::compaction_ratio` (default 0.2) controls the
   tombstone fraction that triggers automatic compaction; 0 disables it.
 - `ELIPS_SANITIZE=thread|address` CMake option, building the test suite under
-  ThreadSanitizer or ASan+UBSan. The full suite (197 tests) is clean under TSan.
+  ThreadSanitizer or ASan+UBSan. The full suite is clean under both. CI runs a
+  ThreadSanitizer job, an ASan+UBSan job, and a job asserting that a
+  no-flags Linux build does not enable the GPU engine.
 
 ### Fixed
+
+- **GPU suballocator no longer leaks the remainder of reused blocks, and the
+  free list coalesces [F9].** The best-fit path returned an oversized free block
+  to the caller and dropped the leftover span entirely: not freed, not tracked,
+  not reusable for the pool's lifetime. `deallocate()` also pushed blocks back
+  with no merging, so alternating allocate/free at varying sizes fragmented the
+  free list into pieces that never re-merged and produced spurious
+  `InsufficientMemory` while plenty of total free bytes remained. Reused blocks
+  now split (remainder returns to the free list), frees coalesce with physically
+  adjacent spans from the same backend allocation, live block sizes are tracked
+  so a double free cannot corrupt the accounting, and `bytes_available()` reports
+  reachable bytes (free list + uncommitted pool headroom) instead of
+  `pool_bytes - allocated`, which over-reported.
+
+- **The GPU engine is no longer built on platforms with no GPU backend [F8].**
+  `ELIPS_GPU_METAL` defaulted ON everywhere, so a plain `cmake -S . -B build` on
+  Linux set `ELIPS_GPU_ENABLED`, compiled the entire 17-file `elips_gpu` library,
+  and exposed `gpu_info()`/`gpu_stats()` through `elips.hpp` and the Python
+  bindings with no backend behind them. The default is now `${APPLE}`, enabling
+  the aggregate flag only when a backend can actually compile, and a warning
+  fires if Metal is forced ON off-Apple. Backend `option()` declarations were
+  duplicated between the top-level and `src/gpu_engine` CMake files — whichever
+  ran first won the cache, so editing a default in one had no effect; the
+  duplicates are removed and the top-level file is now the single source of
+  truth. A CI job asserts the default Linux build excludes the GPU engine.
 
 - **HNSW tombstones are bounded and no longer silently degrade recall [F5].**
   `remove()` set a flag and nothing ever reclaimed it: dead vectors and edges

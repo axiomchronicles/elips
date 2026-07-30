@@ -12,9 +12,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Configure (sanitizers)
-        run: >
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DELIPS_SANITIZE=address
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  thread-sanitizer:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Configure (TSan)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DELIPS_SANITIZE=thread
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  default-build-has-no-gpu:
+    name: Default Linux build excludes the GPU engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Configure with no flags at all
+        run: cmake -S . -B build -G Ninja
+      - name: Assert the GPU engine was not enabled
+        run: |
+          if grep -q "ELIPS_GPU_ENABLED" build/CMakeFiles/elips_core.dir/*.d 2>/dev/null; then
+            echo "ELIPS_GPU_ENABLED leaked into the default Linux build"; exit 1
+          fi
+          if [ -d build/src/gpu_engine ]; then
+            echo "gpu_engine was configured on a non-Apple default build"; exit 1
+          fi
+          if cmake --build build --target help 2>/dev/null | grep -q elips_gpu; then
+            echo "elips_gpu target exists in the default Linux build"; exit 1
+          fi
       - run: cmake --build build -j
       - run: ctest --test-dir build --output-on-failure
 

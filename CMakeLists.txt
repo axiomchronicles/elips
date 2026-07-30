@@ -31,15 +31,28 @@ if(APPLE)
 endif()
 
 # ------------------------------- GPU engine -------------------------------
-
-option(ELIPS_GPU_METAL "Enable Apple Metal GPU backend" ON)
+# Backend flags live here only; src/gpu_engine/CMakeLists.txt consumes them.
+# Declaring option() in both places is a trap: whichever runs first wins the
+# cache, so changing a default in one file silently has no effect.
+#
+# Metal defaults ON only on Apple. Defaulting it ON everywhere made a plain
+# `cmake -S . -B build` on Linux set ELIPS_GPU_ENABLED, build the whole
+# elips_gpu library, and expose gpu_info()/gpu_stats() with no backend behind
+# them.
+option(ELIPS_GPU_METAL "Enable Apple Metal GPU backend" ${APPLE})
 option(ELIPS_GPU_CUDA "Enable NVIDIA CUDA GPU backend" OFF)
 option(ELIPS_GPU_HIP "Enable AMD ROCm/HIP GPU backend" OFF)
 option(ELIPS_GPU_SYCL "Enable Intel oneAPI/SYCL GPU backend" OFF)
 option(ELIPS_GPU_VULKAN "Enable Vulkan compute GPU backend" OFF)
 
+if(ELIPS_GPU_METAL AND NOT APPLE)
+    message(WARNING
+        "ELIPS_GPU_METAL is ON but this is not an Apple platform; "
+        "no Metal backend will be compiled.")
+endif()
+
 set(ELIPS_GPU_ENABLED OFF)
-if(ELIPS_GPU_CUDA OR ELIPS_GPU_HIP OR ELIPS_GPU_METAL OR ELIPS_GPU_SYCL OR ELIPS_GPU_VULKAN)
+if(ELIPS_GPU_CUDA OR ELIPS_GPU_HIP OR (ELIPS_GPU_METAL AND APPLE) OR ELIPS_GPU_SYCL OR ELIPS_GPU_VULKAN)
     set(ELIPS_GPU_ENABLED ON)
 endif()
 
@@ -143,6 +156,7 @@ if(ELIPS_GPU_ENABLED)
         tests/unit/gpu/GpuBruteForceIndexTest.cpp
         tests/unit/gpu/GpuAdvancedIndexTest.cpp
         tests/unit/gpu/GpuMemoryManagerTest.cpp
+        tests/unit/gpu/m4_memory_manager_test.cpp
         tests/unit/gpu/DynamicBatcherTest.cpp
         tests/integration/gpu/MetalBackendTest.cpp
         tests/parity/CpuGpuRecallParityTest.cpp

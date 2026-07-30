@@ -37,8 +37,10 @@ target_include_directories(elips_gpu
 target_link_libraries(elips_gpu PUBLIC elips_core)
 target_compile_options(elips_gpu PRIVATE -Wall -Wextra -Wpedantic)
 
+# Backend flags are declared in the top-level CMakeLists.txt (single source of
+# truth); this file only consumes them.
+
 # ---- CUDA backend ----
-option(ELIPS_GPU_CUDA "Enable NVIDIA CUDA backend" OFF)
 if(ELIPS_GPU_CUDA)
     add_subdirectory(backends/cuda)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_cuda)
@@ -46,7 +48,6 @@ if(ELIPS_GPU_CUDA)
 endif()
 
 # ---- HIP backend ----
-option(ELIPS_GPU_HIP "Enable AMD ROCm/HIP backend" OFF)
 if(ELIPS_GPU_HIP)
     add_subdirectory(backends/hip)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_hip)
@@ -54,7 +55,6 @@ if(ELIPS_GPU_HIP)
 endif()
 
 # ---- Metal backend ----
-option(ELIPS_GPU_METAL "Enable Apple Metal backend" ON)
 if(APPLE AND ELIPS_GPU_METAL)
     add_subdirectory(backends/metal)
     target_link_libraries(elips_gpu PUBLIC elips_gpu_metal)
@@ -62,7 +62,6 @@ if(APPLE AND ELIPS_GPU_METAL)
 endif()
 
 # ---- SYCL backend ----
-option(ELIPS_GPU_SYCL "Enable Intel oneAPI/SYCL backend" OFF)
 if(ELIPS_GPU_SYCL)
     add_subdirectory(backends/sycl)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_sycl)
@@ -70,7 +69,6 @@ if(ELIPS_GPU_SYCL)
 endif()
 
 # ---- Vulkan backend ----
-option(ELIPS_GPU_VULKAN "Enable Vulkan compute backend" OFF)
 if(ELIPS_GPU_VULKAN)
     add_subdirectory(backends/vulkan)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_vulkan)
