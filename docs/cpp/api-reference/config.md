@@ -18,8 +18,12 @@ struct GraphParams {
     std::size_t max_connections{16};
     std::size_t ef_construction{200};
     std::size_t ef_search{50};
+    // Tombstone fraction that triggers automatic rebuild. 0 disables auto-compaction.
+    float compaction_ratio{0.2F};
 };
 ```
+
+`compaction_ratio` (default 0.2) controls the fraction of tombstoned nodes that triggers an automatic `vacuum()` call. Set to 0 to disable auto-compaction and call `vacuum()` manually. Raising it delays compaction at the cost of reduced recall under heavy delete workloads.
 
 ## Builder Methods
 

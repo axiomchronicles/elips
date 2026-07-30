@@ -51,9 +51,18 @@ Writes current state to disk and truncates the WAL.
 
 Rebuilds every vault index from stored records and then checkpoints.
 
+### `vacuum()`
+
+```cpp
+void vacuum();
+```
+Reclaims tombstoned index space across every vault. Unlike `compact()`, `vacuum()` does not rewrite the on-disk snapshot and works on in-memory databases. Calls each vault's `vacuum()` under the instance mutex.
+
 ### `close()`
 
 Graceful shutdown: checkpoint, detach WAL, release the advisory lock.
+
+> After `close()`, every vault becomes **sealed**. Any write operation on a sealed vault throws `StorageError` immediately rather than silently mutating memory that cannot be persisted.
 
 ### `abandon()`
 
@@ -81,3 +90,13 @@ Available when GPU support is compiled in and a GPU backend is active.
   open against a missing database
 - `LockConflict`: another process already owns the write lock
 - `StorageError`: on-disk IO failure
+
+## Concurrency
+
+Two layers of locking protect the instance:
+
+**Cross-process** (via `LockManager`): An exclusive `flock(LOCK_EX)` on `<dir>/LOCK` prevents a second writer process from opening the same directory. Read-only instances acquire `LOCK_SH` instead, allowing multiple concurrent readers.
+
+**In-process** (via mutexes): `ElipsInstance` owns a `std::recursive_mutex` over the vault registry, WAL handle, and lifecycle flags. Each `Vault` owns a `std::shared_mutex`; readers share it, mutators take it exclusively. `Transaction::commit()` holds the instance mutex for the whole batch, so concurrent commits serialize.
+
+See `docs/internals/transaction-engine.md` and ADR-0008.
