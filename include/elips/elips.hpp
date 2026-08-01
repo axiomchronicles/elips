@@ -37,6 +37,11 @@ struct VaultInfo {
     std::size_t count{0};
     std::uint16_t dimension{0};
     Metric metric{Metric::cosine};
+    // Compression state. `codec` is none until quantize() has trained a
+    // codebook, even when the config selects one; `code_bytes` is the width of
+    // one stored code, against dimension * 4 uncompressed.
+    quant::CodecId codec{quant::CodecId::none};
+    std::size_t code_bytes{0};
 };
 
 enum class QueryStrategy {
@@ -53,6 +58,7 @@ struct QueryPlan {
     bool metadata_accelerated{false};
     bool gpu_index{false};
     std::string index_type;
+    quant::CodecId codec{quant::CodecId::none};
 };
 
 // A named partition of records within a database. Owns its index and the
@@ -81,6 +87,13 @@ public:
         std::optional<ChunkInfo> chunk = std::nullopt,
         std::optional<EmbeddingLineage> lineage = std::nullopt);
     void place_many(const std::vector<Record>& records);
+
+    // Stores a record as-is, bypassing normalization and encoding when it
+    // already carries a code. This is the load path: snapshot, segment, and WAL
+    // replay all use it so a persisted code is restored verbatim rather than
+    // decoded and re-encoded. Going through place() instead would run one
+    // generation of loss per reopen, unbounded across restarts.
+    void place_record(const Record& record);
 
     [[nodiscard]] std::vector<SearchResult> seek(
         const Vector& query, std::size_t top, const Filter& filter = Filter{},
@@ -125,6 +138,33 @@ public:
     // Records deleted from the index but not yet reclaimed.
     [[nodiscard]] std::size_t pending_removals() const noexcept;
 
+    // Trains a codebook over the resident vectors and compresses the vault in
+    // place, freeing the fp32 copies. Requires a codec to have been selected in
+    // the config; throws ConfigError otherwise, or if the vault is empty or has
+    // already been quantized.
+    //
+    // Product quantization cannot encode the first record -- a codebook has to
+    // be learned from real data first -- so compression is an explicit
+    // transition rather than something the config alone turns on. Before it, a
+    // vault ingests and serves full fp32; after it, inserts encode on arrival.
+    // Queries work correctly in both states.
+    //
+    // This is a maintenance operation in the same class as compact(): it holds
+    // the vault's writer lock for its whole duration, so concurrent writes block
+    // (reads too, briefly). Training samples at most quant::train_sample_cap
+    // rows, so its cost tracks the dimension and codebook size rather than the
+    // vault size, but encoding is still linear in the record count.
+    void quantize();
+    [[nodiscard]] bool quantized() const noexcept;
+    [[nodiscard]] quant::CodecId codec() const noexcept;
+
+    // Effective configuration, including any attached codebook. Checkpointing
+    // reads the quantizer through this to persist it.
+    [[nodiscard]] const Config& config() const noexcept { return config_; }
+    // Installs a codebook read back from disk. Called during load, before any
+    // record is placed, so coded records can be interpreted as they arrive.
+    void install_quantizer(quant::QuantizerPtr quantizer);
+
     // Refuse further mutations. Called when the owning database closes: writes
     // after close would mutate memory that is never checkpointed and never
     // WAL-logged, i.e. silently vanish.
@@ -163,6 +203,17 @@ private:
         const Vector& query, std::size_t top, const Filter& filter,
         std::optional<float> threshold) const;
     void rebuild_index_locked();
+    void place_record_locked(const Record& record);
+
+    // Full-precision view of a stored record: the vector itself when
+    // uncompressed, a decode of its code otherwise.
+    [[nodiscard]] Vector reconstruct(const Record& record) const;
+    // Materializes a record for a caller: reconstructs the vector and stamps
+    // the codec so an approximate value is labelled as one.
+    [[nodiscard]] Record hydrate(const Record& record) const;
+    [[nodiscard]] const quant::QuantizerPtr& quantizer() const noexcept {
+        return config_.quantizer();
+    }
 
     std::string name_;
     Config config_;
@@ -207,6 +258,12 @@ public:
 
     void checkpoint();
     void compact();
+
+    // Compresses a vault (or every vault) in place. See Vault::quantize().
+    // For a persistent database this checkpoints afterwards, publishing the
+    // codebook and the encoded records durably before the WAL is truncated.
+    void quantize(const std::string& vault_name);
+    void quantize_all();
     // Reclaim tombstoned index space across every vault. Unlike compact(), this
     // does not rewrite the on-disk snapshot and works on in-memory databases.
     void vacuum();

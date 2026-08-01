@@ -146,6 +146,7 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/eql_edge_test.cpp
         tests/unit/quantizer_test.cpp
         tests/unit/quantized_index_test.cpp
+        tests/unit/m5_quantization_persistence_test.cpp
         tests/integration/roundtrip_test.cpp
         tests/integration/local_text_embedder_test.cpp
         tests/integration/transaction_filter_test.cpp

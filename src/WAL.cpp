@@ -24,11 +24,27 @@ std::string encode_body(const WAL::Entry& entry) {
     detail::put<std::uint32_t>(body, wal_magic);
     const bool has_extras = entry.document.has_value() || entry.chunk.has_value() ||
                             entry.lineage.has_value();
-    const auto op = has_extras ? WAL::Op::insert_ex : entry.op;
+    // insert_q always carries its extras inline, so it is not promoted to
+    // insert_ex the way a plain insert is.
+    const auto op = (has_extras && entry.op != WAL::Op::insert_q)
+                        ? WAL::Op::insert_ex
+                        : entry.op;
     detail::put<std::uint8_t>(body, static_cast<std::uint8_t>(op));
     detail::put_string(body, entry.vault);
     body.write(reinterpret_cast<const char*>(entry.id.bytes().data()),
                static_cast<std::streamsize>(entry.id.bytes().size()));
+    if (op == WAL::Op::insert_q) {
+        detail::put<std::uint8_t>(body, static_cast<std::uint8_t>(entry.codec));
+        detail::put<std::uint16_t>(
+            body, static_cast<std::uint16_t>(entry.codes.size()));
+        body.write(reinterpret_cast<const char*>(entry.codes.data()),
+                   static_cast<std::streamsize>(entry.codes.size()));
+        detail::put_payload(body, entry.payload);
+        detail::put_document_attachment(body, entry.document);
+        detail::put_chunk_info(body, entry.chunk);
+        detail::put_embedding_lineage(body, entry.lineage);
+        return body.str();
+    }
     if (op == WAL::Op::insert || op == WAL::Op::insert_ex) {
         detail::put<std::uint16_t>(
             body, static_cast<std::uint16_t>(entry.vector.size()));
@@ -104,9 +120,19 @@ void WAL::append_insert(const std::string& vault, const RecordID& id,
                  document, chunk, lineage});
 }
 
+void WAL::append_insert_quantized(
+    const std::string& vault, const RecordID& id,
+    std::span<const std::uint8_t> codes, quant::CodecId codec,
+    const Payload& payload, const std::optional<DocumentAttachment>& document,
+    const std::optional<ChunkInfo>& chunk,
+    const std::optional<EmbeddingLineage>& lineage) {
+    append(Entry{Op::insert_q, vault, id, {}, payload, document, chunk, lineage,
+                 std::vector<std::uint8_t>(codes.begin(), codes.end()), codec});
+}
+
 void WAL::append_erase(const std::string& vault, const RecordID& id) {
     append(Entry{Op::erase, vault, id, {}, {}, std::nullopt, std::nullopt,
-                 std::nullopt});
+                 std::nullopt, {}, quant::CodecId::none});
 }
 
 void WAL::append_txn_begin() {
@@ -210,7 +236,22 @@ std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
             body.read(reinterpret_cast<char*>(id_bytes.data()),
                       static_cast<std::streamsize>(id_bytes.size()));
             entry.id = RecordID{id_bytes};
-            if (op == Op::insert || op == Op::insert_ex) {
+            if (op == Op::insert_q) {
+                entry.codec =
+                    static_cast<quant::CodecId>(detail::get<std::uint8_t>(body));
+                const auto code_len = detail::get<std::uint16_t>(body);
+                // Bound the length against what is left before allocating: this
+                // is replay, reachable from a hostile or corrupt log ahead of
+                // the CRC check that is meant to reject it.
+                detail::check_length(body, code_len);
+                entry.codes.resize(code_len);
+                body.read(reinterpret_cast<char*>(entry.codes.data()),
+                          static_cast<std::streamsize>(code_len));
+                entry.payload = detail::get_payload(body);
+                entry.document = detail::get_document_attachment(body);
+                entry.chunk = detail::get_chunk_info(body);
+                entry.lineage = detail::get_embedding_lineage(body);
+            } else if (op == Op::insert || op == Op::insert_ex) {
                 const auto dim = detail::get<std::uint16_t>(body);
                 detail::check_length(
                     body, static_cast<std::uint64_t>(dim) * sizeof(float));

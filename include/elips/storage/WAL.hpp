@@ -26,17 +26,24 @@ public:
         insert_ex = 4,
         txn_begin = 5,
         txn_commit = 6,
+        // A quantized insert: the body carries the code rather than fp32
+        // components. Codebooks are never logged -- quantize() checkpoints the
+        // codebook durably and only then resets the log, so every insert_q on
+        // disk postdates a codebook that can decode it.
+        insert_q = 7,
     };
 
     struct Entry {
         Op op{Op::insert};
         std::string vault;
         RecordID id;
-        std::vector<float> vector;  // empty for erase
+        std::vector<float> vector;  // empty for erase and insert_q
         Payload payload;
         std::optional<DocumentAttachment> document;
         std::optional<ChunkInfo> chunk;
         std::optional<EmbeddingLineage> lineage;
+        std::vector<std::uint8_t> codes;  // populated only for insert_q
+        quant::CodecId codec{quant::CodecId::none};
     };
 
     explicit WAL(std::filesystem::path path, bool sync_each_write = true);
@@ -52,6 +59,13 @@ public:
                        const std::optional<DocumentAttachment>& document = std::nullopt,
                        const std::optional<ChunkInfo>& chunk = std::nullopt,
                        const std::optional<EmbeddingLineage>& lineage = std::nullopt);
+    void append_insert_quantized(
+        const std::string& vault, const RecordID& id,
+        std::span<const std::uint8_t> codes, quant::CodecId codec,
+        const Payload& payload,
+        const std::optional<DocumentAttachment>& document = std::nullopt,
+        const std::optional<ChunkInfo>& chunk = std::nullopt,
+        const std::optional<EmbeddingLineage>& lineage = std::nullopt);
     void append_erase(const std::string& vault, const RecordID& id);
 
     // Transaction framing. Records between begin and commit are only applied on

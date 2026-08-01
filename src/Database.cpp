@@ -16,6 +16,7 @@
 #include "elips/domain/Errors.hpp"
 #include "elips/index_engine/IndexFactory.hpp"
 #include "elips/kernel/LockManager.hpp"
+#include "elips/quant_engine/Quantizer.hpp"
 #include "elips/storage/FileSync.hpp"
 #include "elips/storage/Serialization.hpp"
 #include "elips/storage/WAL.hpp"
@@ -41,7 +42,21 @@ using detail::put_payload;
 using detail::put_string;
 
 constexpr std::uint32_t snapshot_magic = 0xE1105E01U;
-constexpr std::uint32_t snapshot_version = 2U;
+// On-disk format version, shared by the snapshot, segments, the manifest, and
+// the text-embedder manifest.
+//
+//   1 -> records without document/chunk/lineage extras
+//   2 -> extras added
+//   3 -> per-record codec byte and per-vault codebook section (quantization)
+//
+// Readers accept anything at or below this and reject only what is newer, so a
+// v2 database opens unchanged under a v3 binary. Version comparisons in readers
+// must be against *absolute* numbers, never against this constant: a gate
+// written as `version >= snapshot_version` silently changes meaning the next
+// time the constant moves.
+constexpr std::uint32_t snapshot_version = 3U;
+constexpr std::uint32_t version_with_extras = 2U;
+constexpr std::uint32_t version_with_codecs = 3U;
 constexpr std::uint32_t identity_magic = 0xE11D0001U;
 constexpr std::uint32_t text_embedder_magic = 0xE11D0002U;
 constexpr const char* snapshot_file = "elips.snapshot";
@@ -125,8 +140,9 @@ bool begins_with(std::string_view text, std::string_view prefix) noexcept {
 }
 
 SearchResult make_result(const Record& record, float distance_value) {
-    return SearchResult{record.id, distance_value, record.payload, record.document,
-                        record.chunk, record.lineage};
+    return SearchResult{record.id,     distance_value, record.payload,
+                        record.document, record.chunk, record.lineage,
+                        record.codec};
 }
 
 bool same_text_embedder_identity(const TextEmbedderInfo& lhs,
@@ -225,7 +241,7 @@ std::optional<PersistedTextEmbedder> read_text_embedder_manifest(
         throw StorageError{"text embedder manifest magic mismatch"};
     }
     const auto version = get<std::uint32_t>(in);
-    if (version != snapshot_version) {
+    if (version > snapshot_version) {
         throw StorageError{"unsupported text embedder manifest version"};
     }
 
@@ -409,13 +425,29 @@ std::optional<PersistedTextEmbedder> resolve_text_embedder_for_open(
     return to_persisted_text_embedder(root, info);
 }
 
-void put_record(std::ostream& out, const Record& record, bool with_extras = true) {
+// Writes one record. From v3 a codec byte precedes the vector payload and
+// selects which of the two forms follows: raw fp32 components, or a
+// length-prefixed code. A compressed record is written as its code, never as a
+// decoded approximation, so a checkpoint/reopen cycle is byte-idempotent.
+void put_record(std::ostream& out, const Record& record, bool with_extras = true,
+                bool with_codec = true) {
     out.write(reinterpret_cast<const char*>(record.id.bytes().data()),
               static_cast<std::streamsize>(record.id.bytes().size()));
-    const auto values = record.vector.values();
-    put<std::uint16_t>(out, static_cast<std::uint16_t>(values.size()));
-    out.write(reinterpret_cast<const char*>(values.data()),
-              static_cast<std::streamsize>(values.size_bytes()));
+
+    if (with_codec) {
+        put<std::uint8_t>(out, static_cast<std::uint8_t>(record.codec));
+    }
+    if (with_codec && record.codec != quant::CodecId::none) {
+        put<std::uint16_t>(out, static_cast<std::uint16_t>(record.codes.size()));
+        out.write(reinterpret_cast<const char*>(record.codes.data()),
+                  static_cast<std::streamsize>(record.codes.size()));
+    } else {
+        const auto values = record.vector.values();
+        put<std::uint16_t>(out, static_cast<std::uint16_t>(values.size()));
+        out.write(reinterpret_cast<const char*>(values.data()),
+                  static_cast<std::streamsize>(values.size_bytes()));
+    }
+
     put_payload(out, record.payload);
     if (!with_extras) {
         return;
@@ -425,14 +457,38 @@ void put_record(std::ostream& out, const Record& record, bool with_extras = true
     detail::put_embedding_lineage(out, record.lineage);
 }
 
-Record get_record(std::istream& in, bool with_extras) {
+Record get_record(std::istream& in, bool with_extras, bool with_codec) {
     RecordID::Bytes bytes{};
     in.read(reinterpret_cast<char*>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
-    const auto dim = get<std::uint16_t>(in);
-    std::vector<float> values(dim);
-    in.read(reinterpret_cast<char*>(values.data()),
-            static_cast<std::streamsize>(dim) * sizeof(float));
+
+    auto codec = quant::CodecId::none;
+    if (with_codec) {
+        const auto raw = get<std::uint8_t>(in);
+        if (raw > static_cast<std::uint8_t>(quant::CodecId::sq8)) {
+            throw StorageError{"unknown record codec tag"};
+        }
+        codec = static_cast<quant::CodecId>(raw);
+    }
+
+    std::vector<float> values;
+    std::vector<std::uint8_t> codes;
+    if (codec != quant::CodecId::none) {
+        const auto code_len = get<std::uint16_t>(in);
+        // Bound the prefix against the remaining stream before allocating for
+        // it; see detail::check_length.
+        detail::check_length(in, code_len);
+        codes.resize(code_len);
+        in.read(reinterpret_cast<char*>(codes.data()),
+                static_cast<std::streamsize>(code_len));
+    } else {
+        const auto dim = get<std::uint16_t>(in);
+        detail::check_length(in,
+                             static_cast<std::uint64_t>(dim) * sizeof(float));
+        values.resize(dim);
+        in.read(reinterpret_cast<char*>(values.data()),
+                static_cast<std::streamsize>(dim) * sizeof(float));
+    }
     Payload payload = get_payload(in);
 
     std::optional<DocumentAttachment> document;
@@ -448,8 +504,45 @@ Record get_record(std::istream& in, bool with_extras) {
         throw StorageError{"truncated or corrupt record payload"};
     }
 
-    return Record{RecordID{bytes}, Vector{std::move(values)}, std::move(payload),
-                  std::move(document), std::move(chunk), std::move(lineage)};
+    return Record{RecordID{bytes},   Vector{std::move(values)},
+                  std::move(payload), std::move(document),
+                  std::move(chunk),   std::move(lineage),
+                  std::move(codes),   codec};
+}
+
+// Per-vault codebook section, written after the vault name in both the
+// monolithic snapshot and each segment. Absent (a zero byte) for an unquantized
+// vault.
+void put_codebook(std::ostream& out, const quant::QuantizerPtr& quantizer) {
+    if (quantizer == nullptr) {
+        put<std::uint8_t>(out, static_cast<std::uint8_t>(quant::CodecId::none));
+        return;
+    }
+    put<std::uint8_t>(out, static_cast<std::uint8_t>(quantizer->codec()));
+    std::ostringstream blob(std::ios::binary);
+    quantizer->serialize(blob);
+    const std::string bytes = blob.str();
+    put<std::uint32_t>(out, static_cast<std::uint32_t>(bytes.size()));
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+quant::QuantizerPtr get_codebook(std::istream& in) {
+    const auto raw = get<std::uint8_t>(in);
+    if (raw == static_cast<std::uint8_t>(quant::CodecId::none)) {
+        return {};
+    }
+    if (raw > static_cast<std::uint8_t>(quant::CodecId::sq8)) {
+        throw StorageError{"unknown codebook codec tag"};
+    }
+    const auto length = get<std::uint32_t>(in);
+    detail::check_length(in, length);
+    std::string bytes(length, '\0');
+    in.read(bytes.data(), static_cast<std::streamsize>(length));
+    if (!in) {
+        throw StorageError{"truncated codebook section"};
+    }
+    std::istringstream blob(bytes, std::ios::binary);
+    return quant::load(blob);
 }
 
 void write_identity(const fs::path& file, const Config& config) {
@@ -497,6 +590,9 @@ void write_snapshot_file(
         put<std::uint32_t>(out, static_cast<std::uint32_t>(vaults.size()));
         for (const auto& [name, vault] : vaults) {
             put_string(out, name);
+            // Codebook precedes the records: a reader has to install it before
+            // it can interpret the codes that follow.
+            put_codebook(out, vault->config().quantizer());
             const auto& records = vault->records();
             put<std::uint32_t>(out, static_cast<std::uint32_t>(records.size()));
             for (const auto& [id, record] : records) {
@@ -521,6 +617,7 @@ void write_segment_file(const fs::path& file, const std::string& vault_name,
     put<std::uint32_t>(out, segment_magic);
     put<std::uint32_t>(out, snapshot_version);
     put_string(out, vault_name);
+    put_codebook(out, vault.config().quantizer());
     const auto& records = vault.records();
     put<std::uint32_t>(out, static_cast<std::uint32_t>(records.size()));
     for (const auto& [id, record] : records) {
@@ -566,7 +663,7 @@ std::vector<SegmentManifestEntry> read_manifest_file(const fs::path& file) {
         throw StorageError{"manifest magic mismatch"};
     }
     const auto version = get<std::uint32_t>(in);
-    if (version != snapshot_version) {
+    if (version > snapshot_version) {
         throw StorageError{"unsupported manifest version"};
     }
     (void)get<std::uint16_t>(in);
@@ -591,7 +688,7 @@ void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
         throw StorageError{"snapshot magic mismatch"};
     }
     const auto version = get<std::uint32_t>(in);
-    if (version != 1U && version != snapshot_version) {
+    if (version > snapshot_version) {
         throw StorageError{"unsupported snapshot version"};
     }
     (void)get<std::uint16_t>(in);
@@ -603,12 +700,18 @@ void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
         const std::string name = get_string(in);
         Vault& vault = instance.vault(name);
         vault.set_read_only(false);
+        if (version >= version_with_codecs) {
+            vault.install_quantizer(get_codebook(in));
+        }
         const auto record_count = get<std::uint32_t>(in);
         for (std::uint32_t record_index = 0; record_index < record_count;
              ++record_index) {
-            const Record record = get_record(in, version >= snapshot_version);
-            vault.place(record.vector, record.payload, record.id, record.document,
-                        record.chunk, record.lineage);
+            // Absolute version comparisons: a gate written against
+            // snapshot_version would change meaning on the next bump and
+            // silently mis-parse every older record.
+            const Record record = get_record(in, version >= version_with_extras,
+                                             version >= version_with_codecs);
+            vault.place_record(record);
         }
     }
 }
@@ -625,21 +728,24 @@ void load_segmented_state(const fs::path& root, ElipsInstance& instance) {
             throw StorageError{"segment magic mismatch"};
         }
         const auto version = get<std::uint32_t>(in);
-        if (version != snapshot_version) {
+        if (version > snapshot_version) {
             throw StorageError{"unsupported segment version"};
         }
         const std::string stored_name = get_string(in);
         if (stored_name != entry.vault_name) {
             throw StorageError{"segment vault mismatch for " + entry.file_name};
         }
-        const auto record_count = get<std::uint32_t>(in);
         Vault& vault = instance.vault(entry.vault_name);
         vault.set_read_only(false);
+        if (version >= version_with_codecs) {
+            vault.install_quantizer(get_codebook(in));
+        }
+        const auto record_count = get<std::uint32_t>(in);
         for (std::uint32_t record_index = 0; record_index < record_count;
              ++record_index) {
-            const Record record = get_record(in, true);
-            vault.place(record.vector, record.payload, record.id, record.document,
-                        record.chunk, record.lineage);
+            const Record record =
+                get_record(in, true, version >= version_with_codecs);
+            vault.place_record(record);
         }
     }
 }
@@ -799,10 +905,99 @@ RecordID Vault::place_locked(const Vector& vector, Payload payload,
         metadata_index_.insert(record_id, payload);
     }
 
-    records_[record_id] =
-        Record{record_id, std::move(prepared), std::move(payload),
-               std::move(document), std::move(chunk), std::move(lineage)};
+    Record stored{record_id,
+                  std::move(prepared),
+                  std::move(payload),
+                  std::move(document),
+                  std::move(chunk),
+                  std::move(lineage)};
+
+    // Once a codebook exists, the code is what the vault keeps: the fp32 vector
+    // is dropped rather than stored alongside, which is where the memory saving
+    // comes from.
+    if (const auto& codec = quantizer(); codec != nullptr) {
+        stored.codes = codec->encode(stored.vector.values());
+        stored.codec = codec->codec();
+        stored.vector = Vector{};
+    }
+
+    records_[record_id] = std::move(stored);
     return record_id;
+}
+
+Vector Vault::reconstruct(const Record& record) const {
+    if (record.codes.empty()) {
+        return record.vector;
+    }
+    const auto& codec = quantizer();
+    if (codec == nullptr) {
+        // A code with no quantizer to read it means the codebook failed to load.
+        // Returning an empty vector would look like a legitimately empty record.
+        throw StorageError{
+            "record is quantized but the vault has no matching codebook"};
+    }
+    return Vector{codec->decode(record.codes)};
+}
+
+Record Vault::hydrate(const Record& record) const {
+    if (record.codes.empty()) {
+        return record;
+    }
+    Record out = record;
+    out.vector = reconstruct(record);
+    return out;
+}
+
+void Vault::place_record(const Record& record) {
+    const std::unique_lock lock(mutex_);
+    place_record_locked(record);
+}
+
+void Vault::place_record_locked(const Record& record) {
+    if (record.codes.empty()) {
+        place_locked(record.vector, record.payload, record.id, record.document,
+                     record.chunk, record.lineage);
+        return;
+    }
+
+    ensure_writable();
+
+    // A record that arrives already coded is stored byte-for-byte. It is not
+    // normalized (it was normalized before it was first encoded) and not
+    // re-encoded, so a checkpoint/reopen cycle is idempotent no matter how many
+    // times it runs.
+    const auto& codec = quantizer();
+    if (codec == nullptr || record.codes.size() != codec->code_bytes()) {
+        throw StorageError{"quantized record does not match the vault codebook"};
+    }
+
+    if (wal_ != nullptr) {
+        wal_->append_insert_quantized(name_, record.id, record.codes,
+                                      record.codec, record.payload,
+                                      record.document, record.chunk,
+                                      record.lineage);
+    }
+
+    const auto existing = records_.find(record.id);
+    if (existing != records_.end()) {
+        if (config_.metadata_acceleration()) {
+            metadata_index_.remove(record.id, existing->second.payload);
+        }
+        index_->remove(record.id);
+    }
+
+    // The index takes vectors, so the code is decoded once for navigation. It is
+    // re-encoded internally to the identical code, since encoding is
+    // deterministic against a fixed codebook.
+    const Vector decoded = reconstruct(record);
+    index_->insert(record.id, decoded.values());
+    if (config_.metadata_acceleration()) {
+        metadata_index_.insert(record.id, record.payload);
+    }
+
+    Record stored = record;
+    stored.vector = Vector{};
+    records_[record.id] = std::move(stored);
 }
 
 RecordID Vault::place_document(std::string text, Payload payload,
@@ -878,12 +1073,24 @@ std::vector<SearchResult> Vault::search_records(
         subset != nullptr ? subset->size() : static_cast<std::size_t>(records_.size());
     results.reserve(std::min(reserve, top > 0 ? top * 4 : reserve));
 
+    // Compressed vaults score by asymmetric lookup: one table built here, then
+    // a gather per record. Cheaper than the fp32 scan it replaces, and it avoids
+    // decoding every candidate just to measure it.
+    const auto& codec = quantizer();
+    std::vector<float> lut;
+    if (codec != nullptr) {
+        lut = codec->make_lut(prepared.values());
+    }
+
     const auto accumulate = [&](const Record& record) {
         if (!filter.matches(record.payload)) {
             return;
         }
         const float distance_value =
-            distance(config_.metric(), prepared.values(), record.vector.values());
+            (codec != nullptr && !record.codes.empty())
+                ? codec->lut_distance(lut, record.codes)
+                : distance(config_.metric(), prepared.values(),
+                           record.vector.values());
         if (threshold.has_value() && distance_value > *threshold) {
             return;
         }
@@ -927,6 +1134,9 @@ QueryPlan Vault::plan_seek(const Vector& prepared, std::size_t top,
     plan.index_type = std::string(index_->type_name());
     plan.gpu_index = begins_with(plan.index_type, "gpu_");
     plan.candidate_count = records_.size();
+    if (const auto& codec = quantizer(); codec != nullptr) {
+        plan.codec = codec->codec();
+    }
 
     if (records_.empty() || top == 0) {
         plan.strategy =
@@ -1127,7 +1337,7 @@ std::vector<Record> Vault::scan(const Filter& filter, std::size_t offset,
         if (out.size() >= limit) {
             break;
         }
-        out.push_back(record);
+        out.push_back(hydrate(record));
     }
     return out;
 }
@@ -1138,7 +1348,7 @@ std::optional<Record> Vault::fetch(const RecordID& id) const {
     if (it == records_.end()) {
         return std::nullopt;
     }
-    return it->second;
+    return hydrate(it->second);
 }
 
 bool Vault::erase(const RecordID& id) {
@@ -1178,11 +1388,21 @@ void Vault::restore_for_undo(const RecordID& id,
     if (!previous.has_value()) {
         return;
     }
-    index_->insert(id, previous->vector.values());
+    // `previous` came from fetch(), so a compressed record carries both its
+    // original code and a reconstruction. Restoring the code verbatim is what
+    // keeps rollback lossless: re-encoding the reconstruction would cost the
+    // record a generation of accuracy it never asked for, on a transaction that
+    // may not even have modified it.
+    const Vector vector = reconstruct(*previous);
+    index_->insert(id, vector.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(id, previous->payload);
     }
-    records_[id] = *previous;
+    Record restored = *previous;
+    if (!restored.codes.empty()) {
+        restored.vector = Vector{};
+    }
+    records_[id] = std::move(restored);
 }
 
 void Vault::rebuild_index() {
@@ -1202,12 +1422,131 @@ void Vault::rebuild_index_locked() {
 
     metadata_index_ = MetadataIndex{};
     for (const auto& [id, record] : records_) {
-        rebuilt->insert(id, record.vector.values());
+        // Compressed records decode once here; the index re-encodes internally
+        // to the same code, so a rebuild does not degrade what is stored.
+        const Vector vector = reconstruct(record);
+        rebuilt->insert(id, vector.values());
         if (config_.metadata_acceleration()) {
             metadata_index_.insert(id, record.payload);
         }
     }
     index_ = std::move(rebuilt);
+}
+
+bool Vault::quantized() const noexcept {
+    const std::shared_lock lock(mutex_);
+    return quantizer() != nullptr;
+}
+
+quant::CodecId Vault::codec() const noexcept {
+    const std::shared_lock lock(mutex_);
+    const auto& codec = quantizer();
+    return codec != nullptr ? codec->codec() : quant::CodecId::none;
+}
+
+void Vault::install_quantizer(quant::QuantizerPtr quantizer) {
+    const std::unique_lock lock(mutex_);
+    if (quantizer != nullptr && quantizer->dimension() != config_.dimension()) {
+        throw StorageError{"persisted codebook dimension does not match the vault"};
+    }
+    config_.attach_quantizer(std::move(quantizer));
+    // The index was built by the constructor without a codebook, so it is
+    // storing fp32. Rebuild it so it stores codes -- but only if records are
+    // already present; during load this runs before any placement and the
+    // rebuild is a no-op, with make_index() picking the codebook up naturally.
+    if (!records_.empty()) {
+        rebuild_index_locked();
+    } else {
+        index_ = make_index(config_, config_.dimension()
+#ifdef ELIPS_GPU_ENABLED
+                            ,
+                            gpu_backend_
+#endif
+        );
+    }
+}
+
+void Vault::quantize() {
+    const std::unique_lock lock(mutex_);
+    ensure_writable();
+
+    if (!config_.has_quantization()) {
+        throw ConfigError{
+            "vault has no quantization codec configured; set one via "
+            "Config::quantization() before calling quantize()"};
+    }
+    if (quantizer() != nullptr) {
+        throw ConfigError{"vault is already quantized"};
+    }
+    if (records_.empty()) {
+        throw ConfigError{
+            "cannot train a codebook on an empty vault: quantization needs "
+            "representative data"};
+    }
+
+    const auto dimension = config_.dimension();
+    quant::validate(config_.quantization(), dimension);
+
+    // Train on a bounded sample. Codebook quality is a function of how well the
+    // sample covers the distribution, not of its size, so this keeps training
+    // cost tied to the dimension and codebook width rather than to the vault.
+    const std::size_t sample_size =
+        std::min(records_.size(), quant::train_sample_cap);
+    const std::size_t stride = std::max<std::size_t>(1, records_.size() / sample_size);
+
+    std::vector<float> training;
+    training.reserve(sample_size * dimension);
+    std::size_t taken = 0;
+    std::size_t position = 0;
+    for (const auto& [id, record] : records_) {
+        (void)id;
+        if (position++ % stride != 0 || taken >= sample_size) {
+            continue;
+        }
+        const auto values = record.vector.values();
+        training.insert(training.end(), values.begin(), values.end());
+        ++taken;
+    }
+
+    auto trained = quant::train(config_.quantization(), config_.metric(),
+                                dimension, training, taken);
+
+    // Encode every record, then drop the fp32 copies. Done before the index is
+    // rebuilt so the rebuild reads codes through reconstruct() exactly as every
+    // later rebuild will.
+    for (auto& [id, record] : records_) {
+        (void)id;
+        record.codes = trained->encode(record.vector.values());
+        record.codec = trained->codec();
+        record.vector = Vector{};
+    }
+
+    config_.attach_quantizer(std::move(trained));
+    rebuild_index_locked();
+}
+
+void ElipsInstance::quantize(const std::string& vault_name) {
+    const std::lock_guard lock(mutex_);
+    if (closed_) {
+        throw StorageError{"database is closed"};
+    }
+    vault_locked(vault_name).quantize();
+
+    // Order matters and is the reason no partial-quantize state can exist on
+    // disk: the checkpoint durably publishes both the codebook and the encoded
+    // records, and only then is the log truncated. A crash before the checkpoint
+    // leaves the previous fp32 database intact; a crash after it leaves a fully
+    // quantized one. There is no window where the log holds insert_q records
+    // whose codebook was never written.
+    if (persistent_) {
+        checkpoint_locked();
+    }
+}
+
+void ElipsInstance::quantize_all() {
+    for (const auto& name : list_vaults()) {
+        quantize(name);
+    }
 }
 
 void Vault::vacuum() {
@@ -1223,7 +1562,10 @@ std::size_t Vault::pending_removals() const noexcept {
 
 VaultInfo Vault::info() const noexcept {
     const std::shared_lock lock(mutex_);
-    return VaultInfo{records_.size(), config_.dimension(), config_.metric()};
+    const auto& codec = quantizer();
+    return VaultInfo{records_.size(), config_.dimension(), config_.metric(),
+                     codec != nullptr ? codec->codec() : quant::CodecId::none,
+                     codec != nullptr ? codec->code_bytes() : 0};
 }
 
 // ----------------------------- ElipsInstance -----------------------------
@@ -1498,7 +1840,14 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
     for (const auto& entry : WAL::replay(walpath)) {
         Vault& vault = instance->vault(entry.vault);
         vault.set_read_only(false);
-        if (entry.op == WAL::Op::insert || entry.op == WAL::Op::insert_ex) {
+        if (entry.op == WAL::Op::insert_q) {
+            // The codebook came from the snapshot that was loaded above.
+            // quantize() checkpoints before resetting the log, so an insert_q
+            // record can never predate the codebook that decodes it.
+            vault.place_record(Record{entry.id, Vector{}, entry.payload,
+                                      entry.document, entry.chunk, entry.lineage,
+                                      entry.codes, entry.codec});
+        } else if (entry.op == WAL::Op::insert || entry.op == WAL::Op::insert_ex) {
             vault.place(Vector{entry.vector}, entry.payload, entry.id, entry.document,
                         entry.chunk, entry.lineage);
         } else {

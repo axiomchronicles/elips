@@ -8,6 +8,10 @@ namespace elips {
 
 // One hit from a seek(): the record identity, its distance to the query
 // (smaller = closer, ordering-normalized across metrics), and its payload.
+//
+// In a quantized vault both `vector`-derived data and `distance` are
+// approximate; `codec` names the quantizer responsible so a caller can tell an
+// exact score from an estimated one.
 struct SearchResult {
     RecordID id;
     float distance{0.0F};
@@ -15,6 +19,11 @@ struct SearchResult {
     std::optional<DocumentAttachment> document;
     std::optional<ChunkInfo> chunk;
     std::optional<EmbeddingLineage> lineage;
+    quant::CodecId codec{quant::CodecId::none};
+
+    [[nodiscard]] bool approximate() const noexcept {
+        return codec != quant::CodecId::none;
+    }
 };
 
 }  // namespace elips
