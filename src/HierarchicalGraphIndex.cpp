@@ -12,23 +12,52 @@ namespace elips {
 
 HierarchicalGraphIndex::HierarchicalGraphIndex(Metric metric,
                                                std::uint16_t dimension,
-                                               GraphParams params)
+                                               GraphParams params,
+                                               quant::QuantizerPtr quantizer)
     : metric_(metric),
       dimension_(dimension),
       params_(params),
+      quantizer_(std::move(quantizer)),
+      row_width_(quantizer_ != nullptr ? quantizer_->code_bytes() : dimension),
       level_mult_(1.0 / std::log(static_cast<double>(std::max<std::size_t>(
                             params.max_connections, 2)))),
       rng_(std::random_device{}()) {}
 
+HierarchicalGraphIndex::Probe::Probe(const HierarchicalGraphIndex& owner,
+                                     std::span<const float> query)
+    : owner_(&owner) {
+    if (owner.compressed()) {
+        lut_ = owner.quantizer_->make_lut(query);
+    } else {
+        raw_ = query;
+    }
+}
+
+float HierarchicalGraphIndex::Probe::to(NodeId node) const noexcept {
+    if (!lut_.empty()) {
+        return owner_->quantizer_->lut_distance(lut_, owner_->code_of(node));
+    }
+    return distance(owner_->metric_, raw_, owner_->vector_of(node));
+}
+
 std::span<const float> HierarchicalGraphIndex::vector_of(
     NodeId node) const noexcept {
-    return {data_.data() + static_cast<std::size_t>(node) * dimension_,
+    return {data_.data() + (static_cast<std::size_t>(node) * dimension_),
             dimension_};
 }
 
-float HierarchicalGraphIndex::distance_to(std::span<const float> query,
-                                          NodeId node) const noexcept {
-    return distance(metric_, query, vector_of(node));
+std::span<const std::uint8_t> HierarchicalGraphIndex::code_of(
+    NodeId node) const noexcept {
+    return {codes_.data() + (static_cast<std::size_t>(node) * row_width_),
+            row_width_};
+}
+
+std::vector<float> HierarchicalGraphIndex::reconstruct(NodeId node) const {
+    if (!compressed()) {
+        const auto row = vector_of(node);
+        return {row.begin(), row.end()};
+    }
+    return quantizer_->decode(code_of(node));
 }
 
 int HierarchicalGraphIndex::random_level() {
@@ -41,11 +70,11 @@ int HierarchicalGraphIndex::random_level() {
 }
 
 std::vector<HierarchicalGraphIndex::Scored>
-HierarchicalGraphIndex::search_layer(std::span<const float> query, NodeId entry,
+HierarchicalGraphIndex::search_layer(const Probe& probe, NodeId entry,
                                      std::size_t ef, int level) const {
     std::unordered_set<NodeId> visited;
     visited.insert(entry);
-    const float entry_dist = distance_to(query, entry);
+    const float entry_dist = probe.to(entry);
 
     // Candidate frontier: min-heap on distance (closest first).
     using MinHeap =
@@ -67,7 +96,7 @@ HierarchicalGraphIndex::search_layer(std::span<const float> query, NodeId entry,
             if (!visited.insert(neighbor).second) {
                 continue;
             }
-            const float d = distance_to(query, neighbor);
+            const float d = probe.to(neighbor);
             if (d < result.top().first || result.size() < ef) {
                 candidates.emplace(d, neighbor);
                 result.emplace(d, neighbor);
@@ -94,6 +123,11 @@ void HierarchicalGraphIndex::connect(NodeId node,
     // Diversity heuristic (HNSW Algorithm 4): keep a candidate only if it is
     // closer to the new node than to any already-selected neighbor. This yields
     // better-connected, higher-recall graphs than taking the closest M.
+    //
+    // Under compression this is the one build-path cost: each candidate has to
+    // be reconstructed to serve as a query. It runs once per candidate per
+    // insert, against ef_construction distance evaluations, and only for the
+    // candidates that survive the max_links cutoff.
     std::vector<NodeId> selected;
     for (const auto& [dist_to_node, candidate] : candidates) {
         if (candidate == node) {
@@ -103,10 +137,16 @@ void HierarchicalGraphIndex::connect(NodeId node,
             break;
         }
         bool keep = true;
-        for (const NodeId chosen : selected) {
-            if (distance_to(vector_of(candidate), chosen) < dist_to_node) {
-                keep = false;
-                break;
+        if (!selected.empty()) {
+            // Named, not a temporary: Probe holds a span over this buffer in the
+            // uncompressed case and would otherwise dangle past the semicolon.
+            const std::vector<float> candidate_vector = reconstruct(candidate);
+            const Probe from_candidate(*this, candidate_vector);
+            for (const NodeId chosen : selected) {
+                if (from_candidate.to(chosen) < dist_to_node) {
+                    keep = false;
+                    break;
+                }
             }
         }
         if (keep) {
@@ -122,10 +162,11 @@ void HierarchicalGraphIndex::connect(NodeId node,
         auto& other_links = links_[neighbor][static_cast<std::size_t>(level)];
         other_links.push_back(node);
         if (other_links.size() > max_links) {
-            const std::span<const float> base = vector_of(neighbor);
+            const std::vector<float> neighbor_vector = reconstruct(neighbor);
+            const Probe from_neighbor(*this, neighbor_vector);
             std::sort(other_links.begin(), other_links.end(),
                       [&](NodeId a, NodeId b) {
-                          return distance_to(base, a) < distance_to(base, b);
+                          return from_neighbor.to(a) < from_neighbor.to(b);
                       });
             other_links.resize(max_links);
         }
@@ -144,7 +185,14 @@ void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
     ids_.push_back(id);
     deleted_.push_back(false);
     node_levels_.push_back(level);
-    data_.insert(data_.end(), vector.begin(), vector.end());
+    if (compressed()) {
+        const std::size_t offset = codes_.size();
+        codes_.resize(offset + row_width_);
+        quantizer_->encode(
+            vector, std::span<std::uint8_t>{codes_}.subspan(offset, row_width_));
+    } else {
+        data_.insert(data_.end(), vector.begin(), vector.end());
+    }
     links_.emplace_back(static_cast<std::size_t>(level) + 1);
     id_to_node_[id] = node;
 
@@ -154,10 +202,11 @@ void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
         return;
     }
 
+    const Probe probe(*this, vector);
     NodeId cur = static_cast<NodeId>(entry_point_);
     // Greedy descent through layers above the new node's top level.
     for (int l = max_level_; l > level; --l) {
-        const auto found = search_layer(vector, cur, 1, l);
+        const auto found = search_layer(probe, cur, 1, l);
         if (!found.empty()) {
             cur = found.front().second;
         }
@@ -165,7 +214,7 @@ void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
 
     const std::size_t max0 = params_.max_connections * 2;
     for (int l = std::min(level, max_level_); l >= 0; --l) {
-        const auto found = search_layer(vector, cur, params_.ef_construction, l);
+        const auto found = search_layer(probe, cur, params_.ef_construction, l);
         const std::size_t max_links =
             (l == 0) ? max0 : params_.max_connections;
         connect(node, found, l, max_links);
@@ -205,23 +254,38 @@ void HierarchicalGraphIndex::vacuum() {
     // Rebuild from the live rows only: reclaims tombstoned vectors and edges and
     // restores full graph connectivity (unlink() leaves the survivors' degree
     // lower than the parameters intend).
+    //
+    // Live rows are carried as codes when compressed, so a vacuum never decodes
+    // and re-encodes: repeated compaction cannot accumulate generations of loss.
     std::vector<RecordID> live_ids;
     std::vector<float> live_data;
+    std::vector<std::uint8_t> live_codes;
     live_ids.reserve(ids_.size() - deleted_count_);
-    live_data.reserve(live_ids.capacity() * dimension_);
+    if (compressed()) {
+        live_codes.reserve(live_ids.capacity() * row_width_);
+    } else {
+        live_data.reserve(live_ids.capacity() * dimension_);
+    }
     for (std::size_t node = 0; node < ids_.size(); ++node) {
         if (deleted_[node]) {
             continue;
         }
         live_ids.push_back(ids_[node]);
-        const auto base =
-            static_cast<std::ptrdiff_t>(node * static_cast<std::size_t>(dimension_));
-        live_data.insert(live_data.end(), data_.begin() + base,
-                         data_.begin() + base + dimension_);
+        if (compressed()) {
+            const auto code = code_of(static_cast<NodeId>(node));
+            live_codes.insert(live_codes.end(), code.begin(), code.end());
+        } else {
+            const auto base = static_cast<std::ptrdiff_t>(
+                node * static_cast<std::size_t>(dimension_));
+            live_data.insert(live_data.end(), data_.begin() + base,
+                             data_.begin() + base + dimension_);
+        }
     }
 
     data_.clear();
     data_.shrink_to_fit();
+    codes_.clear();
+    codes_.shrink_to_fit();
     ids_.clear();
     ids_.shrink_to_fit();
     deleted_.clear();
@@ -233,6 +297,21 @@ void HierarchicalGraphIndex::vacuum() {
     entry_point_ = -1;
     max_level_ = -1;
     deleted_count_ = 0;
+
+    if (compressed()) {
+        // Re-link the graph from the preserved codes. insert_unchecked() takes a
+        // vector, so each row is decoded once for navigation and re-encoded to
+        // the identical code (encoding is deterministic given a fixed codebook).
+        std::vector<float> decoded(dimension_);
+        for (std::size_t i = 0; i < live_ids.size(); ++i) {
+            quantizer_->decode(
+                std::span<const std::uint8_t>{
+                    live_codes.data() + (i * row_width_), row_width_},
+                decoded);
+            insert_unchecked(live_ids[i], decoded);
+        }
+        return;
+    }
 
     for (std::size_t i = 0; i < live_ids.size(); ++i) {
         insert_unchecked(
@@ -248,9 +327,10 @@ std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
     if (entry_point_ < 0 || k == 0 || ids_.size() == deleted_count_) {
         return {};
     }
+    const Probe probe(*this, query);
     NodeId cur = static_cast<NodeId>(entry_point_);
     for (int l = max_level_; l > 0; --l) {
-        const auto found = search_layer(query, cur, 1, l);
+        const auto found = search_layer(probe, cur, 1, l);
         if (!found.empty()) {
             cur = found.front().second;
         }
@@ -268,7 +348,7 @@ std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
             live == 0 ? ids_.size() : (ef * ids_.size()) / live;
         ef = std::min(std::max(ef, scaled), ids_.size());
     }
-    const auto found = search_layer(query, cur, ef, 0);
+    const auto found = search_layer(probe, cur, ef, 0);
 
     std::vector<Hit> hits;
     hits.reserve(std::min(k, found.size()));
@@ -292,17 +372,39 @@ HierarchicalGraphIndex::export_snapshot() const {
     snapshot.dimension = dimension_;
 
     snapshot.ids.reserve(ids_.size());
-    snapshot.vectors.reserve(data_.size());
+    snapshot.vectors.reserve(ids_.size() * static_cast<std::size_t>(dimension_));
+    std::vector<std::uint8_t> live_codes;
+    if (compressed()) {
+        live_codes.reserve(ids_.size() * row_width_);
+    }
     for (std::size_t node = 0; node < ids_.size(); ++node) {
         if (deleted_[node]) {
             continue;
         }
         snapshot.ids.push_back(ids_[node]);
-        const auto base =
-            static_cast<std::ptrdiff_t>(node * static_cast<std::size_t>(dimension_));
-        snapshot.vectors.insert(snapshot.vectors.end(),
-                                data_.begin() + base,
-                                data_.begin() + base + dimension_);
+        if (compressed()) {
+            // `vectors` is the fp32 interchange format every backend reads, so
+            // decode into it; the codes travel alongside in `pq`.
+            const auto decoded = reconstruct(static_cast<NodeId>(node));
+            snapshot.vectors.insert(snapshot.vectors.end(), decoded.begin(),
+                                    decoded.end());
+            const auto code = code_of(static_cast<NodeId>(node));
+            live_codes.insert(live_codes.end(), code.begin(), code.end());
+        } else {
+            const auto base = static_cast<std::ptrdiff_t>(
+                node * static_cast<std::size_t>(dimension_));
+            snapshot.vectors.insert(snapshot.vectors.end(),
+                                    data_.begin() + base,
+                                    data_.begin() + base + dimension_);
+        }
+    }
+
+    if (compressed()) {
+        PqSnapshot pq;
+        pq.codec = quantizer_->codec();
+        pq.pq_dim = static_cast<std::uint32_t>(row_width_);
+        pq.codes = std::move(live_codes);
+        snapshot.pq = std::move(pq);
     }
     return snapshot;
 }
@@ -323,6 +425,7 @@ HierarchicalGraphIndex::import_snapshot(const IndexSnapshot& snapshot) {
     }
 
     data_.clear();
+    codes_.clear();
     ids_.clear();
     deleted_.clear();
     node_levels_.clear();

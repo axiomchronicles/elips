@@ -68,6 +68,10 @@ add_library(elips_core
     src/ExactIndex.cpp
     src/HierarchicalGraphIndex.cpp
     src/IndexFactory.cpp
+    src/quant_engine/KMeans.cpp
+    src/quant_engine/Quantizer.cpp
+    src/quant_engine/ProductQuantizer.cpp
+    src/quant_engine/ScalarQuantizer.cpp
     src/LockManager.cpp
     src/WAL.cpp
     src/Filter.cpp
@@ -140,6 +144,8 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/m1_durability_atomicity_test.cpp
         tests/unit/m3_index_health_test.cpp
         tests/unit/eql_edge_test.cpp
+        tests/unit/quantizer_test.cpp
+        tests/unit/quantized_index_test.cpp
         tests/integration/roundtrip_test.cpp
         tests/integration/local_text_embedder_test.cpp
         tests/integration/transaction_filter_test.cpp

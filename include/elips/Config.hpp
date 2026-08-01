@@ -8,6 +8,7 @@
 #include <string_view>
 #include <variant>
 
+#include "elips/quant_engine/QuantParams.hpp"
 #include "elips/text_engine/LocalTextEmbedder.hpp"
 #include "elips/text_engine/TextEmbedderPort.hpp"
 
@@ -70,6 +71,14 @@ public:
         graph_ = params;
         return *this;
     }
+    // Selects a compression codec for stored vectors. Configuring this does not
+    // compress anything on its own: a codebook has to be trained on real data
+    // first, which is what Vault::quantize() does. Until then the vault stores
+    // full fp32 and behaves exactly as an unquantized one.
+    Config& quantization(quant::QuantParams params) noexcept {
+        quantization_ = params;
+        return *this;
+    }
     Config& durability(Durability level) noexcept {
         durability_ = level;
         return *this;
@@ -113,6 +122,12 @@ public:
     [[nodiscard]] Metric metric() const noexcept { return metric_; }
     [[nodiscard]] IndexType index() const noexcept { return index_; }
     [[nodiscard]] const GraphParams& graph_params() const noexcept { return graph_; }
+    [[nodiscard]] const quant::QuantParams& quantization() const noexcept {
+        return quantization_;
+    }
+    [[nodiscard]] bool has_quantization() const noexcept {
+        return quantization_.codec != quant::CodecId::none;
+    }
     [[nodiscard]] Durability durability() const noexcept { return durability_; }
     [[nodiscard]] AccessMode access_mode() const noexcept { return access_mode_; }
     [[nodiscard]] bool segmented_storage() const noexcept { return segmented_storage_; }
@@ -164,6 +179,21 @@ public:
         expected_text_embedder_ = std::move(info);
     }
 
+    // Runtime quantizer, attached by open() once a persisted codebook has been
+    // read and by Vault::quantize() once one has been trained. Held here rather
+    // than on the Vault because rebuild_index_locked() reconstructs the index
+    // from Config alone: a quantizer stored anywhere else would be silently
+    // dropped by vacuum() and compact().
+    void attach_quantizer(quant::QuantizerPtr quantizer) noexcept {
+        quantizer_ = std::move(quantizer);
+    }
+    [[nodiscard]] const quant::QuantizerPtr& quantizer() const noexcept {
+        return quantizer_;
+    }
+    [[nodiscard]] bool has_trained_quantizer() const noexcept {
+        return quantizer_ != nullptr;
+    }
+
 private:
     friend std::unique_ptr<ElipsInstance> open(
         const std::string& path, const Config& config);
@@ -172,6 +202,8 @@ private:
     Metric metric_{Metric::cosine};
     IndexType index_{IndexType::graph};
     GraphParams graph_{};
+    quant::QuantParams quantization_{};
+    quant::QuantizerPtr quantizer_{};
     Durability durability_{Durability::standard};
     AccessMode access_mode_{AccessMode::read_write};
     bool segmented_storage_{true};

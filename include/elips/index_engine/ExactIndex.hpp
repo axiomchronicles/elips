@@ -11,15 +11,27 @@
 #include "elips/domain/RecordID.hpp"
 #include "elips/index_engine/IndexPort.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
+#include "elips/quant_engine/Quantizer.hpp"
 
 namespace elips {
 
 // Brute-force linear scan over (id, vector) pairs. Exact results; used for
 // small collections and as the recall ground-truth oracle for ANN benchmarks.
+//
+// When a trained quantizer is supplied, rows are stored as codes rather than
+// fp32 and search computes distances by asymmetric lookup, which makes the scan
+// both smaller and faster. Note that "exact" then refers to the scan being
+// exhaustive, not to the distances being exact -- a quantized ExactIndex is no
+// longer a ground-truth oracle.
 class ExactIndex final : public IndexPort, public IndexTransferPort {
 public:
-    ExactIndex(Metric metric, std::uint16_t dimension) noexcept
-        : metric_(metric), dimension_(dimension) {}
+    ExactIndex(Metric metric, std::uint16_t dimension,
+               quant::QuantizerPtr quantizer = {}) noexcept
+        : metric_(metric),
+          dimension_(dimension),
+          quantizer_(std::move(quantizer)),
+          row_width_(quantizer_ != nullptr ? quantizer_->code_bytes()
+                                           : dimension) {}
 
     void insert(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
@@ -28,7 +40,7 @@ public:
 
     [[nodiscard]] std::size_t size() const noexcept override { return ids_.size(); }
     [[nodiscard]] std::string_view type_name() const noexcept override {
-        return "exact";
+        return quantizer_ != nullptr ? "exact_quantized" : "exact";
     }
 
     [[nodiscard]] std::expected<IndexSnapshot, std::string>
@@ -37,10 +49,20 @@ public:
     import_snapshot(const IndexSnapshot& snapshot) override;
 
 private:
+    // Row-major storage: dimension_ floats per record when uncompressed, or
+    // code_bytes() bytes when a quantizer is attached. Only one is ever
+    // populated.
+    [[nodiscard]] bool compressed() const noexcept {
+        return quantizer_ != nullptr;
+    }
+
     Metric metric_;
     std::uint16_t dimension_;
+    quant::QuantizerPtr quantizer_;
+    std::size_t row_width_;
     std::vector<RecordID> ids_;
-    std::vector<float> data_;  // row-major, dimension_ floats per record
+    std::vector<float> data_;           // used when uncompressed
+    std::vector<std::uint8_t> codes_;   // used when compressed
 };
 
 }  // namespace elips

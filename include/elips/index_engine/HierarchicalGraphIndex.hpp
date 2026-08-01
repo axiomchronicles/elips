@@ -14,6 +14,7 @@
 #include "elips/domain/RecordID.hpp"
 #include "elips/index_engine/IndexPort.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
+#include "elips/quant_engine/Quantizer.hpp"
 
 namespace elips {
 
@@ -29,10 +30,17 @@ namespace elips {
 //   * once tombstones exceed `compaction_ratio` of the graph the index rebuilds
 //     itself (vacuum()), reclaiming dead vectors and edges. Callers can force
 //     this at any time via vacuum().
+//
+// With a trained quantizer attached, node vectors are stored as codes and every
+// distance -- during traversal as well as at query time -- is computed by
+// asymmetric lookup. Compression therefore has to reach inside the graph rather
+// than wrap it: HNSW evaluates distances while navigating, so a wrapper around
+// search() could not compress the storage those evaluations read.
 class HierarchicalGraphIndex final : public IndexPort, public IndexTransferPort {
 public:
     HierarchicalGraphIndex(Metric metric, std::uint16_t dimension,
-                           GraphParams params);
+                           GraphParams params,
+                           quant::QuantizerPtr quantizer = {});
 
     void insert(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
@@ -43,7 +51,7 @@ public:
         return ids_.size() - deleted_count_;
     }
     [[nodiscard]] std::string_view type_name() const noexcept override {
-        return "graph";
+        return quantizer_ != nullptr ? "graph_quantized" : "graph";
     }
 
     void vacuum() override;
@@ -60,12 +68,44 @@ private:
     using NodeId = std::uint32_t;
     using Scored = std::pair<float, NodeId>;  // (distance, node)
 
-    [[nodiscard]] float distance_to(std::span<const float> query,
-                                    NodeId node) const noexcept;
+    // Distance evaluator bound to one query for the lifetime of a traversal.
+    //
+    // Exists because the compressed and uncompressed paths pay their cost in
+    // different places: uncompressed compares the query against a stored row
+    // directly, while compressed does O(dimension) table work once and then
+    // O(code_bytes) per node. Binding that setup to the query rather than
+    // repeating it per distance is what keeps ADC cheaper than the fp32 scan,
+    // and it keeps the branch out of the inner loop of search_layer().
+    class Probe {
+    public:
+        Probe(const HierarchicalGraphIndex& owner, std::span<const float> query);
+        // In the uncompressed case a Probe holds a span over the caller's
+        // buffer, so a temporary would dangle for the rest of the traversal.
+        // Deleting the rvalue overload turns that into a compile error rather
+        // than a recall regression that only shows up in a benchmark.
+        Probe(const HierarchicalGraphIndex&, std::vector<float>&&) = delete;
+        [[nodiscard]] float to(NodeId node) const noexcept;
+
+    private:
+        const HierarchicalGraphIndex* owner_;
+        std::span<const float> raw_;  // uncompressed: the query itself
+        std::vector<float> lut_;      // compressed: the precomputed table
+    };
+    friend class Probe;
+
+    // Row storage for one node: floats when uncompressed, code bytes otherwise.
     [[nodiscard]] std::span<const float> vector_of(NodeId node) const noexcept;
+    [[nodiscard]] std::span<const std::uint8_t> code_of(NodeId node) const noexcept;
+    // Full-precision reconstruction of a node, for the paths that need a vector
+    // rather than a distance (snapshot export, neighbor pruning).
+    [[nodiscard]] std::vector<float> reconstruct(NodeId node) const;
+    [[nodiscard]] bool compressed() const noexcept {
+        return quantizer_ != nullptr;
+    }
+
     [[nodiscard]] int random_level();
     // Beam search within one layer; returns up to `ef` nearest as (dist, node).
-    [[nodiscard]] std::vector<Scored> search_layer(std::span<const float> query,
+    [[nodiscard]] std::vector<Scored> search_layer(const Probe& probe,
                                                    NodeId entry, std::size_t ef,
                                                    int level) const;
     void connect(NodeId node, const std::vector<Scored>& candidates, int level,
@@ -75,9 +115,12 @@ private:
     Metric metric_;
     std::uint16_t dimension_;
     GraphParams params_;
+    quant::QuantizerPtr quantizer_;
+    std::size_t row_width_;
     double level_mult_;  // mL = 1 / ln(M)
 
-    std::vector<float> data_;          // row-major, dimension_ floats per node
+    std::vector<float> data_;          // row-major fp32; empty when compressed
+    std::vector<std::uint8_t> codes_;  // row-major codes; empty when not
     std::vector<RecordID> ids_;
     std::vector<bool> deleted_;
     std::vector<int> node_levels_;

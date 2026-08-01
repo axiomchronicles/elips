@@ -14,14 +14,18 @@ namespace {
 
 std::unique_ptr<IndexPort> make_cpu_index(const Config& config,
                                           std::uint16_t dimension) {
+    // A quantizer is only handed over once one has been trained; until then the
+    // index stores full fp32 even when a codec is configured.
+    const quant::QuantizerPtr& quantizer = config.quantizer();
     switch (config.index()) {
         case IndexType::exact:
-            return std::make_unique<ExactIndex>(config.metric(), dimension);
+            return std::make_unique<ExactIndex>(config.metric(), dimension,
+                                                quantizer);
         case IndexType::graph:
             return std::make_unique<HierarchicalGraphIndex>(
-                config.metric(), dimension, config.graph_params());
+                config.metric(), dimension, config.graph_params(), quantizer);
     }
-    return std::make_unique<ExactIndex>(config.metric(), dimension);
+    return std::make_unique<ExactIndex>(config.metric(), dimension, quantizer);
 }
 
 }  // namespace

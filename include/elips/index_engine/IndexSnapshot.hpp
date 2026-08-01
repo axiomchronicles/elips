@@ -30,10 +30,15 @@ struct IvfSnapshot {
     std::vector<std::uint32_t> assignments;
 };
 
+// Compressed-vector payload. Carries every CPU codec, not only product
+// quantization: `codec` discriminates, `pq_dim` doubles as the code width in
+// bytes, and `rotation` is populated only for OPQ.
 struct PqSnapshot {
+    quant::CodecId codec{quant::CodecId::pq};
     std::uint32_t pq_dim{0};
     std::uint32_t pq_bits{0};
     std::vector<float> codebook;
+    std::vector<float> rotation;
     std::vector<std::uint8_t> codes;
 };
 
