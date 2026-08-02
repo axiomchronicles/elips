@@ -8,174 +8,126 @@ The `elips` Python package is a hybrid of pure-Python modules and a compiled C++
 bindings/python/
 ├── setup.py                           # pip / cibuildwheel entry point
 └── elips/
-    ├── __init__.py                    # Small public facade over core.py + modern.py
-    ├── core.py                        # Low-level pure-Python facade over _core
-    ├── _core.pyi                      # Type stubs (924 lines) — consumed by IDEs & type checkers
-    ├── _core.cpython-3XX-<arch>.so    # Compiled pybind11 extension (macOS: .dylib, Linux: .so)
-    ├── modern.py                      # Compatibility facade for the modern API
-    ├── _modern/
-    │   ├── __init__.py                # Structured modern API exports
-    │   ├── arena.py                   # Arena implementation
-    │   ├── connect.py                 # connect() / connect_with_config()
-    │   ├── engine.py                  # Engine implementation
-    │   ├── models.py                  # RecordInput / Row / Hit dataclasses
-    │   ├── typing.py                  # Embedder protocol and modern typing helpers
-    │   └── _records.py                # Internal record normalization helpers
-    ├── py.typed                       # PEP 561 marker — empty file, signals presence of inline types
-    ├── errors.py                      # Error hierarchy re-exports (convenience submodule)
-    └── types.py                       # Literals, aliases, and TypedDict models
+    ├── __init__.py                    # ~40 explicit exports; the public API
+    ├── _native.py                     # The one seam onto the extension
+    ├── native.py                      # Supported escape hatch to native handles
+    ├── _core.pyi                      # Type stubs — consumed by IDEs & type checkers
+    ├── _core.cpython-3XX-<arch>.so    # Compiled pybind11 extension
+    ├── core.py                        # Deprecated alias for native.py
+    ├── modern.py                      # Deprecated alias for the package root
+    ├── collection/                    # Collection: writes, search, maintenance
+    │   ├── collection.py              # The Collection implementation
+    │   ├── _embedding.py              # Embedder fan-out, batched
+    │   └── _hydration.py              # Native record dicts -> Row / Hit
+    ├── config/connect.py              # connect() / connect_with_config()
+    ├── database/engine.py             # Engine lifecycle wrapper
+    ├── records/models.py              # RecordInput / Row / Hit dataclasses
+    ├── search/                        # Filter, QueryPlan
+    ├── query/                         # EQL: parse, tokenize, validate, AST
+    ├── storage/                       # WAL replay
+    ├── quantization/                  # Codec, QuantParams
+    ├── gpu/accelerator.py             # Accelerator wrapper
+    ├── _internal/
+    │   ├── protocols.py               # Embedder protocol, typing helpers
+    │   └── coercion.py                # Record normalization helpers
+    ├── py.typed                       # PEP 561 marker
+    ├── exceptions.py                  # Error hierarchy re-exports
+    └── typing.py                      # Literals, aliases, and TypedDict models
 ```
 
 ## `__init__.py` — The Public API
 
+The root exports ~40 curated names explicitly — no star imports. Native
+handles (`Database`, `Vault`, `Filter`) resolve lazily through a module
+`__getattr__` so existing code keeps working, but they are absent from
+`__all__`: the supported spelling is `elips.native.Vault`.
+
+Engine internals — the EQL AST, the lexer's `Token`, the index snapshots —
+warn when reached through the root and name the module that owns them.
+
+## `_native.py` — The Seam
+
+Every module reaches the extension through `_native`, and nothing else
+imports `_core`. The surface is derived rather than transcribed:
+
 ```python
-from . import core as _core_api
-from . import modern as _modern_api
-from .core import *
-from .modern import *
+globals().update({name: getattr(_core, name) for name in _public_names()})
 ```
 
-The package root is intentionally small. It imports from the structured
-`core.py` and `modern.py` facades and then exposes the combined `__all__`.
-This keeps the public import path stable (`import elips`) while letting the
-actual implementation live in smaller, testable modules.
+`core.py` used to be a hand-maintained mirror of the extension's symbol
+table, so adding one `py::class_` in C++ meant four mechanical Python-side
+edits. A new binding now appears here the moment it compiles.
 
-## `core.py` — The Low-Level Facade
+`_native` stays complete — it mirrors the extension, that is its job.
+`supported_names()` is the curated subset that `elips.native` advertises;
+`DEMOTED` maps each engine internal to the module that owns it now.
 
-`core.py` is the pure-Python shim over the compiled `_core` extension. It owns:
+### GPU: A Conditional Surface
 
-- the `_has_gpu` conditional import logic
-- the stable low-level `__all__`
-- the package `__version__`
-- direct re-exports of `Database`, `Vault`, `Config`, and the other runtime
-  types defined by pybind11
-
-This moves extension-specific wiring out of `__init__.py` without changing the
-user-facing surface.
-
-### GPU Conditional Imports
-
-GPU types import conditionally in `core.py`. If the extension was compiled
-without GPU support (no `ELIPS_GPU_ENABLED` define), the GPU classes are not
-present in `_core`:
+The GPU surface is conditional: built without GPU support (no
+`ELIPS_GPU_ENABLED` define), the `Gpu*` classes are simply absent from
+`_core`. The seam does not enumerate them in a `try`/`except` — it binds
+whatever the extension exposes, so a conditional surface needs no
+conditional import:
 
 ```python
-try:
-    from ._core import (
-        GpuConfig,
-        GpuDeviceInfo,
-        GpuError,
-        GpuIndexAlgorithm,
-        GpuIndexBuildParams,
-        GpuMetricsSnapshot,
-        GpuPolicy,
-        GpuPrecision,
-        GraphBuildAlgo,
-        GraphIndexBuildParams,
-        IndexBuildMode,
-        IvfPqBuildParams,
-        KernelTiming,
-    )
-    _has_gpu = True
-except ImportError:
-    _has_gpu = False
+has_gpu: bool = hasattr(_core, "GpuDevice")
 ```
 
-The `_has_gpu` flag is a module-level boolean that user code can check before accessing GPU types:
+`elips.has_gpu` is the public flag to check before touching GPU types:
 
 ```python
-if elips._has_gpu:
-    gpu = elips.GpuConfig()
-    gpu.policy = elips.GpuPolicy.prefer_gpu
-    gpu.algorithm = elips.GpuIndexAlgorithm.ivf_flat
+if elips.has_gpu:
+    gpu = elips.native.GpuConfig()
+    gpu.policy = elips.native.GpuPolicy.prefer_gpu
+    gpu.algorithm = elips.native.GpuIndexAlgorithm.ivf_flat
     gpu.ivf_pq_params.n_lists = 1024
 else:
     print("CPU only")
 ```
 
-This pattern avoids `AttributeError` when the extension module was compiled without GPU backends.
+For most GPU work `elips.Accelerator` is the better entry point; the native
+config types are the escape hatch for tuning it does not cover.
 
 ### The `__all__` Export List
 
-```python
-__all__ = [
-    # factory
-    "open",
-    "open_with_config",
-    # core classes
-    "Database",
-    "Vault",
-    "VaultInfo",
-    "Filter",
-    "Result",
-    "Config",
-    "GraphParams",
-    "Transaction",
-    "TransactionVault",
-    # enums
-    "Metric",
-    "IndexType",
-    "Durability",
-    "Comparator",
-    # EQL
-    "Token",
-    "TokenKind",
-    "validate_eql",
-    "tokenize_eql",
-    # utilities
-    "distance",
-    "requires_normalization",
-    "metric_from_string",
-    "metric_to_string",
-    # GPU types
-    "GpuConfig",
-    "GpuDeviceInfo",
-    "GpuError",
-    "GpuIndexAlgorithm",
-    "GpuIndexBuildParams",
-    "GpuMetricsSnapshot",
-    "GpuPolicy",
-    "GpuPrecision",
-    "GraphBuildAlgo",
-    "GraphIndexBuildParams",
-    "IndexBuildMode",
-    "IvfPqBuildParams",
-    "KernelTiming",
-    # errors
-    "ElipsError",
-    "DimensionMismatch",
-    "InvalidVector",
-    "ConfigError",
-    "NotFound",
-    "StorageError",
-    "LockConflict",
-    "ParseError",
-]
-```
+The root `__all__` is a hand-curated list of ~40 names, grouped by task:
+opening a database, collections and records, search, documents and
+provenance, durability, compression, tuning, GPU, vector helpers, and
+exceptions.
 
-`__all__` is now composed from `core.py` plus `modern.py`. GPU types are still
-appended only when the extension was built with GPU support, so CPU-only
-installs keep a stable import surface without dangling GPU names.
+It is deliberately *not* derived from the extension. `_native` is generated
+because mirroring a symbol table by hand is what drifted; the public API is
+written down because deciding what belongs in it is a judgement call, and
+the list is the place that judgement is recorded.
 
-## `modern.py` And `elips/_modern/` — The Modern API
+GPU names resolve through the same lazy `__getattr__`, so a CPU-only build
+keeps a stable import surface without dangling GPU attributes.
 
-`modern.py` is now a compatibility facade that re-exports the actual modern
-implementation from `elips/_modern/`.
+## The High-Level API
 
-This split keeps `from elips.modern import Engine` working, but organizes the
-wrapper into purpose-specific files:
+The typed wrappers are the API. Each lives in the package named for what it
+does:
 
-- `connect.py` for high-level open/configure flows
-- `engine.py` for the `Engine` lifecycle wrapper
-- `arena.py` for the typed `Arena` query and write API
-- `models.py` for `RecordInput`, `Row`, and `Hit`
-- `typing.py` for the `Embedder` protocol
-- `_records.py` for legacy-column to structured-record normalization
+- `config/connect.py` for high-level open/configure flows
+- `database/engine.py` for the `Engine` lifecycle wrapper
+- `collection/collection.py` for the typed write and query API
+- `records/models.py` for `RecordInput`, `Row`, and `Hit`
+- `_internal/protocols.py` for the `Embedder` protocol
+- `_internal/coercion.py` for legacy-column to structured-record normalization
 
-The key API addition is `RecordInput`, a typed dataclass that groups a record's
-vector, text, document, metadata, and lineage into one reusable object. The
-older column-oriented `Arena.ingest(...)` shape is still supported, but it now
-normalizes into the same structured path under the hood.
+`Collection` was `Arena`, and `Arena` remains as an alias: `collection` is
+the term comparable libraries use, and `arena` collides with the allocator
+meaning in a project that also does memory management.
+
+`RecordInput` is a typed dataclass grouping a record's vector, text,
+document, metadata, and lineage into one reusable object. The older
+column-oriented `ingest(...)` shape still works and normalizes into the
+same structured path.
+
+`collection/` is split three ways because the single-file version mixed
+overload dispatch, embedder fan-out, and record coercion. `_embedding.py`
+issues one embedder call per batch rather than one per record.
 
 ## `_core.cpython-XXX.so` — The Compiled Extension
 
@@ -210,14 +162,31 @@ For details on the stub contents, see [Type Stubs & IDE Support](../typing/type-
 
 ## `py.typed` — PEP 561 Marker
 
-An empty file whose presence signals to type checkers that the `elips` package ships inline type information. Without this marker, MyPy and Pyright would ignore `_core.pyi` and fall back to the dynamic extension module (or `Any`).
+An empty file whose presence signals to type checkers that the `elips`
+package ships inline type information. Without this marker, MyPy and
+Pyright would ignore `_core.pyi` and fall back to the dynamic extension
+module (or `Any`).
 
-## `errors.py` — Error Hierarchy Submodule
+## The Deprecated Facades
 
-A convenience module that re-exports the exception classes from `core.py`:
+`core.py` and `modern.py` are compatibility shims left over from the
+pre-split layout, both emitting `DeprecationWarning` on import. They remain
+for one minor version and nothing new should import them:
+
+- `elips.core` re-exports the seam wholesale for code that imported the
+  low-level API as `elips.core`.
+- `elips.modern` re-exports the package root for code that imported the
+  high-level API as `elips.modern`.
+
+Both are lazy — they are in the root's `_LAZY` set, so they cost nothing
+until touched, and the warning fires on import as intended.
+
+## `exceptions.py` — Error Hierarchy Submodule
+
+A convenience module that re-exports the exception classes from the seam:
 
 ```python
-from .core import (
+from elips._native import (
     ConfigError,
     DimensionMismatch,
     ElipsError,
@@ -233,54 +202,66 @@ Users can import errors either way:
 
 ```python
 import elips
-elips.DimensionMismatch          # via __init__.py re-export
+elips.DimensionMismatch          # exported from the package root
 
-from elips.errors import DimensionMismatch  # via submodule
+from elips.exceptions import DimensionMismatch  # via submodule
 ```
 
-## `types.py` — Runtime Typing Models
+## `typing.py` — Runtime Typing Models
 
-`types.py` is now more than a small alias file. It provides:
+`typing.py` provides:
 
 - primitive aliases such as `MetaValue`, `Vector`, and `PayloadLike`
 - `Literal` names such as `MetricName`, `IndexName`, and `AccessModeName`
 - `TypedDict` models such as `RecordInputDict`, `BatchRecord`, and `StoredRecord`
 
 ```python
-MetaValue = Union[bool, int, float, str]
-Vector = Sequence[float]
-PayloadLike = Mapping[str, MetaValue]
-MetricName = Literal["cosine", "euclidean", "dot_product"]
-IndexName = Literal["graph", "exact"]
-AccessModeName = Literal["read_write", "read_only"]
+MetaValue: TypeAlias = bool | int | float | str
+Vector: TypeAlias = Sequence[float]
+PayloadLike: TypeAlias = Mapping[str, MetaValue]
+MetricName: TypeAlias = Literal["cosine", "euclidean", "dot_product"]
+IndexName: TypeAlias = Literal["graph", "exact"]
+AccessModeName: TypeAlias = Literal["read_write", "read_only"]
 ```
 
 The primitive aliases are duplicated in `_core.pyi` so they are available at
 the type level for the compiled extension. The richer `TypedDict` models only
-exist in the pure-Python package and are used by the refactored modern API.
+exist in the pure-Python package.
+
+`typing.py` imports native types under `TYPE_CHECKING` only. That guard is
+load-bearing: the native modules import *this* module for their aliases, so
+an unguarded import would close the loop into a real circular import at
+module-execution time.
 
 ## `setup.py` — Build & Distribution
 
+Metadata lives in `pyproject.toml` — name, version, `requires-python`, the
+package list, and `package-data`. `setup.py` carries only what static
+metadata cannot express:
+
 ```python
 setup(
-    name="elips",
-    version="1.0.0",
-    description="Embedded local vector database (SQLite for vectors)",
-    packages=find_packages(include=["elips", "elips.*"]),
-    package_data={"elips": ["py.typed", "_core.pyi"]},
     ext_modules=[CMakeExtension("elips._core")],
-    cmdclass={"build_ext": CMakeBuild},
-    python_requires=">=3.11",
+    cmdclass={"build_ext": CMakeBuild, "sdist": VendorSourcesSdist},
     zip_safe=False,
 )
 ```
 
-The `CMakeBuild` custom command invokes CMake configure + build with `ELIPS_BUILD_PYTHON=ON`. The `zip_safe=False` flag is required because the extension is a shared library that cannot be loaded from a zip archive.
+`CMakeBuild` invokes CMake configure + build with `ELIPS_BUILD_PYTHON=ON`.
+`zip_safe=False` is required because the extension is a shared library that
+cannot be loaded from a zip archive.
+
+`VendorSourcesSdist` copies the C++ sources into `core_src/` so an sdist can
+compile. It runs in the `sdist` command — not at module scope. Populating it
+on import meant that merely importing `setup.py`, which pip and most editors
+do routinely, deleted and rewrote a directory tree, leaving an untracked
+duplicate of the engine that silently went stale.
 
 Key points:
 - **Python 3.11+** is the minimum version
-- `packages` lists the public subpackages (`elips.collection`, `elips.database`,
-  `elips.query`, …) plus the private `elips._internal`
+- `packages` in `pyproject.toml` lists the public subpackages
+  (`elips.collection`, `elips.database`, `elips.query`, …) plus the private
+  `elips._internal`
 - The extension is always built from source (no pre-built wheels)
-- `package_data` ensures `py.typed` and `_core.pyi` are included in distributions
+- `package-data` ensures `py.typed` and `_core.pyi` ship in distributions
 - `pip` builds are limited to CPU; GPU backends must be configured via direct CMake
