@@ -4,6 +4,7 @@
 #include <pybind11/stl.h>
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <limits>
 #include <optional>
@@ -948,6 +949,9 @@ Examples:
 
     m.def("replay_wal",
           [](const std::string& path) {
+              // Reads and parses a whole log file: pure I/O plus native
+              // decoding, with nothing Python-facing until the return.
+              py::gil_scoped_release unlocked;
               return elips::WAL::replay(std::filesystem::path{path});
           },
           py::arg("path"),
@@ -2118,15 +2122,21 @@ Returns:
         .def("place",
              [](elips::TransactionVault& tv, const py::iterable& vector,
                 const py::dict& data, const py::object& id) {
-                 return tv.place(to_vector(vector), to_payload(data),
-                                 to_optional_id(id))
+                 auto native_vector = to_vector(vector);
+                 auto payload = to_payload(data);
+                 auto record_id = to_optional_id(id);
+                 py::gil_scoped_release unlocked;
+                 return tv.place(native_vector, std::move(payload),
+                                 std::move(record_id))
                      .to_string();
              },
              py::arg("vector"), py::arg("data") = py::dict(),
              py::arg("id") = py::none())
         .def("erase",
              [](elips::TransactionVault& tv, const std::string& id) {
-                 tv.erase(elips::RecordID::from_string(id));
+                 const auto record_id = elips::RecordID::from_string(id);
+                 py::gil_scoped_release unlocked;
+                 tv.erase(record_id);
              });
 
     // =====================  Transaction  =====================
@@ -2137,14 +2147,24 @@ Returns:
                  return h.txn.vault(name);
              },
              py::keep_alive<0, 1>())
-        .def("commit", [](TransactionHolder& h) { h.txn.commit(); })
-        .def("rollback", [](TransactionHolder& h) { h.txn.rollback(); })
+        // commit applies the whole batch: index inserts plus one WAL fsync.
+        .def("commit",
+             [](TransactionHolder& h) {
+                 py::gil_scoped_release unlocked;
+                 h.txn.commit();
+             })
+        .def("rollback",
+             [](TransactionHolder& h) {
+                 py::gil_scoped_release unlocked;
+                 h.txn.rollback();
+             })
         .def("__enter__",
              [](TransactionHolder& h) -> TransactionHolder& { return h; })
         .def("__exit__",
              [](TransactionHolder& h, const py::object& exc_type,
                 const py::object&, const py::object&) -> bool {
                  if (exc_type.is_none()) {
+                     py::gil_scoped_release unlocked;
                      h.txn.commit();
                  }
                  return false;
@@ -2224,9 +2244,19 @@ Example:
                      embedding_lineage =
                          lineage.cast<elips::EmbeddingLineage>();
                  }
-                 return v.place(to_vector(vector), to_payload(data),
-                                to_optional_id(id), doc, chunk_info,
-                                embedding_lineage)
+                 // Everything Python-facing is converted above, while the GIL
+                 // is held. What remains -- index insert, WAL append, fsync --
+                 // is native and holds the vault's writer lock, so running it
+                 // with the GIL held would serialize every other thread behind
+                 // this vault's lock for no reason.
+                 auto native_vector = to_vector(vector);
+                 auto payload = to_payload(data);
+                 auto record_id = to_optional_id(id);
+                 py::gil_scoped_release unlocked;
+                 return v.place(native_vector, std::move(payload),
+                                std::move(record_id), std::move(doc),
+                                std::move(chunk_info),
+                                std::move(embedding_lineage))
                      .to_string();
              },
              py::arg("vector"), py::arg("data") = py::dict(),
@@ -2246,9 +2276,17 @@ Example:
                      embedding_lineage =
                          lineage.cast<elips::EmbeddingLineage>();
                  }
-                 return v.place_document(text, to_payload(data),
-                                         to_optional_id(id), chunk_info,
-                                         embedding_lineage)
+                 auto payload = to_payload(data);
+                 auto record_id = to_optional_id(id);
+                 // Safe to release even though this path embeds: place_document
+                 // embeds *before* taking the vault lock, and PythonTextEmbedder
+                 // re-acquires the GIL itself. Releasing here is what lets a
+                 // native embedder run off the GIL at all.
+                 py::gil_scoped_release unlocked;
+                 return v.place_document(text, std::move(payload),
+                                         std::move(record_id),
+                                         std::move(chunk_info),
+                                         std::move(embedding_lineage))
                      .to_string();
              },
              py::arg("text"), py::arg("data") = py::dict(),
@@ -2313,6 +2351,7 @@ Example:
                      }
                      recs.push_back(std::move(rec));
                  }
+                 py::gil_scoped_release unlocked;
                  v.place_many(recs);
              },
              py::arg("records"))
@@ -2323,7 +2362,9 @@ Example:
                  std::optional<float> th;
                  if (!threshold.is_none())
                      th = threshold.cast<float>();
-                 return v.seek(to_vector(vector), top, where, th);
+                 auto query = to_vector(vector);
+                 py::gil_scoped_release unlocked;
+                 return v.seek(query, top, where, th);
              },
              py::arg("vector"), py::arg("top") = 10,
              py::arg("where") = elips::Filter{},
@@ -2336,6 +2377,9 @@ Example:
                  if (!threshold.is_none()) {
                      th = threshold.cast<float>();
                  }
+                 // seek_text embeds the query before taking the reader lock,
+                 // and PythonTextEmbedder re-acquires the GIL for itself.
+                 py::gil_scoped_release unlocked;
                  return v.seek_text(text, top, where, th);
              },
              py::arg("text"), py::arg("top") = 10,
@@ -2350,7 +2394,9 @@ Example:
                  if (!threshold.is_none()) {
                      th = threshold.cast<float>();
                  }
-                 return v.seek_hybrid(to_vector(vector), text, top, where, th,
+                 auto query = to_vector(vector);
+                 py::gil_scoped_release unlocked;
+                 return v.seek_hybrid(query, text, top, where, th,
                                       lexical_weight);
              },
              py::arg("vector"), py::arg("text"), py::arg("top") = 10,
@@ -2365,7 +2411,9 @@ Example:
                  if (!threshold.is_none()) {
                      th = threshold.cast<float>();
                  }
-                 return v.explain_seek(to_vector(vector), top, where, th,
+                 auto query = to_vector(vector);
+                 py::gil_scoped_release unlocked;
+                 return v.explain_seek(query, top, where, th,
                                        has_text_component);
              },
              py::arg("vector"), py::arg("top") = 10,
@@ -2375,8 +2423,12 @@ Example:
         .def("fetch",
              [](const elips::Vault& v,
                 const std::string& id) -> py::object {
-                 const auto rec =
-                     v.fetch(elips::RecordID::from_string(id));
+                 const auto record_id = elips::RecordID::from_string(id);
+                 std::optional<elips::Record> rec;
+                 {
+                     py::gil_scoped_release unlocked;
+                     rec = v.fetch(record_id);
+                 }
                  if (!rec) {
                      return py::none();
                  }
@@ -2384,7 +2436,9 @@ Example:
              })
         .def("erase",
              [](elips::Vault& v, const std::string& id) {
-                 return v.erase(elips::RecordID::from_string(id));
+                 const auto record_id = elips::RecordID::from_string(id);
+                 py::gil_scoped_release unlocked;
+                 return v.erase(record_id);
              })
         .def("scan",
              [](const elips::Vault& v, const elips::Filter& where,
@@ -2393,8 +2447,15 @@ Example:
                      limit < 0
                          ? std::numeric_limits<std::size_t>::max()
                          : static_cast<std::size_t>(limit);
+                 // The scan itself runs unlocked; building the Python list has
+                 // to hold the GIL, so it happens after the release ends.
+                 std::vector<elips::Record> records;
+                 {
+                     py::gil_scoped_release unlocked;
+                     records = v.scan(where, offset, lim);
+                 }
                  py::list out;
-                 for (const auto& rec : v.scan(where, offset, lim)) {
+                 for (const auto& rec : records) {
                      out.append(record_to_dict(rec));
                  }
                  return out;
@@ -2402,15 +2463,24 @@ Example:
              py::arg("where") = elips::Filter{},
              py::arg("offset") = 0, py::arg("limit") = -1)
         .def("info",
-             [](const elips::Vault& v) { return v.info(); })
+             [](const elips::Vault& v) {
+                 py::gil_scoped_release unlocked;
+                 return v.info();
+             })
         .def("count",
-             [](const elips::Vault& v) { return v.info().count; })
+             [](const elips::Vault& v) {
+                 py::gil_scoped_release unlocked;
+                 return v.info().count;
+             })
         .def("rebuild_index", &elips::Vault::rebuild_index,
+             py::call_guard<py::gil_scoped_release>(),
              "Rebuild the index from the authoritative record store. Useful "
              "after bulk loads, or to recover index quality after heavy churn.")
         .def("vacuum", &elips::Vault::vacuum,
+             py::call_guard<py::gil_scoped_release>(),
              "Reclaim index space held by deleted records.")
         .def("quantize", &elips::Vault::quantize,
+             py::call_guard<py::gil_scoped_release>(),
              R"doc(Train a codebook over this vault and compress it in place.
 
 Requires a codec on the config (see :class:`QuantParams`). Raises
@@ -2443,8 +2513,15 @@ than the exact vectors written; each record dict carries ``approximate`` and
             "Active codec name, or ``none`` while uncompressed.")
         .def("records",
              [](const elips::Vault& v) {
+                 // records() copies the whole store under the vault lock; that
+                 // copy is exactly the part worth doing off the GIL.
+                 std::map<elips::RecordID, elips::Record> snapshot;
+                 {
+                     py::gil_scoped_release unlocked;
+                     snapshot = v.records();
+                 }
                  py::list out;
-                 for (const auto& [id, record] : v.records()) {
+                 for (const auto& [id, record] : snapshot) {
                      (void)id;
                      out.append(record_to_dict(record));
                  }
@@ -2539,15 +2616,20 @@ Example:
                  return std::make_unique<TransactionHolder>(
                      std::move(db_ref), db);
              })
-        .def("checkpoint", &elips::ElipsInstance::checkpoint)
-        .def("compact", &elips::ElipsInstance::compact)
+        .def("checkpoint", &elips::ElipsInstance::checkpoint,
+             py::call_guard<py::gil_scoped_release>())
+        .def("compact", &elips::ElipsInstance::compact,
+             py::call_guard<py::gil_scoped_release>())
         .def("vacuum", &elips::ElipsInstance::vacuum,
+             py::call_guard<py::gil_scoped_release>(),
              "Reclaim tombstoned index space across every vault.")
         .def("quantize", &elips::ElipsInstance::quantize, py::arg("vault"),
+             py::call_guard<py::gil_scoped_release>(),
              "Compress one vault (see :meth:`Vault.quantize`), then checkpoint "
              "so the codebook and encoded records are durable before the WAL is "
              "truncated.")
         .def("quantize_all", &elips::ElipsInstance::quantize_all,
+             py::call_guard<py::gil_scoped_release>(),
              "Compress every vault in this database.")
         .def("close", &elips::ElipsInstance::close)
         .def("abandon", &elips::ElipsInstance::abandon)
@@ -2568,6 +2650,7 @@ Example:
                      binds.emplace(k.cast<std::string>(),
                                    to_vector(py::cast<py::iterable>(v)));
                  }
+                 py::gil_scoped_release unlocked;
                  return db.query(eql, binds);
              },
              py::arg("eql"), py::arg("bindings") = py::dict())
