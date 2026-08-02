@@ -17,10 +17,10 @@ from __future__ import annotations
 import os
 from types import TracebackType
 
-from ..core import Config, Database, replay_wal
-from .arena import Arena
-from .models import WalRecord
-from .typing import Embedder
+from elips._modern.arena import Arena
+from elips._modern.models import WalRecord
+from elips._modern.typing import Embedder
+from elips._native import Config, Database, replay_wal
 
 DEFAULT_TEXT_SLOT = "__elips_text__"
 

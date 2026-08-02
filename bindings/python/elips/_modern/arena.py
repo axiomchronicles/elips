@@ -20,7 +20,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Optional, cast, overload
 
-from ..core import (
+from elips._modern._records import (
+    build_record_inputs_from_columns,
+    coerce_record_input,
+)
+from elips._modern.models import ArenaHealth, Hit, RecordInput, Row
+from elips._modern.typing import Embedder, RecordInputLike
+from elips._native import (
     ChunkInfo,
     Database,
     DocumentAttachment,
@@ -30,10 +36,7 @@ from ..core import (
     Result,
     Vault,
 )
-from ..types import PayloadLike, StoredRecord, Vector
-from ._records import build_record_inputs_from_columns, coerce_record_input
-from .models import ArenaHealth, Hit, RecordInput, Row
-from .typing import Embedder, RecordInputLike
+from elips.types import PayloadLike, StoredRecord, Vector
 
 
 class Arena:

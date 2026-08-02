@@ -17,8 +17,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..core import ChunkInfo, DocumentAttachment, EmbeddingLineage
-from ..types import CodecName, MetaValue, PayloadLike, Vector
+from elips._native import ChunkInfo, DocumentAttachment, EmbeddingLineage
+from elips.types import CodecName, MetaValue, PayloadLike, Vector
 
 
 def _clone_document_attachment(document: DocumentAttachment) -> DocumentAttachment:

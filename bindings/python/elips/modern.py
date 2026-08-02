@@ -11,7 +11,7 @@ Examples::
 
 from __future__ import annotations
 
-from ._modern import (
+from elips._modern import (
     Accelerator,
     AcceleratorSpec,
     Arena,

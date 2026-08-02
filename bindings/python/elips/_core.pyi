@@ -11,6 +11,10 @@ from typing import (
     Union,
 )
 
+# -- Module attributes ---------------------------------------------------------
+
+__version__: str
+
 # -- Type aliases --------------------------------------------------------------
 
 MetaValue = Union[bool, int, float, str]

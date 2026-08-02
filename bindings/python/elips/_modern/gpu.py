@@ -21,13 +21,13 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import TYPE_CHECKING
 
-from ..types import DistanceMatrix, MetricName, TopKResult, VectorBatch
+from elips.types import DistanceMatrix, MetricName, TopKResult, VectorBatch
 
 if TYPE_CHECKING:
-    from ..core import GpuConfig, GpuDevice, GpuDeviceInfo
+    from elips._native import GpuConfig, GpuDevice, GpuDeviceInfo
 
 try:  # pragma: no cover - depends on build flags
-    from ..core import (
+    from elips._native import (
         GpuConfig as _GpuConfig,
         gpu_can_fit_index as _can_fit,
         gpu_devices as _devices,

@@ -1,8 +1,14 @@
 r"""ELIPS low-level binding facade.
 
 This module re-exports the compiled :mod:`elips._core` extension through a
-regular Python module so the package root can stay small and the low-level
-runtime API remains easy to import directly.
+regular Python module so the low-level runtime API stays easy to import
+directly.
+
+The re-export list used to be maintained by hand -- 85 names spelled out twice,
+once in an import block and once in ``__all__``. Adding a single ``py::class_``
+in C++ therefore meant editing four Python-side locations, and forgetting one
+was invisible until a user hit it. The surface is now taken from the extension
+itself, so it cannot drift.
 
 Examples::
 
@@ -15,191 +21,16 @@ Examples::
 
 from __future__ import annotations
 
-from . import _core as _native_core
-from ._core import (
-    AccessMode,
-    ChunkInfo,
-    Codec,
-    Comparator,
-    Config,
-    ConfigError,
-    Database,
-    DeleteStatement,
-    DimensionMismatch,
-    DocumentAttachment,
-    Durability,
-    ElipsError,
-    EmbeddingLineage,
-    FetchStatement,
-    Filter,
-    GraphParams,
-    IndexSnapshot,
-    IndexSnapshotKind,
-    IndexType,
-    InsertStatement,
-    InvalidVector,
-    IvfSnapshot,
-    LocalEmbedderConfig,
-    LockConflict,
-    Metric,
-    NotFound,
-    ParseError,
-    PqSnapshot,
-    QuantParams,
-    QueryPlan,
-    QueryStrategy,
-    Result,
-    ScanStatement,
-    SearchStatement,
-    StorageError,
-    TextEmbedderInfo,
-    TextEmbedderKind,
-    Token,
-    TokenKind,
-    Transaction,
-    TransactionVault,
-    Vault,
-    VaultInfo,
-    VectorRef,
-    WalEntry,
-    WalOp,
-    describe_local_embedder,
-    distance,
-    generate_id,
-    is_valid_id,
-    magnitude,
-    metric_from_string,
-    metric_to_string,
-    normalize,
-    open,
-    open_with_config,
-    parse_eql,
-    replay_wal,
-    requires_normalization,
-    tokenize_eql,
-    validate_eql,
-)
+from typing import TYPE_CHECKING
 
-__version__ = _native_core.__version__
+from elips import _native
 
-try:
-    from ._core import (
-        BatchStats,
-        GpuConfig,
-        GpuDevice,
-        GpuDeviceInfo,
-        GpuError,
-        GpuIndexAlgorithm,
-        GpuIndexBuildParams,
-        GpuMemory,
-        GpuMetricsSnapshot,
-        GpuPolicy,
-        GpuPrecision,
-        GpuProfiler,
-        GraphBuildAlgo,
-        GraphIndexBuildParams,
-        IndexBuildMode,
-        IvfPqBuildParams,
-        KernelTiming,
-        gpu_can_fit_index,
-        gpu_cpu_fallback_info,
-        gpu_devices,
-        gpu_error_message,
-        gpu_runtime_device_info,
-        gpu_select,
-    )
-except ImportError:
-    _has_gpu = False
-    _gpu_exports: list[str] = []
-else:
-    _has_gpu = True
-    _gpu_exports = [
-        "BatchStats",
-        "GpuConfig",
-        "GpuDevice",
-        "GpuDeviceInfo",
-        "GpuError",
-        "GpuIndexAlgorithm",
-        "GpuIndexBuildParams",
-        "GpuMemory",
-        "GpuMetricsSnapshot",
-        "GpuPolicy",
-        "GpuPrecision",
-        "GpuProfiler",
-        "GraphBuildAlgo",
-        "GraphIndexBuildParams",
-        "IndexBuildMode",
-        "IvfPqBuildParams",
-        "KernelTiming",
-        "gpu_can_fit_index",
-        "gpu_cpu_fallback_info",
-        "gpu_devices",
-        "gpu_error_message",
-        "gpu_runtime_device_info",
-        "gpu_select",
-    ]
+if TYPE_CHECKING:
+    from elips._native import *  # noqa: F403
 
-__all__ = [
-    "open",
-    "open_with_config",
-    "Database",
-    "Vault",
-    "VaultInfo",
-    "Filter",
-    "Result",
-    "Config",
-    "Codec",
-    "GraphParams",
-    "LocalEmbedderConfig",
-    "Transaction",
-    "TransactionVault",
-    "TextEmbedderInfo",
-    "Metric",
-    "IndexType",
-    "Durability",
-    "AccessMode",
-    "Comparator",
-    "QueryStrategy",
-    "TextEmbedderKind",
-    "Token",
-    "TokenKind",
-    "validate_eql",
-    "tokenize_eql",
-    "parse_eql",
-    "SearchStatement",
-    "FetchStatement",
-    "ScanStatement",
-    "InsertStatement",
-    "DeleteStatement",
-    "VectorRef",
-    "replay_wal",
-    "WalEntry",
-    "WalOp",
-    "IndexSnapshot",
-    "IndexSnapshotKind",
-    "IvfSnapshot",
-    "PqSnapshot",
-    "describe_local_embedder",
-    "generate_id",
-    "is_valid_id",
-    "normalize",
-    "magnitude",
-    "distance",
-    "requires_normalization",
-    "metric_from_string",
-    "metric_to_string",
-    "ElipsError",
-    "DimensionMismatch",
-    "InvalidVector",
-    "ConfigError",
-    "NotFound",
-    "StorageError",
-    "LockConflict",
-    "ParseError",
-    "QuantParams",
-    "DocumentAttachment",
-    "ChunkInfo",
-    "EmbeddingLineage",
-    "QueryPlan",
-]
-__all__.extend(_gpu_exports)
+__version__ = _native.__version__
+_has_gpu = _native.has_gpu
+
+globals().update({name: getattr(_native, name) for name in _native.__all__})
+
+__all__ = [name for name in _native.__all__ if name != "has_gpu"]

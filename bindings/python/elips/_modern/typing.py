@@ -13,10 +13,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 
-from ..types import BatchRecord, RecordInputDict
+from elips.types import BatchRecord, RecordInputDict
 
 if TYPE_CHECKING:
-    from .models import RecordInput
+    from elips._modern.models import RecordInput
 
 
 @runtime_checkable

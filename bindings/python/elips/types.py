@@ -14,7 +14,11 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, Union
 
 if TYPE_CHECKING:
-    from .core import ChunkInfo, DocumentAttachment, EmbeddingLineage
+    # Guarded deliberately, and load-bearing. These names are only needed to
+    # annotate the TypedDicts below, and the native modules import *this*
+    # module for their own aliases. Importing them unguarded would close that
+    # loop into a real circular import at module-execution time.
+    from elips._native import ChunkInfo, DocumentAttachment, EmbeddingLineage
 
 # Primitive aliases
 MetaValue = Union[bool, int, float, str]

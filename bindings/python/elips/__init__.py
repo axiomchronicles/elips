@@ -19,9 +19,9 @@ Examples::
 
 from __future__ import annotations
 
-from . import core as _core_api, modern as _modern_api
-from .core import *  # noqa: F401,F403
-from .modern import *  # noqa: F401,F403
+from elips import core as _core_api, modern as _modern_api
+from elips.core import *  # noqa: F401,F403
+from elips.modern import *  # noqa: F401,F403
 
 __version__ = _core_api.__version__
 _has_gpu = _core_api._has_gpu

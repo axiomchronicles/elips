@@ -17,18 +17,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..core import (
+from elips._modern.engine import Engine
+from elips._modern.typing import Embedder
+from elips._native import (
     Config,
     LocalEmbedderConfig,
     QuantParams,
     open_with_config as _open_with_config,
 )
-from ..types import AccessModeName, CodecName, IndexName, MetricName
-from .engine import Engine
-from .typing import Embedder
+from elips.types import AccessModeName, CodecName, IndexName, MetricName
 
 if TYPE_CHECKING:
-    from ..core import GpuConfig
+    from elips._native import GpuConfig
 
 
 def _attach_embedder(

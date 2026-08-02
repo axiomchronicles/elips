@@ -10,12 +10,12 @@ Examples::
 
 from __future__ import annotations
 
-from .arena import Arena
-from .connect import connect, connect_with_config
-from .engine import Engine
-from .gpu import Accelerator, AcceleratorSpec, accelerator, accelerators
-from .models import ArenaHealth, Hit, RecordInput, Row, WalRecord
-from .typing import Embedder
+from elips._modern.arena import Arena
+from elips._modern.connect import connect, connect_with_config
+from elips._modern.engine import Engine
+from elips._modern.gpu import Accelerator, AcceleratorSpec, accelerator, accelerators
+from elips._modern.models import ArenaHealth, Hit, RecordInput, Row, WalRecord
+from elips._modern.typing import Embedder
 
 __all__ = [
     "Accelerator",
