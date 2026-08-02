@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""Typed GPU accelerator facade for the modern ELIPS API.
 
 The low-level bindings expose GPU control as free functions plus a
@@ -7,13 +5,16 @@ The low-level bindings expose GPU control as free functions plus a
 dataclass-and-context-manager style as the rest of the modern API::
 
     >>> import elips
-    >>> for spec in elips.accelerators():
-    ...     print(spec.name, spec.backend, spec.can_fit(1_000_000, 768))
+    >>> specs = elips.accelerators()
+    >>> all(spec.name and spec.backend for spec in specs)
+    True
 
 Nothing here requires a GPU to import. :func:`accelerators` returns an empty
 list and :func:`accelerator` returns ``None`` on CPU-only machines, so callers
 branch on the result rather than catching an exception.
 """
+
+from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass

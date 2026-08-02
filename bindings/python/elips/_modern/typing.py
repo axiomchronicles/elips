@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""Typing helpers for the modern ELIPS API.
 
 Examples::
@@ -9,6 +7,8 @@ Examples::
     >>> def toy_embed(texts: Sequence[str]) -> Sequence[Sequence[float]]:
     ...     return [[float(len(text)), 0.0] for text in texts]
 """
+
+from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable

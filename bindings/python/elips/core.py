@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""ELIPS low-level binding facade.
 
 This module re-exports the compiled :mod:`elips._core` extension through a
@@ -15,10 +13,13 @@ Examples::
     0
 """
 
+from __future__ import annotations
+
 from . import _core as _native_core
 from ._core import (
     AccessMode,
     ChunkInfo,
+    Codec,
     Comparator,
     Config,
     ConfigError,
@@ -44,6 +45,7 @@ from ._core import (
     NotFound,
     ParseError,
     PqSnapshot,
+    QuantParams,
     QueryPlan,
     QueryStrategy,
     Result,
@@ -146,6 +148,7 @@ __all__ = [
     "Filter",
     "Result",
     "Config",
+    "Codec",
     "GraphParams",
     "LocalEmbedderConfig",
     "Transaction",
@@ -193,6 +196,7 @@ __all__ = [
     "StorageError",
     "LockConflict",
     "ParseError",
+    "QuantParams",
     "DocumentAttachment",
     "ChunkInfo",
     "EmbeddingLineage",

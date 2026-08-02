@@ -22,6 +22,7 @@ IndexName = Literal["graph", "exact"]
 DurabilityName = Literal["paranoid", "standard", "relaxed", "ephemeral"]
 AccessModeName = Literal["read_write", "read_only"]
 ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
+CodecName = Literal["none", "pq", "opq", "sq8"]
 
 class StoredRecord(TypedDict):
     """Record mapping returned by :meth:`Vault.fetch`, :meth:`Vault.scan`, and
@@ -33,6 +34,8 @@ class StoredRecord(TypedDict):
     document: Optional["DocumentAttachment"]
     chunk: Optional["ChunkInfo"]
     lineage: Optional["EmbeddingLineage"]
+    approximate: bool
+    codec: CodecName
 
 # -- Error hierarchy ----------------------------------------------------------
 
@@ -153,6 +156,51 @@ class GraphParams:
 
     def __repr__(self) -> str: ...
 
+class Codec:
+    """Vector compression codec. Values are persisted on disk."""
+
+    none: Codec
+    pq: Codec
+    opq: Codec
+    sq8: Codec
+
+class QuantParams:
+    """Vector compression parameters.
+
+    Selecting a codec does not compress anything on its own: a codebook has to
+    be trained on real data first, which is what ``Vault.quantize()`` does.
+    """
+
+    def __init__(
+        self,
+        codec: CodecName = "none",
+        pq_dim: int = 0,
+        pq_bits: int = 8,
+        train_iters: int = 10,
+        opq_iters: int = 4,
+    ) -> None: ...
+
+    codec: CodecName
+    """Codec name: ``none``, ``pq``, ``opq``, or ``sq8``."""
+
+    pq_dim: int
+    """Subspace count, also the code width in bytes. 0 selects automatically."""
+
+    pq_bits: int
+    """Bits per subquantizer code, 4 to 8."""
+
+    train_iters: int
+    """Lloyd iterations per subspace codebook."""
+
+    opq_iters: int
+    """Rotation/codebook alternations; ``opq`` only."""
+
+    @property
+    def codec_enum(self) -> Codec: ...
+    def code_bytes(self, dimension: int) -> int: ...
+    def validate(self, dimension: int) -> None: ...
+    def __repr__(self) -> str: ...
+
 class LocalEmbedderConfig:
     """Configuration for the built-in local text embedder."""
 
@@ -203,6 +251,7 @@ class Config:
     def metric(self, metric: str) -> "Config": ...
     def index(self, type: str) -> "Config": ...
     def graph_params(self, params: GraphParams) -> "Config": ...
+    def quantization(self, params: QuantParams) -> "Config": ...
     def durability(self, level: str) -> "Config": ...
     def access_mode(self, mode: str) -> "Config": ...
     def segmented_storage(self, enabled: bool) -> "Config": ...
@@ -240,6 +289,12 @@ class Config:
     @property
     def graph_params_val(self) -> GraphParams:
         """Get the configured graph parameters."""
+    @property
+    def quantization_val(self) -> QuantParams:
+        """Get the configured quantization parameters."""
+    @property
+    def has_quantization(self) -> bool:
+        """True when a compression codec is configured."""
     @property
     def durability_enum(self) -> Durability:
         """Get the configured Durability enum value."""
@@ -528,6 +583,18 @@ class VaultInfo:
     def metric(self) -> str:
         """Similarity metric used by the vault (cosine|euclidean|dot_product)."""
 
+    @property
+    def codec(self) -> CodecName:
+        """Active compression codec (none|pq|opq|sq8)."""
+
+    @property
+    def code_bytes(self) -> int:
+        """Bytes per stored vector, or 0 when uncompressed."""
+
+    @property
+    def compression_ratio(self) -> float:
+        """Stored bytes saved per vector against fp32; 1.0 when uncompressed."""
+
     def __repr__(self) -> str: ...
 
 # -- Result -------------------------------------------------------------------
@@ -549,6 +616,14 @@ class Result:
     document: Optional[DocumentAttachment]
     chunk: Optional[ChunkInfo]
     lineage: Optional[EmbeddingLineage]
+
+    @property
+    def approximate(self) -> bool:
+        """True when distance is estimated from a compressed vector."""
+
+    @property
+    def codec(self) -> CodecName:
+        """Codec that produced this hit's stored vector, or ``none``."""
 
     def __repr__(self) -> str: ...
 
@@ -809,6 +884,21 @@ class Vault:
     def vacuum(self) -> None:
         """Reclaim index space held by deleted records."""
 
+    def quantize(self) -> None:
+        """Train a codebook over this vault and compress it in place.
+
+        Requires a codec on the config. Raises :class:`ConfigError` if none is
+        set, if the vault is empty, or if it is already quantized.
+        """
+
+    @property
+    def quantized(self) -> bool:
+        """True once :meth:`quantize` has compressed this vault."""
+
+    @property
+    def codec(self) -> CodecName:
+        """Active codec name, or ``none`` while uncompressed."""
+
     def records(self) -> list[StoredRecord]:
         """Snapshot every record in this vault.
 
@@ -869,6 +959,12 @@ class Database:
         Unlike :meth:`compact`, this does not rewrite the on-disk snapshot and
         works on in-memory databases.
         """
+
+    def quantize(self, vault: str) -> None:
+        """Compress one vault, then checkpoint so the codebook is durable."""
+
+    def quantize_all(self) -> None:
+        """Compress every vault in this database."""
 
     def close(self) -> None:
         """Checkpoint, release the lock, and seal every vault against writes."""
@@ -1583,6 +1679,7 @@ def open(
     embedder_model: str = ...,
     embedder_revision: str = ...,
     use_default_text_embedder: bool = ...,
+    quantization: Union[QuantParams, str, None] = ...,
 ) -> Database:
     """Open (or create) a database with simple parameters.
 
@@ -1598,6 +1695,8 @@ def open(
         embedder_provider: Provider metadata for Python callable embedders.
         embedder_model: Model metadata for Python callable embedders.
         embedder_revision: Revision metadata for Python callable embedders.
+        quantization: A :class:`QuantParams`, or a bare codec name such as
+            ``"sq8"``. Selects a codec; call ``Vault.quantize()`` to train it.
         use_default_text_embedder: Attach the built-in local embedder automatically
             for new databases when no explicit embedder is supplied.
 

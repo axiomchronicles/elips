@@ -1,3 +1,20 @@
+r"""Typed collection facade over the native :class:`elips.Vault` handle.
+
+:class:`Arena` owns record normalization, embedder fan-out, and the overload
+dispatch that lets one ``write`` accept a vector, a text, or a
+:class:`~elips.RecordInput`.
+
+Examples::
+
+    >>> import elips
+    >>> engine = elips.connect(":memory:", dimension=2)
+    >>> arena = engine.arena("documents")
+    >>> _ = arena.write(vector=[1.0, 0.0], meta={"kind": "design"})
+    >>> arena.count()
+    1
+    >>> engine.close()
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -831,6 +848,44 @@ class Arena:
 
         self._vault.rebuild_index()
 
+    def compress(self) -> None:
+        r"""compress() -> None
+
+        Train a codebook over this arena and compress it in place, freeing the
+        full-precision vectors.
+
+        Requires a codec on the engine's configuration (pass ``quantization=``
+        to :func:`elips.connect`). Raises :class:`ConfigError` if none is set,
+        if the arena is empty, or if it has already been compressed.
+
+        Compression is a separate step from configuring it because product
+        quantization cannot encode the first record: a codebook has to be
+        learned from real data. Before this call the arena stores full fp32;
+        after it, writes are encoded on arrival, and :meth:`pull` and
+        :meth:`sweep` return reconstructions with ``approximate`` set.
+
+        Holds the arena's writer lock throughout, so treat it like
+        :meth:`vacuum` -- a maintenance operation, not part of the write path.
+
+        Examples::
+
+            >>> import elips
+            >>> engine = elips.connect(":memory:", dimension=8, quantization="sq8")
+            >>> arena = engine.arena("documents")
+            >>> for i in range(32):
+            ...     _ = arena.write(vector=[float(i % 4)] * 8)
+            >>> arena.health().codec
+            'none'
+            >>> arena.compress()
+            >>> arena.health().codec
+            'sq8'
+            >>> arena.probe([1.0] * 8, top=1)[0].approximate
+            True
+            >>> engine.close()
+        """
+
+        self._vault.quantize()
+
     def health(self) -> ArenaHealth:
         r"""health() -> ArenaHealth
 
@@ -861,6 +916,8 @@ class Arena:
             metric=info.metric,
             read_only=self._vault.read_only,
             sealed=self._vault.sealed,
+            codec=info.codec,
+            code_bytes=info.code_bytes,
         )
 
     def _resolve_vectors(
@@ -909,6 +966,8 @@ class Arena:
             vector=tuple(record["vector"]) if include_vectors else None,
             chunk=record["chunk"],
             lineage=record["lineage"],
+            approximate=record["approximate"],
+            codec=record["codec"],
         )
 
     def _hit_from_result(self, result: Result, *, include_vectors: bool) -> Hit:
@@ -932,6 +991,8 @@ class Arena:
             lineage=result.lineage if result.lineage is not None else (
                 fetched["lineage"] if fetched is not None else None
             ),
+            approximate=result.approximate,
+            codec=result.codec,
         )
 
     def _resolve_lineage(

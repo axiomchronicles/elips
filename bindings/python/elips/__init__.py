@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""ELIPS — embedded, local-storage-first vector retrieval.
 
 The package exposes two layers:
@@ -18,6 +16,8 @@ Examples::
     'alpha design note'
     >>> engine.close()
 """
+
+from __future__ import annotations
 
 from . import core as _core_api, modern as _modern_api
 from .core import *  # noqa: F401,F403

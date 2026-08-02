@@ -105,6 +105,6 @@ jobs:
       - name: Doctests
         run: >
           PYTHONPATH=bindings/python python3 -m pytest --doctest-modules
-          bindings/python/elips/_modern/ bindings/python/elips/types.py -q
+          bindings/python/elips/ -q
       - name: Type checking
         run: cd bindings/python && python3 -m mypy --strict elips/

@@ -15,6 +15,7 @@
 #include "elips/index_engine/IndexSnapshot.hpp"
 #include "elips/query_engine/AST.hpp"
 #include "elips/query_engine/EQLLexer.hpp"
+#include "elips/quant_engine/Quantizer.hpp"
 #include "elips/query_engine/EQLParser.hpp"
 #include "elips/storage/WAL.hpp"
 #include "elips/vector_engine/Metrics.hpp"
@@ -296,6 +297,10 @@ py::dict record_to_dict(const elips::Record& record) {
     out["document"] = py::cast(record.document);
     out["chunk"] = py::cast(record.chunk);
     out["lineage"] = py::cast(record.lineage);
+    // In a quantized vault "vector" is a reconstruction, not the bytes that
+    // were written. Say so rather than let a caller assume exactness.
+    out["approximate"] = record.approximate();
+    out["codec"] = elips::quant::to_string(record.codec);
     return out;
 }
 
@@ -692,6 +697,110 @@ Args:
                    " compaction=" + std::to_string(p.compaction_ratio) + ">";
         });
 
+    // =====================  QuantParams / Codec  =====================
+
+    py::enum_<elips::quant::CodecId>(m, "Codec")
+        .value("none", elips::quant::CodecId::none)
+        .value("pq", elips::quant::CodecId::pq)
+        .value("opq", elips::quant::CodecId::opq)
+        .value("sq8", elips::quant::CodecId::sq8)
+        .export_values();
+
+    py::class_<elips::quant::QuantParams>(m, "QuantParams")
+        .def(py::init<>())
+        .def(py::init([](const std::string& codec, std::uint32_t pq_dim,
+                         std::uint32_t pq_bits, std::uint32_t train_iters,
+                         std::uint32_t opq_iters) {
+                 elips::quant::QuantParams params;
+                 params.codec = elips::quant::codec_from_string(codec.c_str());
+                 params.pq_dim = pq_dim;
+                 params.pq_bits = pq_bits;
+                 params.train_iters = train_iters;
+                 params.opq_iters = opq_iters;
+                 return params;
+             }),
+             py::arg("codec") = "none", py::arg("pq_dim") = 0,
+             py::arg("pq_bits") = 8, py::arg("train_iters") = 10,
+             py::arg("opq_iters") = 4,
+             R"doc(Vector compression parameters.
+
+Selecting a codec does not compress anything on its own: a codebook has to be
+trained on real data first. Call :meth:`Vault.quantize` (or
+:meth:`Database.quantize`) once the vault holds a representative sample.
+
+Args:
+    codec: One of ``"none"``, ``"pq"``, ``"opq"``, or ``"sq8"``.
+
+        * ``pq`` -- product quantization. Highest compression (one byte per
+          subspace regardless of dimension), largest recall cost.
+        * ``opq`` -- product quantization with a learned rotation. Same code
+          width as ``pq``, better recall when dimensions are correlated, which
+          is the usual case for learned embeddings.
+        * ``sq8`` -- per-dimension int8. A flat 4x with near-exact recall and
+          no codebook. The right default when memory is a concern rather than
+          the binding constraint.
+    pq_dim: Number of subspaces for ``pq``/``opq``, which is also the code
+        width in bytes. Must divide the vector dimension; ``0`` picks the
+        largest divisor at or below ``dimension / 8``. Ignored by ``sq8``.
+    pq_bits: Bits per subquantizer, 4 to 8. The codebook holds ``2**pq_bits``
+        centroids per subspace. Ignored by ``sq8``.
+    train_iters: Lloyd iterations per subspace codebook.
+    opq_iters: Rotation/codebook alternations. Ignored unless the codec is
+        ``opq``.
+
+Examples:
+    32x compression on 768-dimensional embeddings::
+
+        >>> import elips
+        >>> params = elips.QuantParams(codec="pq", pq_dim=24)
+        >>> config = elips.Config().dimension(768).quantization(params)
+
+    Near-lossless 4x instead::
+
+        >>> params = elips.QuantParams(codec="sq8")
+)doc")
+        .def_property(
+            "codec",
+            [](const elips::quant::QuantParams& p) {
+                return std::string(elips::quant::to_string(p.codec));
+            },
+            [](elips::quant::QuantParams& p, const std::string& name) {
+                p.codec = elips::quant::codec_from_string(name.c_str());
+            },
+            "Codec name: ``none``, ``pq``, ``opq``, or ``sq8``.")
+        .def_readwrite("pq_dim", &elips::quant::QuantParams::pq_dim,
+                       "Subspace count, which is also the code width in bytes. "
+                       "0 selects automatically.")
+        .def_readwrite("pq_bits", &elips::quant::QuantParams::pq_bits,
+                       "Bits per subquantizer code, 4 to 8.")
+        .def_readwrite("train_iters", &elips::quant::QuantParams::train_iters,
+                       "Lloyd iterations per subspace codebook.")
+        .def_readwrite("opq_iters", &elips::quant::QuantParams::opq_iters,
+                       "Rotation/codebook alternations; ``opq`` only.")
+        .def_property_readonly(
+            "codec_enum", [](const elips::quant::QuantParams& p) { return p.codec; },
+            "The codec as a :class:`Codec` enum member.")
+        .def("code_bytes",
+             [](const elips::quant::QuantParams& p, std::uint16_t dimension) {
+                 return elips::quant::code_bytes_for(p, dimension);
+             },
+             py::arg("dimension"),
+             "Bytes one vector will occupy at ``dimension``, for computing a "
+             "compression ratio before training.")
+        .def("validate",
+             [](const elips::quant::QuantParams& p, std::uint16_t dimension) {
+                 elips::quant::validate(p, dimension);
+             },
+             py::arg("dimension"),
+             "Raises :class:`ConfigError` if these parameters cannot describe a "
+             "valid codec at ``dimension``.")
+        .def("__repr__", [](const elips::quant::QuantParams& p) {
+            return "<QuantParams codec=" +
+                   std::string(elips::quant::to_string(p.codec)) +
+                   " pq_dim=" + std::to_string(p.pq_dim) +
+                   " pq_bits=" + std::to_string(p.pq_bits) + ">";
+        });
+
     py::class_<elips::LocalTextEmbedderOptions>(m, "LocalEmbedderConfig")
         .def(py::init<>())
         .def(py::init<std::string, std::string, std::string, std::uint16_t>(),
@@ -968,6 +1077,14 @@ Example:
              },
              py::arg("params"),
              py::return_value_policy::reference_internal)
+        .def("quantization",
+             [](elips::Config& c,
+                const elips::quant::QuantParams& params) -> elips::Config& {
+                 return c.quantization(params);
+             },
+             py::arg("params"), py::return_value_policy::reference_internal,
+             "Selects a compression codec. Call :meth:`Vault.quantize` to train "
+             "it and compress the vault.")
         .def("durability",
              [](elips::Config& c, const std::string& level) -> elips::Config& {
                  if (level == "paranoid") {
@@ -1063,6 +1180,13 @@ Example:
                                [](const elips::Config& c) {
                                    return c.graph_params();
                                })
+        .def_property_readonly("quantization_val",
+                               [](const elips::Config& c) {
+                                   return c.quantization();
+                               })
+        .def_property_readonly("has_quantization",
+                               &elips::Config::has_quantization,
+                               "True when a compression codec is configured.")
         .def_property_readonly("metric_enum", [](const elips::Config& c) {
             return c.metric();
         })
@@ -1775,11 +1899,29 @@ The returned handle owns the backend independently of any
         .def_property_readonly("metric", [](const elips::VaultInfo& vi) {
             return std::string(elips::to_string(vi.metric));
         })
+        .def_property_readonly("codec", [](const elips::VaultInfo& vi) {
+            return std::string(elips::quant::to_string(vi.codec));
+        })
+        .def_property_readonly(
+            "code_bytes", [](const elips::VaultInfo& vi) { return vi.code_bytes; },
+            "Bytes per stored vector, or 0 when uncompressed.")
+        .def_property_readonly(
+            "compression_ratio",
+            [](const elips::VaultInfo& vi) {
+                if (vi.code_bytes == 0 || vi.dimension == 0) {
+                    return 1.0;
+                }
+                return static_cast<double>(vi.dimension * sizeof(float)) /
+                       static_cast<double>(vi.code_bytes);
+            },
+            "Stored bytes saved per vector against fp32; 1.0 when uncompressed.")
         .def("__repr__", [](const elips::VaultInfo& vi) {
             return "<VaultInfo count=" + std::to_string(vi.count) +
                    " dimension=" + std::to_string(vi.dimension) +
                    " metric=" +
-                   std::string(elips::to_string(vi.metric)) + ">";
+                   std::string(elips::to_string(vi.metric)) +
+                   " codec=" +
+                   std::string(elips::quant::to_string(vi.codec)) + ">";
         });
 
     // =====================  SearchResult  =====================
@@ -1793,9 +1935,21 @@ The returned handle owns the backend independently of any
         .def_readonly("document", &elips::SearchResult::document)
         .def_readonly("chunk", &elips::SearchResult::chunk)
         .def_readonly("lineage", &elips::SearchResult::lineage)
+        .def_property_readonly(
+            "approximate",
+            [](const elips::SearchResult& r) { return r.approximate(); },
+            "True when ``distance`` is estimated from a compressed vector "
+            "rather than computed exactly.")
+        .def_property_readonly(
+            "codec",
+            [](const elips::SearchResult& r) {
+                return std::string(elips::quant::to_string(r.codec));
+            },
+            "Codec that produced this hit's stored vector, or ``none``.")
         .def("__repr__", [](const elips::SearchResult& r) {
             return "<Result id=" + r.id.to_string() +
-                   " distance=" + std::to_string(r.distance) + ">";
+                   " distance=" + std::to_string(r.distance) +
+                   (r.approximate() ? " approximate" : "") + ">";
         });
 
     // =====================  Filter  =====================
@@ -2267,6 +2421,37 @@ Example:
              "after bulk loads, or to recover index quality after heavy churn.")
         .def("vacuum", &elips::Vault::vacuum,
              "Reclaim index space held by deleted records.")
+        .def("quantize", &elips::Vault::quantize,
+             R"doc(Train a codebook over this vault and compress it in place.
+
+Requires a codec on the config (see :class:`QuantParams`). Raises
+:class:`ConfigError` if none is set, if the vault is empty, or if it is already
+quantized.
+
+Compression is a separate step from configuring it because product quantization
+cannot encode the first record: a codebook has to be learned from real data.
+Before this call the vault stores full fp32; after it, inserts are encoded on
+arrival. Searches work correctly either way.
+
+This holds the vault's writer lock for its whole duration, so treat it as a
+maintenance operation alongside :meth:`Database.compact`. Training samples at
+most 100,000 vectors, so its cost tracks the dimension rather than the vault
+size, but encoding is linear in the record count.
+
+Once compressed, :meth:`fetch` and :meth:`scan` return reconstructions rather
+than the exact vectors written; each record dict carries ``approximate`` and
+``codec`` so this is visible.
+)doc")
+        .def_property_readonly(
+            "quantized", &elips::Vault::quantized,
+            "True once :meth:`quantize` has trained a codebook and compressed "
+            "this vault.")
+        .def_property_readonly(
+            "codec",
+            [](const elips::Vault& v) {
+                return std::string(elips::quant::to_string(v.codec()));
+            },
+            "Active codec name, or ``none`` while uncompressed.")
         .def("records",
              [](const elips::Vault& v) {
                  py::list out;
@@ -2369,6 +2554,12 @@ Example:
         .def("compact", &elips::ElipsInstance::compact)
         .def("vacuum", &elips::ElipsInstance::vacuum,
              "Reclaim tombstoned index space across every vault.")
+        .def("quantize", &elips::ElipsInstance::quantize, py::arg("vault"),
+             "Compress one vault (see :meth:`Vault.quantize`), then checkpoint "
+             "so the codebook and encoded records are durable before the WAL is "
+             "truncated.")
+        .def("quantize_all", &elips::ElipsInstance::quantize_all,
+             "Compress every vault in this database.")
         .def("close", &elips::ElipsInstance::close)
         .def("abandon", &elips::ElipsInstance::abandon)
         .def_property_readonly(
@@ -2420,12 +2611,25 @@ Example:
              const py::object& embedder, const std::string& embedder_provider,
              const std::string& embedder_model,
              const std::string& embedder_revision,
-             bool use_default_text_embedder) {
+             bool use_default_text_embedder, const py::object& quantization) {
               elips::Config config;
               config.dimension(dimension)
                   .metric(elips::metric_from_string(metric))
                   .auto_text_embedder(use_default_text_embedder);
               if (index == "exact") config.index(elips::IndexType::exact);
+              if (!quantization.is_none()) {
+                  // Accept either a QuantParams or a bare codec name, so
+                  // open(path, quantization="sq8") works for the common case.
+                  if (py::isinstance<elips::quant::QuantParams>(quantization)) {
+                      config.quantization(
+                          quantization.cast<elips::quant::QuantParams>());
+                  } else {
+                      elips::quant::QuantParams params;
+                      params.codec = elips::quant::codec_from_string(
+                          quantization.cast<std::string>().c_str());
+                      config.quantization(params);
+                  }
+              }
               if (access_mode == "read_only") {
                   config.access_mode(elips::AccessMode::read_only);
               }
@@ -2458,7 +2662,8 @@ Example:
           py::arg("embedder_provider") = "python",
           py::arg("embedder_model") = "callable",
           py::arg("embedder_revision") = "",
-          py::arg("use_default_text_embedder") = true);
+          py::arg("use_default_text_embedder") = true,
+          py::arg("quantization") = py::none());
 
     m.def("open_with_config",
           [](const std::string& path, const elips::Config& config) {

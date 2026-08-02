@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 r"""Internal record normalization helpers for the modern ELIPS API."""
+
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""Typed aliases and ``TypedDict`` models for the ELIPS Python SDK.
 
 Examples::
@@ -9,6 +7,8 @@ Examples::
     >>> payload: PayloadLike = {"kind": "design", "published": True}
     >>> record: RecordInputDict = {"text": "alpha note", "meta": payload}
 """
+
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, Union
@@ -36,7 +36,8 @@ ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
 GpuPolicyName = Literal["auto", "prefer_gpu", "require_gpu", "cpu_only", "specific"]
 GpuAlgorithmName = Literal["auto", "cagra", "ivf_flat", "ivf_pq", "brute_force"]
 GpuPrecisionName = Literal["fp32", "fp16", "int8", "auto"]
-WalOpName = Literal["insert", "erase", "insert_ex", "txn_begin", "txn_commit"]
+WalOpName = Literal["insert", "erase", "insert_ex", "txn_begin", "txn_commit", "insert_q"]
+CodecName = Literal["none", "pq", "opq", "sq8"]
 
 
 class TextEmbedderFn(Protocol):
@@ -82,6 +83,8 @@ class StoredRecord(TypedDict):
     document: DocumentAttachment | None
     chunk: ChunkInfo | None
     lineage: EmbeddingLineage | None
+    approximate: bool
+    codec: CodecName
 
 
 FetchResult = StoredRecord
@@ -94,6 +97,7 @@ TopKResult = tuple[Sequence[Sequence[int]], Sequence[Sequence[float]]]
 __all__ = [
     "AccessModeName",
     "BatchRecord",
+    "CodecName",
     "ComparatorName",
     "DistanceMatrix",
     "DurabilityName",

@@ -1,3 +1,17 @@
+r"""Typed database facade over the native :class:`elips.Database` handle.
+
+:class:`Engine` is a context manager that hands out :class:`~elips.Arena`
+collections and exposes WAL replay, checkpointing, and transactions.
+
+Examples::
+
+    >>> import elips
+    >>> with elips.connect(":memory:", dimension=2) as engine:
+    ...     arena = engine.arena("documents")
+    ...     arena.count()
+    0
+"""
+
 from __future__ import annotations
 
 import os

@@ -979,6 +979,271 @@ def test_concurrent_vault_creation_is_safe(memdb):
         assert memdb.vault(f"vault_{i}").count() == 6
 
 
+# ==========================  quantization  =============================
+
+
+def _gaussian_rows(count: int, dim: int, seed: int = 11) -> list[list[float]]:
+    import random
+
+    rng = random.Random(seed)
+    return [[rng.gauss(0.0, 1.0) for _ in range(dim)] for _ in range(count)]
+
+
+def test_quant_params_defaults_and_repr():
+    params = elips.QuantParams()
+    assert params.codec == "none"
+    assert params.pq_dim == 0
+    assert params.pq_bits == 8
+    assert "QuantParams" in repr(params)
+
+    configured = elips.QuantParams(codec="pq", pq_dim=16, pq_bits=6, train_iters=4)
+    assert configured.codec == "pq"
+    assert configured.pq_dim == 16
+    assert configured.pq_bits == 6
+    assert configured.train_iters == 4
+    assert configured.codec_enum == elips.Codec.pq
+
+
+def test_quant_params_reports_code_width_before_training():
+    # Lets a caller size a deployment without ingesting anything first.
+    assert elips.QuantParams(codec="pq", pq_dim=24).code_bytes(768) == 24
+    assert elips.QuantParams(codec="sq8").code_bytes(768) == 768
+    assert elips.QuantParams(codec="none").code_bytes(768) == 0
+    # 768 floats is 3072 bytes, so 24 subspaces is 128x.
+    assert (768 * 4) // elips.QuantParams(codec="pq", pq_dim=24).code_bytes(768) == 128
+
+
+@pytest.mark.parametrize("codec", ["pq", "opq", "sq8"])
+def test_quant_params_accepts_every_codec(codec):
+    params = elips.QuantParams(codec=codec)
+    assert params.codec == codec
+    params.validate(64)
+
+
+def test_quant_params_rejects_unknown_codec_and_bad_geometry():
+    with pytest.raises(elips.ConfigError):
+        elips.QuantParams(codec="lz4")
+    with pytest.raises(elips.ConfigError):
+        elips.QuantParams(codec="pq", pq_dim=7).validate(64)  # 64 % 7 != 0
+    with pytest.raises(elips.ConfigError):
+        elips.QuantParams(codec="pq", pq_bits=9).validate(64)
+    with pytest.raises(elips.ConfigError):
+        elips.QuantParams(codec="pq", pq_bits=3).validate(64)
+
+
+def test_config_carries_quantization():
+    params = elips.QuantParams(codec="sq8")
+    config = elips.Config().dimension(32).quantization(params)
+    assert config.has_quantization
+    assert config.quantization_val.codec == "sq8"
+    assert not elips.Config().dimension(32).has_quantization
+
+
+def test_open_accepts_a_bare_codec_name():
+    with elips.open(":memory:", dimension=8, quantization="sq8") as db:
+        assert db.config.has_quantization
+        assert db.config.quantization_val.codec == "sq8"
+
+
+def test_vault_quantize_compresses_and_labels_results():
+    params = elips.QuantParams(codec="pq", pq_dim=8, train_iters=4)
+    with elips.open(":memory:", dimension=32, metric="euclidean",
+                    quantization=params) as db:
+        vault = db.vault("main")
+        rows = _gaussian_rows(300, 32)
+        for row in rows:
+            vault.place(row)
+
+        assert not vault.quantized
+        assert vault.codec == "none"
+        assert vault.info().codec == "none"
+        assert vault.info().code_bytes == 0
+        assert vault.info().compression_ratio == 1.0
+
+        vault.quantize()
+
+        assert vault.quantized
+        assert vault.codec == "pq"
+        info = vault.info()
+        assert info.codec == "pq"
+        assert info.code_bytes == 8
+        # 32 floats down to 8 bytes.
+        assert info.compression_ratio == 16.0
+        assert info.count == 300
+
+        hit = vault.seek(rows[0], top=1)[0]
+        assert hit.approximate
+        assert hit.codec == "pq"
+        assert "approximate" in repr(hit)
+
+        record = vault.records()[0]
+        assert record["approximate"]
+        assert record["codec"] == "pq"
+
+
+def test_unquantized_vault_reports_exact_results():
+    with elips.open(":memory:", dimension=4, metric="euclidean") as db:
+        vault = db.vault("main")
+        vault.place([1.0, 0.0, 0.0, 0.0])
+        hit = vault.seek([1.0, 0.0, 0.0, 0.0], top=1)[0]
+        assert not hit.approximate
+        assert hit.codec == "none"
+        record = vault.records()[0]
+        assert not record["approximate"]
+        assert record["codec"] == "none"
+        # An uncompressed vault still returns the exact stored vector.
+        assert record["vector"] == pytest.approx((1.0, 0.0, 0.0, 0.0))
+
+
+def test_quantize_rejects_invalid_states():
+    params = elips.QuantParams(codec="pq", pq_dim=4, train_iters=3)
+    with elips.open(":memory:", dimension=16, metric="euclidean",
+                    quantization=params) as db:
+        vault = db.vault("main")
+        # No codebook can be trained from nothing.
+        with pytest.raises(elips.ConfigError):
+            vault.quantize()
+
+        for row in _gaussian_rows(60, 16):
+            vault.place(row)
+        vault.quantize()
+        # Already compressed.
+        with pytest.raises(elips.ConfigError):
+            vault.quantize()
+
+
+def test_quantize_requires_a_configured_codec():
+    with elips.open(":memory:", dimension=8, metric="euclidean") as db:
+        vault = db.vault("main")
+        vault.place([1.0] * 8)
+        with pytest.raises(elips.ConfigError):
+            vault.quantize()
+
+
+def test_database_quantize_all_covers_every_vault():
+    params = elips.QuantParams(codec="sq8")
+    with elips.open(":memory:", dimension=8, metric="euclidean",
+                    quantization=params) as db:
+        for name in ("alpha", "beta"):
+            vault = db.vault(name)
+            for row in _gaussian_rows(40, 8, seed=hash(name) % 1000):
+                vault.place(row)
+
+        db.quantize_all()
+        for name in ("alpha", "beta"):
+            assert db.vault(name).quantized
+            assert db.vault(name).info().code_bytes == 8
+
+
+def test_inserts_after_quantization_are_encoded_on_arrival():
+    params = elips.QuantParams(codec="sq8")
+    with elips.open(":memory:", dimension=8, metric="euclidean",
+                    quantization=params) as db:
+        vault = db.vault("main")
+        for row in _gaussian_rows(40, 8):
+            vault.place(row)
+        vault.quantize()
+
+        key = vault.place([0.5] * 8)
+        record = vault.fetch(key)
+        assert record is not None
+        assert record["approximate"]
+        assert record["codec"] == "sq8"
+
+
+def test_quantized_vault_survives_reopen_on_disk():
+    params = elips.QuantParams(codec="pq", pq_dim=8, train_iters=4)
+    rows = _gaussian_rows(200, 32)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "db")
+        with elips.open(path, dimension=32, metric="euclidean",
+                        quantization=params) as db:
+            vault = db.vault("main")
+            for row in rows:
+                vault.place(row)
+            db.quantize("main")
+            first = [h.id for h in vault.seek(rows[0], top=5)]
+
+        # The codebook is persisted with the snapshot, so the reopened vault is
+        # still compressed and ranks identically.
+        with elips.open(path, dimension=32, metric="euclidean",
+                        quantization=params) as db:
+            vault = db.vault("main")
+            assert vault.quantized
+            assert vault.codec == "pq"
+            assert vault.info().count == len(rows)
+            assert [h.id for h in vault.seek(rows[0], top=5)] == first
+
+
+def test_quantized_vault_recall_is_useful():
+    # Not a tight bound -- this asserts the codes carry real signal rather than
+    # that PQ hits a particular recall on this fixture.
+    params = elips.QuantParams(codec="sq8")
+    rows = _gaussian_rows(200, 16)
+    with elips.open(":memory:", dimension=16, metric="euclidean") as exact_db:
+        exact = exact_db.vault("main")
+        keys = [exact.place(row) for row in rows]
+        truth = [h.id for h in exact.seek(rows[0], top=5)]
+
+    with elips.open(":memory:", dimension=16, metric="euclidean",
+                    quantization=params) as db:
+        vault = db.vault("main")
+        for key, row in zip(keys, rows):
+            vault.place(row, id=key)
+        vault.quantize()
+        got = [h.id for h in vault.seek(rows[0], top=5)]
+
+    assert len(set(truth) & set(got)) >= 4
+
+
+def test_modern_arena_compress_and_health():
+    engine = elips.connect(":memory:", dimension=8, quantization="sq8")
+    try:
+        arena = engine.arena("documents")
+        for row in _gaussian_rows(40, 8):
+            arena.write(vector=row)
+
+        assert arena.health().codec == "none"
+        assert arena.health().code_bytes == 0
+
+        arena.compress()
+
+        health = arena.health()
+        assert health.codec == "sq8"
+        assert health.code_bytes == 8
+
+        hit = arena.probe([1.0] * 8, top=1)[0]
+        assert hit.approximate
+        assert hit.codec == "sq8"
+
+        row = arena.sweep(limit=1)[0]
+        assert row.approximate
+        assert row.codec == "sq8"
+    finally:
+        engine.close()
+
+
+def test_modern_connect_accepts_quant_params():
+    engine = elips.connect(
+        ":memory:", dimension=8, quantization=elips.QuantParams(codec="pq", pq_dim=4)
+    )
+    try:
+        arena = engine.arena("documents")
+        for row in _gaussian_rows(60, 8):
+            arena.write(vector=row)
+        arena.compress()
+        assert arena.health().codec == "pq"
+        assert arena.health().code_bytes == 4
+    finally:
+        engine.close()
+
+
+def test_codec_enum_is_exported():
+    assert elips.Codec.none is not None
+    assert elips.Codec.pq != elips.Codec.opq
+    assert {"none", "pq", "opq", "sq8"} <= set(elips.Codec.__members__)
+
+
 # ==========================  stub coverage  ============================
 
 

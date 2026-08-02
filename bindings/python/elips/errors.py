@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""ELIPS exception hierarchy.
 
 All ELIPS errors derive from :class:`ElipsError`, which in turn derives from
@@ -15,6 +13,8 @@ Examples::
     ...     print("dimension error")
     dimension error
 """
+
+from __future__ import annotations
 
 from .core import (
     ConfigError,

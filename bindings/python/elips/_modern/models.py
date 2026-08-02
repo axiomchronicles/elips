@@ -1,3 +1,16 @@
+r"""Dataclasses exchanged across the modern ELIPS API.
+
+:class:`RecordInput` is the write-side model; :class:`Row`, :class:`Hit`,
+:class:`WalRecord`, and :class:`ArenaHealth` are read-side results.
+
+Examples::
+
+    >>> from elips import RecordInput
+    >>> record = RecordInput(text="alpha note", meta={"kind": "design"})
+    >>> record.text
+    'alpha note'
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -5,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core import ChunkInfo, DocumentAttachment, EmbeddingLineage
-from ..types import MetaValue, PayloadLike, Vector
+from ..types import CodecName, MetaValue, PayloadLike, Vector
 
 
 def _clone_document_attachment(document: DocumentAttachment) -> DocumentAttachment:
@@ -270,6 +283,8 @@ class Row:
     vector: tuple[float, ...] | None = None
     chunk: ChunkInfo | None = None
     lineage: EmbeddingLineage | None = None
+    approximate: bool = False
+    codec: CodecName = "none"
 
     @property
     def text(self) -> str | None:
@@ -325,6 +340,8 @@ class Hit:
     vector: tuple[float, ...] | None = None
     chunk: ChunkInfo | None = None
     lineage: EmbeddingLineage | None = None
+    approximate: bool = False
+    codec: CodecName = "none"
 
     @property
     def text(self) -> str | None:
@@ -463,6 +480,8 @@ class ArenaHealth:
     metric: str
     read_only: bool
     sealed: bool
+    codec: CodecName = "none"
+    code_bytes: int = 0
 
     @property
     def tombstone_ratio(self) -> float:

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""Compatibility facade for the modern ELIPS API.
 
 Examples::
@@ -10,6 +8,8 @@ Examples::
     >>> _ = arena.write(RecordInput(text="alpha note", meta={"kind": "design"}))
     >>> engine.close()
 """
+
+from __future__ import annotations
 
 from ._modern import (
     Accelerator,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""Modern ELIPS API package.
 
 Examples::
@@ -9,6 +7,8 @@ Examples::
     >>> arena = engine.arena("documents")
     >>> _ = arena.write(RecordInput(text="alpha note", meta={"kind": "design"}))
 """
+
+from __future__ import annotations
 
 from .arena import Arena
 from .connect import connect, connect_with_config

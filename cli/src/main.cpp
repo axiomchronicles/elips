@@ -56,15 +56,30 @@ Config config_from_args(const Args& a) {
     if (option(a, "index") == "exact") {
         config.index(elips::IndexType::exact);
     }
+    const std::string codec = option(a, "quantize");
+    if (!codec.empty()) {
+        elips::quant::QuantParams params;
+        params.codec = elips::quant::codec_from_string(codec.c_str());
+        const std::string pq_dim = option(a, "pq-dim");
+        if (!pq_dim.empty()) {
+            params.pq_dim = static_cast<std::uint32_t>(std::stoul(pq_dim));
+        }
+        const std::string pq_bits = option(a, "pq-bits");
+        if (!pq_bits.empty()) {
+            params.pq_bits = static_cast<std::uint32_t>(std::stoul(pq_bits));
+        }
+        config.quantization(params);
+    }
     return config;
 }
 
 // Open an existing database, or create one from CLI options (needs --dimension).
+//
+// The config is passed either way. open() reconciles dimension, metric, and
+// index against the persisted IDENTITY, so those flags stay advisory for an
+// existing database, but options with no on-disk counterpart -- notably
+// --quantize -- only reach the engine through here.
 std::unique_ptr<elips::ElipsInstance> open_db(const Args& a) {
-    namespace fs = std::filesystem;
-    if (a.path != ":memory:" && fs::exists(fs::path(a.path) / "IDENTITY")) {
-        return elips::open(a.path);
-    }
     return elips::open(a.path, config_from_args(a));
 }
 
@@ -100,6 +115,18 @@ int cmd_info(const Args& a) {
               << "\n"
               << "vaults: " << vaults.size() << "\n"
               << "records: " << total << "\n";
+    for (const auto& name : vaults) {
+        const auto info = db->vault(name).info();
+        if (info.codec == elips::quant::CodecId::none) {
+            continue;
+        }
+        const double ratio =
+            (static_cast<double>(info.dimension) * sizeof(float)) /
+            static_cast<double>(info.code_bytes);
+        std::cout << "codec[" << name << "]: "
+                  << elips::quant::to_string(info.codec) << " ("
+                  << info.code_bytes << " B/vector, " << ratio << "x)\n";
+    }
     return 0;
 }
 
@@ -140,6 +167,16 @@ int cmd_export(const Args& a) {
     const std::string vault = option(a, "vault");
     const std::string out_path = option(a, "output");
     auto db = open_db(a);
+    const auto info = db->vault(vault).info();
+    if (info.codec != elips::quant::CodecId::none) {
+        // An export from a compressed vault is not a faithful backup: the
+        // vectors are reconstructions, so a re-import will not reproduce the
+        // original values.
+        std::cerr << "warning: vault '" << vault << "' is compressed ("
+                  << elips::quant::to_string(info.codec)
+                  << "); exported vectors are reconstructions, not the original "
+                     "values\n";
+    }
     std::ofstream out(out_path);
     std::size_t n = 0;
     for (const auto& record : db->vault(vault).scan()) {
@@ -147,6 +184,35 @@ int cmd_export(const Args& a) {
         ++n;
     }
     std::cout << "exported " << n << " records to " << out_path << "\n";
+    return 0;
+}
+
+int cmd_quantize(const Args& a) {
+    const std::string vault_name = option(a, "vault");
+    auto db = open_db(a);
+
+    const auto report = [&](const std::string& name) {
+        const auto info = db->vault(name).info();
+        const auto uncompressed =
+            static_cast<double>(info.dimension) * sizeof(float);
+        const double ratio =
+            info.code_bytes == 0
+                ? 1.0
+                : uncompressed / static_cast<double>(info.code_bytes);
+        std::cout << name << "\t" << elips::quant::to_string(info.codec) << "\t"
+                  << info.code_bytes << " B/vector\t" << ratio << "x\t"
+                  << info.count << " records\n";
+    };
+
+    if (vault_name.empty()) {
+        db->quantize_all();
+        for (const auto& name : db->list_vaults()) {
+            report(name);
+        }
+    } else {
+        db->quantize(vault_name);
+        report(vault_name);
+    }
     return 0;
 }
 
@@ -230,7 +296,13 @@ int cmd_bench(const Args& a) {
 void usage() {
     std::cerr << "usage: elips <command> <db_path> [options]\n"
               << "commands: info vaults query checkpoint export import verify "
-                 "stats bench\n";
+                 "stats bench quantize\n"
+              << "\nquantize [--vault NAME] [--quantize pq|opq|sq8] "
+                 "[--pq-dim N] [--pq-bits N]\n"
+              << "  Compresses stored vectors. Omit --vault for every vault.\n"
+              << "  Trains a codebook from the resident data, so run it after\n"
+              << "  ingest. Lossy: searches stay correct but return estimated\n"
+              << "  distances, and exports become reconstructions.\n";
 }
 
 }  // namespace
@@ -252,6 +324,7 @@ int main(int argc, char** argv) {
         if (args.command == "verify") return cmd_verify(args);
         if (args.command == "stats") return cmd_stats(args);
         if (args.command == "bench") return cmd_bench(args);
+        if (args.command == "quantize") return cmd_quantize(args);
         usage();
         return 2;
     } catch (const std::exception& e) {

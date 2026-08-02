@@ -1,9 +1,29 @@
+r"""Connection helpers that compose a native :class:`elips.Config`.
+
+:func:`connect` takes keyword arguments and builds the config for you;
+:func:`connect_with_config` accepts a pre-built config for callers that need
+options the keyword form does not cover.
+
+Examples::
+
+    >>> from elips import connect
+    >>> engine = connect(":memory:", dimension=2, metric="cosine")
+    >>> engine.vault_names()
+    []
+    >>> engine.close()
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..core import Config, LocalEmbedderConfig, open_with_config as _open_with_config
-from ..types import AccessModeName, IndexName, MetricName
+from ..core import (
+    Config,
+    LocalEmbedderConfig,
+    QuantParams,
+    open_with_config as _open_with_config,
+)
+from ..types import AccessModeName, CodecName, IndexName, MetricName
 from .engine import Engine
 from .typing import Embedder
 
@@ -49,9 +69,10 @@ def connect(
     embedder_model: str = "callable",
     embedder_revision: str = "",
     use_default_text_embedder: bool = True,
+    quantization: QuantParams | CodecName | None = None,
     gpu: GpuConfig | None = None,
 ) -> Engine:
-    r"""connect(path, *, dimension=0, metric="cosine", index="graph", access_mode="read_write", segmented_storage=True, metadata_acceleration=True, embedder=None, embedder_provider="python", embedder_model="callable", embedder_revision="", use_default_text_embedder=True, gpu=None) -> Engine
+    r"""connect(path, *, dimension=0, metric="cosine", index="graph", access_mode="read_write", segmented_storage=True, metadata_acceleration=True, embedder=None, embedder_provider="python", embedder_model="callable", embedder_revision="", use_default_text_embedder=True, quantization=None, gpu=None) -> Engine
 
     Open a high-level :class:`Engine` wrapper.
 
@@ -79,6 +100,11 @@ def connect(
             embedders. Default: ``""``.
         use_default_text_embedder (bool, optional): Whether to auto-attach the
             built-in local embedder for new databases. Default: ``True``.
+        quantization (QuantParams or str, optional): Vector compression codec,
+            either a :class:`QuantParams` or a bare name such as ``"sq8"``.
+            Selecting one does not compress anything by itself -- call
+            :meth:`elips.Arena.compress` once the arena holds representative
+            data. Default: ``None``.
         gpu (GpuConfig, optional): GPU runtime configuration. Default:
             ``None``.
 
@@ -106,6 +132,13 @@ def connect(
         .metadata_acceleration(metadata_acceleration)
         .auto_text_embedder(use_default_text_embedder)
     )
+
+    if quantization is not None:
+        config.quantization(
+            quantization
+            if isinstance(quantization, QuantParams)
+            else QuantParams(codec=quantization)
+        )
 
     if gpu is not None:
         if not hasattr(config, "gpu"):
