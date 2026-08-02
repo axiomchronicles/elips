@@ -51,7 +51,7 @@ All enums are available as `elips.<EnumName>.<value>`:
 | `IndexType` | `elips.IndexType` | `graph`, `exact` |
 | `Durability` | `elips.Durability` | `paranoid`, `standard`, `relaxed`, `ephemeral` |
 | `Comparator` | `elips.Comparator` | `eq`, `ne`, `lt`, `le`, `gt`, `ge` |
-| `TokenKind` | `elips.TokenKind` | `word`, `number`, `string`, `punct`, `end` |
+| `TokenKind` | `elips.query.TokenKind` | `word`, `number`, `string`, `punct`, `end` |
 | `GpuPolicy` | `elips.GpuPolicy` | `auto`, `prefer_gpu`, `require_gpu`, `cpu_only`, `specific` |
 | `GpuIndexAlgorithm` | `elips.GpuIndexAlgorithm` | `auto`, `cagra`, `ivf_flat`, `ivf_pq`, `brute_force` |
 | `GpuPrecision` | `elips.GpuPrecision` | `fp32`, `fp16`, `int8`, `auto` |

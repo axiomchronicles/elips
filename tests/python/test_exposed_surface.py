@@ -15,11 +15,12 @@ import enum
 import os
 import tempfile
 import threading
+import warnings
 
 import pytest
 
 import elips
-from elips import _core as core
+from elips import _core as core, query as eql
 
 requires_gpu = pytest.mark.skipif(
     not getattr(elips, "_has_gpu", False) or not elips.gpu_devices(),
@@ -465,7 +466,7 @@ def test_parse_seek_statement_exposes_the_tree():
     stmt = elips.parse_eql(
         'seek in docs nearest $q top 7 where year >= 2023 yield'
     )
-    assert isinstance(stmt, elips.SearchStatement)
+    assert isinstance(stmt, eql.SearchStatement)
     assert stmt.vault == "docs"
     assert stmt.top == 7
     assert stmt.query.binding == "q"
@@ -476,11 +477,11 @@ def test_parse_seek_statement_exposes_the_tree():
 
 def test_parse_fetch_and_erase_statements():
     fetched = elips.parse_eql('fetch from v id "abc" yield')
-    assert isinstance(fetched, elips.FetchStatement)
+    assert isinstance(fetched, eql.FetchStatement)
     assert (fetched.vault, fetched.id) == ("v", "abc")
 
     erased = elips.parse_eql('erase from v id "abc"')
-    assert isinstance(erased, elips.DeleteStatement)
+    assert isinstance(erased, eql.DeleteStatement)
     assert (erased.vault, erased.id) == ("v", "abc")
 
 
@@ -493,7 +494,7 @@ def test_parse_rejects_invalid_eql():
 def test_parse_agrees_with_validate():
     good = 'seek in docs nearest $q top 1 yield'
     assert elips.validate_eql(good) is None
-    assert isinstance(elips.parse_eql(good), elips.SearchStatement)
+    assert isinstance(elips.parse_eql(good), eql.SearchStatement)
 
 
 def test_parsed_filter_is_usable_against_the_database(memdb):
@@ -593,22 +594,28 @@ def test_checkpoint_truncates_the_wal(db_path):
 
 
 def test_index_snapshot_types_are_constructible():
-    snapshot = elips.IndexSnapshot()
+    """Snapshots are engine internals, reachable only through the seam.
+
+    Nothing in the binding returns one, which is why they are demoted rather
+    than rehomed: they were only ever constructible placeholders.
+    """
+
+    snapshot = core.IndexSnapshot()
     assert len(snapshot) == 0
     snapshot.dimension = 8
-    snapshot.kind = elips.IndexSnapshotKind.graph
+    snapshot.kind = core.IndexSnapshotKind.graph
     snapshot.metric = elips.Metric.cosine
     snapshot.vectors = [1.0, 2.0]
     assert snapshot.dimension == 8
-    assert snapshot.kind == elips.IndexSnapshotKind.graph
+    assert snapshot.kind == core.IndexSnapshotKind.graph
     assert snapshot.ivf is None and snapshot.pq is None
 
-    ivf = elips.IvfSnapshot()
+    ivf = core.IvfSnapshot()
     ivf.n_lists, ivf.n_probe = 16, 4
     snapshot.ivf = ivf
     assert snapshot.ivf.n_lists == 16
 
-    pq = elips.PqSnapshot()
+    pq = core.PqSnapshot()
     pq.pq_dim, pq.pq_bits = 8, 6
     snapshot.pq = pq
     assert (snapshot.pq.pq_dim, snapshot.pq.pq_bits) == (8, 6)
@@ -1293,5 +1300,15 @@ def test_enum_members_do_not_leak_into_the_module_namespace():
 
 
 def test_facade_reexports_match_the_extension():
-    for name in elips.core.__all__:
-        assert hasattr(elips, name), f"{name} missing from the elips namespace"
+    """Every legacy name still resolves, demoted ones included.
+
+    Demotion narrows what the package *advertises*; it does not remove
+    anything yet. Warnings are suppressed here because this test is asserting
+    exactly the back-compat the warnings announce -- `test_native_seam.py`
+    covers the warning itself.
+    """
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        for name in elips.core.__all__:
+            assert hasattr(elips, name), f"{name} missing from the elips namespace"

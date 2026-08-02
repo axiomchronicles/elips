@@ -47,19 +47,22 @@ def test_core_facade_matches_the_seam() -> None:
     assert set(elips.core.__all__) == set(_native.__all__) - {"has_gpu"}
 
 
-def test_no_module_hardcodes_a_reexport_list() -> None:
-    """No module may spell out the extension's symbols by hand.
+def test_no_module_transcribes_the_extension_surface() -> None:
+    """No module may mirror the extension's symbol table by hand.
 
-    A literal `__all__` is fine for a module that defines its own names. What
-    is not fine is a literal list of *native* symbols, which is what drifted.
+    Re-exporting a curated *subset* of native names is the intended design --
+    `elips/__init__.py` deliberately lifts ~20 native types into the public API.
+    What drifted was a module reproducing the surface in full, so the test
+    measures the fraction covered rather than a raw count: a curated selection
+    sits well under half, a transcription approaches all of it.
     """
 
     native_symbols = {name for name in dir(_core) if not name.startswith("_")}
     offenders: list[str] = []
 
     for path in SOURCE_FILES:
-        if path.name in {"_native.py", "core.py"}:
-            continue  # the seam and its facade, both generated
+        if path.name in {"_native.py", "core.py", "native.py"}:
+            continue  # the seam and its facades, all generated
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Assign):
@@ -75,13 +78,11 @@ def test_no_module_hardcodes_a_reexport_list() -> None:
                 for el in node.value.elts
                 if isinstance(el, ast.Constant) and isinstance(el.value, str)
             }
-            # A handful of overlapping names is ordinary re-export; dozens
-            # means the symbol table was transcribed.
-            overlap = listed & native_symbols
-            if len(overlap) > 20:
+            covered = len(listed & native_symbols) / len(native_symbols)
+            if covered > 0.5:
                 offenders.append(
-                    f"{path.relative_to(PACKAGE_DIR)}: {len(overlap)} native "
-                    f"symbols written out by hand"
+                    f"{path.relative_to(PACKAGE_DIR)} lists {covered:.0%} of the "
+                    f"extension surface; re-export from elips._native instead"
                 )
 
     assert not offenders, "; ".join(offenders)
@@ -111,6 +112,60 @@ def test_modules_import_the_seam_not_the_extension(path: pathlib.Path) -> None:
         f"{path.name} imports the extension directly at line(s) {direct}; "
         f"import from elips._native instead"
     )
+
+
+def test_demoted_names_are_absent_from_the_supported_surface() -> None:
+    """Engine internals stay out of `elips.native.__all__` and `dir(elips)`."""
+
+    import elips.native
+
+    supported = set(_native.supported_names())
+    assert not supported & set(_native.DEMOTED)
+    assert not set(elips.native.__all__) & set(_native.DEMOTED)
+    assert not set(dir(elips)) & set(_native.DEMOTED)
+
+
+def test_the_seam_itself_stays_complete() -> None:
+    """Demoting a name narrows the advertised surface, not the seam.
+
+    `elips.query` imports the EQL AST from the seam, so the seam has to keep
+    every extension symbol. Only what is *advertised* narrows.
+    """
+
+    assert set(_native.DEMOTED) <= set(_native.__all__)
+
+
+@pytest.mark.parametrize("name", sorted(_native.DEMOTED))
+def test_demoted_names_warn_and_still_resolve(name: str) -> None:
+    """One minor version of deprecation, with the replacement home named."""
+
+    import elips.native
+
+    for module in (elips, elips.native):
+        with pytest.deprecated_call() as caught:
+            resolved = getattr(module, name)
+        assert resolved is getattr(_native, name)
+        message = str(caught[0].message)
+        home = _native.DEMOTED[name]
+        assert name in message
+        assert (home in message) if home else ("no public replacement" in message)
+
+
+@pytest.mark.parametrize("name", sorted(_native.DEMOTED))
+def test_rehomed_names_are_importable_without_warning(name: str) -> None:
+    """The replacement spelling must be clean -- otherwise there is no escape."""
+
+    home = _native.DEMOTED[name]
+    if home is None:
+        pytest.skip(f"{name} has no public replacement")
+    import importlib
+    import warnings
+
+    module = importlib.import_module(home)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        assert getattr(module, name) is getattr(_native, name)
+    assert name in module.__all__
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: p.name)

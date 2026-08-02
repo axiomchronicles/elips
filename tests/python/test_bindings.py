@@ -146,9 +146,11 @@ def test_utilities():
 
 def test_eql_tooling():
     """Verify EQL tokenize and validate functions."""
+    from elips.query import TokenKind
+
     tokens = elips.tokenize_eql("seek in docs nearest [1.0, 0.5] top 5 yield")
     assert len(tokens) > 0
-    assert tokens[0].kind == elips.TokenKind.word
+    assert tokens[0].kind == TokenKind.word
     assert tokens[0].text == "seek"
 
     # Validate succeeds on valid EQL
