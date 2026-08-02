@@ -388,20 +388,17 @@ PYBIND11_MODULE(_core, m) {
     py::enum_<elips::Metric>(m, "Metric")
         .value("cosine", elips::Metric::cosine)
         .value("euclidean", elips::Metric::euclidean)
-        .value("dot_product", elips::Metric::dot_product)
-        .export_values();
+        .value("dot_product", elips::Metric::dot_product);
 
     py::enum_<elips::IndexType>(m, "IndexType")
         .value("graph", elips::IndexType::graph)
-        .value("exact", elips::IndexType::exact)
-        .export_values();
+        .value("exact", elips::IndexType::exact);
 
     py::enum_<elips::Durability>(m, "Durability")
         .value("paranoid", elips::Durability::paranoid)
         .value("standard", elips::Durability::standard)
         .value("relaxed", elips::Durability::relaxed)
-        .value("ephemeral", elips::Durability::ephemeral)
-        .export_values();
+        .value("ephemeral", elips::Durability::ephemeral);
 
     py::enum_<elips::Comparator>(m, "Comparator")
         .value("eq", elips::Comparator::eq)
@@ -409,26 +406,22 @@ PYBIND11_MODULE(_core, m) {
         .value("lt", elips::Comparator::lt)
         .value("le", elips::Comparator::le)
         .value("gt", elips::Comparator::gt)
-        .value("ge", elips::Comparator::ge)
-        .export_values();
+        .value("ge", elips::Comparator::ge);
 
     py::enum_<elips::AccessMode>(m, "AccessMode")
         .value("read_write", elips::AccessMode::read_write)
-        .value("read_only", elips::AccessMode::read_only)
-        .export_values();
+        .value("read_only", elips::AccessMode::read_only);
 
     py::enum_<elips::QueryStrategy>(m, "QueryStrategy")
         .value("ann_index", elips::QueryStrategy::ann_index)
         .value("exact_candidates", elips::QueryStrategy::exact_candidates)
         .value("full_scan", elips::QueryStrategy::full_scan)
         .value("text_probe", elips::QueryStrategy::text_probe)
-        .value("hybrid_fusion", elips::QueryStrategy::hybrid_fusion)
-        .export_values();
+        .value("hybrid_fusion", elips::QueryStrategy::hybrid_fusion);
 
     py::enum_<elips::TextEmbedderKind>(m, "TextEmbedderKind")
         .value("external", elips::TextEmbedderKind::external)
-        .value("local_builtin", elips::TextEmbedderKind::local_builtin)
-        .export_values();
+        .value("local_builtin", elips::TextEmbedderKind::local_builtin);
 
     // =====================  Utility functions  =====================
 
@@ -639,8 +632,7 @@ parsed tree so callers can build query linters, rewriters, or builders.
         .value("number", elips::eql::TokenKind::number)
         .value("string", elips::eql::TokenKind::string)
         .value("punct", elips::eql::TokenKind::punct)
-        .value("end", elips::eql::TokenKind::end)
-        .export_values();
+        .value("end", elips::eql::TokenKind::end);
 
     py::class_<elips::eql::Token>(m, "Token")
         .def(py::init<>())
@@ -703,8 +695,7 @@ Args:
         .value("none", elips::quant::CodecId::none)
         .value("pq", elips::quant::CodecId::pq)
         .value("opq", elips::quant::CodecId::opq)
-        .value("sq8", elips::quant::CodecId::sq8)
-        .export_values();
+        .value("sq8", elips::quant::CodecId::sq8);
 
     py::class_<elips::quant::QuantParams>(m, "QuantParams")
         .def(py::init<>())
@@ -1292,8 +1283,7 @@ Example:
         .value("index_build_failed", elips::gpu::GpuError::IndexBuildFailed)
         .value("unsupported_metric", elips::gpu::GpuError::UnsupportedMetric)
         .value("initialization_failed", elips::gpu::GpuError::InitializationFailed)
-        .value("backend_unavailable", elips::gpu::GpuError::BackendUnavailable)
-        .export_values();
+        .value("backend_unavailable", elips::gpu::GpuError::BackendUnavailable);
 
     // =====================  GpuConfig  =====================
 
@@ -1327,8 +1317,7 @@ Example:
     py::enum_<elips::gpu::GraphIndexBuildParams::BuildAlgo>(m, "GraphBuildAlgo")
         .value("ivf_pq", elips::gpu::GraphIndexBuildParams::BuildAlgo::IvfPq)
         .value("nn_descent", elips::gpu::GraphIndexBuildParams::BuildAlgo::NnDescent)
-        .value("iterative_search", elips::gpu::GraphIndexBuildParams::BuildAlgo::IterativeSearch)
-        .export_values();
+        .value("iterative_search", elips::gpu::GraphIndexBuildParams::BuildAlgo::IterativeSearch);
 
     py::class_<elips::gpu::GraphIndexBuildParams>(m, "GraphIndexBuildParams")
         .def(py::init<>())

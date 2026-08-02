@@ -11,6 +11,7 @@ tests skip cleanly when no device is present rather than failing.
 
 from __future__ import annotations
 
+import enum
 import os
 import tempfile
 import threading
@@ -1265,22 +1266,30 @@ def test_every_public_symbol_is_declared_in_the_stub():
         for target in node.targets
         if isinstance(target, ast.Name)
     }
-    # Enum members are re-exported into module scope by export_values(); they
-    # are declared inside their enum class, not at module level.
-    enum_members = {
-        item.target.id if isinstance(item, ast.AnnAssign) else item.targets[0].id
-        for node in tree.body
-        if isinstance(node, ast.ClassDef)
-        for item in node.body
-        if isinstance(item, ast.AnnAssign)
-        and isinstance(item.target, ast.Name)
-        or isinstance(item, ast.Assign)
-        and isinstance(item.targets[0], ast.Name)
-    }
 
     exported = {name for name in dir(core) if not name.startswith("_")}
-    missing = exported - declared - enum_members
+    missing = exported - declared
     assert not missing, f"undeclared in _core.pyi: {sorted(missing)}"
+
+
+def test_enum_members_do_not_leak_into_the_module_namespace():
+    """``enum class`` members belong to their enum, not to ``elips._core``.
+
+    ``export_values()`` is only appropriate for C-style unscoped enums. Calling
+    it on a scoped enum publishes every member as a bare module attribute, so
+    ``elips._core.none`` and ``elips._core.string`` become exported names that
+    no stub declares.
+    """
+
+    leaked = {
+        member
+        for name in dir(core)
+        if isinstance(getattr(core, name, None), type)
+        and issubclass(getattr(core, name), enum.Enum)
+        for member in getattr(core, name).__members__
+        if hasattr(core, member)
+    }
+    assert not leaked, f"enum members leaked into elips._core: {sorted(leaked)}"
 
 
 def test_facade_reexports_match_the_extension():
