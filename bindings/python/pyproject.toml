@@ -7,7 +7,7 @@ name = "elips"
 version = "1.0.0"
 description = "Embedded local vector database (SQLite for vectors)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Pawan Kumar", email = "aegis.invincible@gmail.com"}
@@ -17,11 +17,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: C++",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -34,13 +33,25 @@ Repository = "https://github.com/axiomchronicles/elips.git"
 Issues = "https://github.com/axiomchronicles/elips/issues"
 
 [tool.setuptools]
-packages = ["elips", "elips._modern"]
+packages = [
+    "elips",
+    "elips._internal",
+    "elips.collection",
+    "elips.config",
+    "elips.database",
+    "elips.gpu",
+    "elips.quantization",
+    "elips.query",
+    "elips.records",
+    "elips.search",
+    "elips.storage",
+]
 package-dir = {"" = "."}
 package-data = {"elips" = ["py.typed", "_core.pyi"]}
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -65,10 +76,20 @@ combine-as-imports = true
 "**/core.py" = ["F401", "F403", "F405", "E402"]
 "**/errors.py" = ["E402", "F401"]
 "**/modern.py" = ["E402", "F401"]
-"**/types.py" = ["E402", "E501"]
-"**/_modern/*.py" = ["E501", "E402"]
-"**/_modern/**/*.py" = ["E501", "E402"]
-"**/_core.pyi" = ["E501", "UP", "N818"]
+"**/exceptions.py" = ["E402", "F401"]
+"**/typing.py" = ["E402", "E501"]
+"**/_native.py" = ["F401", "F403", "F405", "E402"]
+"**/native.py" = ["F401", "F403", "F405"]
+"**/_internal/*.py" = ["E501", "E402"]
+# These modules document each method with a leading signature line, which is
+# routinely wider than the code limit. Inherited from the pre-split layout,
+# where the same exemption applied to _modern/*.
+"**/collection/*.py" = ["E501"]
+"**/config/connect.py" = ["E501"]
+"**/database/*.py" = ["E501"]
+"**/gpu/*.py" = ["E501"]
+"**/records/*.py" = ["E501"]
+"**/_core.pyi" = ["E501", "N818"]
 "**/setup.py" = ["E501"]
 "**/test.py" = ["E501"]
 "**/tests/**/*.py" = ["E501"]

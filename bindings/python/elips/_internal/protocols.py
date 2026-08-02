@@ -11,12 +11,12 @@ Examples::
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
-from elips.types import BatchRecord, RecordInputDict
+from elips.typing import BatchRecord, RecordInputDict
 
 if TYPE_CHECKING:
-    from elips._modern.models import RecordInput
+    from elips.records.models import RecordInput
 
 
 @runtime_checkable
@@ -24,7 +24,7 @@ class Embedder(Protocol):
     r"""Embedder(texts) -> vectors
 
     Protocol for batch embedders accepted by :func:`connect` and
-    :meth:`elips.Arena.write_many`.
+    :meth:`elips.Collection.write_many`.
 
     Args:
         texts (Sequence[str]): Text strings to embed.
@@ -42,6 +42,6 @@ class Embedder(Protocol):
         ...
 
 
-RecordInputLike = Union["RecordInput", RecordInputDict, BatchRecord]
+RecordInputLike: TypeAlias = "RecordInput | RecordInputDict | BatchRecord"
 
 __all__ = ["Embedder", "RecordInputLike"]

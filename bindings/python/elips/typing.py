@@ -2,7 +2,7 @@ r"""Typed aliases and ``TypedDict`` models for the ELIPS Python SDK.
 
 Examples::
 
-    >>> from elips.types import MetricName, PayloadLike, RecordInputDict
+    >>> from elips.typing import MetricName, PayloadLike, RecordInputDict
     >>> metric: MetricName = "cosine"
     >>> payload: PayloadLike = {"kind": "design", "published": True}
     >>> record: RecordInputDict = {"text": "alpha note", "meta": payload}
@@ -11,7 +11,7 @@ Examples::
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, Union
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypedDict
 
 if TYPE_CHECKING:
     # Guarded deliberately, and load-bearing. These names are only needed to
@@ -21,27 +21,33 @@ if TYPE_CHECKING:
     from elips._native import ChunkInfo, DocumentAttachment, EmbeddingLineage
 
 # Primitive aliases
-MetaValue = Union[bool, int, float, str]
-Vector = Sequence[float]
-PayloadLike = Mapping[str, MetaValue]
-Metadata = dict[str, MetaValue]
+MetaValue: TypeAlias = bool | int | float | str
+Vector: TypeAlias = Sequence[float]
+PayloadLike: TypeAlias = Mapping[str, MetaValue]
+Metadata: TypeAlias = dict[str, MetaValue]
 
 # A batch of vectors: rows of equal length, as accepted by the GPU kernels.
-VectorBatch = Sequence[Vector]
+VectorBatch: TypeAlias = Sequence[Vector]
 # Rows of distances, as returned by GpuDevice.compute_distances.
-DistanceMatrix = Sequence[Sequence[float]]
+DistanceMatrix: TypeAlias = Sequence[Sequence[float]]
 
 # Literal-friendly names used by the pure-Python facade
-MetricName = Literal["cosine", "euclidean", "dot_product"]
-IndexName = Literal["graph", "exact"]
-AccessModeName = Literal["read_write", "read_only"]
-DurabilityName = Literal["paranoid", "standard", "relaxed", "ephemeral"]
-ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
-GpuPolicyName = Literal["auto", "prefer_gpu", "require_gpu", "cpu_only", "specific"]
-GpuAlgorithmName = Literal["auto", "cagra", "ivf_flat", "ivf_pq", "brute_force"]
-GpuPrecisionName = Literal["fp32", "fp16", "int8", "auto"]
-WalOpName = Literal["insert", "erase", "insert_ex", "txn_begin", "txn_commit", "insert_q"]
-CodecName = Literal["none", "pq", "opq", "sq8"]
+MetricName: TypeAlias = Literal["cosine", "euclidean", "dot_product"]
+IndexName: TypeAlias = Literal["graph", "exact"]
+AccessModeName: TypeAlias = Literal["read_write", "read_only"]
+DurabilityName: TypeAlias = Literal["paranoid", "standard", "relaxed", "ephemeral"]
+ComparatorName: TypeAlias = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
+GpuPolicyName: TypeAlias = Literal[
+    "auto", "prefer_gpu", "require_gpu", "cpu_only", "specific"
+]
+GpuAlgorithmName: TypeAlias = Literal[
+    "auto", "cagra", "ivf_flat", "ivf_pq", "brute_force"
+]
+GpuPrecisionName: TypeAlias = Literal["fp32", "fp16", "int8", "auto"]
+WalOpName: TypeAlias = Literal[
+    "insert", "erase", "insert_ex", "txn_begin", "txn_commit", "insert_q"
+]
+CodecName: TypeAlias = Literal["none", "pq", "opq", "sq8"]
 
 
 class TextEmbedderFn(Protocol):
@@ -55,7 +61,7 @@ class TextEmbedderFn(Protocol):
 
 
 class RecordInputDict(TypedDict, total=False):
-    r"""Mapping input accepted by :meth:`elips.Arena.write_many` and :meth:`elips.Arena.ingest`."""
+    r"""Mapping input accepted by :meth:`elips.Collection.write_many` and :meth:`elips.Collection.ingest`."""
 
     vector: Vector
     text: str
@@ -91,12 +97,12 @@ class StoredRecord(TypedDict):
     codec: CodecName
 
 
-FetchResult = StoredRecord
-ScanResult = StoredRecord
-QueryBindings = Mapping[str, Vector]
-RecordDict = BatchRecord
+FetchResult: TypeAlias = StoredRecord
+ScanResult: TypeAlias = StoredRecord
+QueryBindings: TypeAlias = Mapping[str, Vector]
+RecordDict: TypeAlias = BatchRecord
 # (indices, values) as returned by GpuDevice.top_k.
-TopKResult = tuple[Sequence[Sequence[int]], Sequence[Sequence[float]]]
+TopKResult: TypeAlias = tuple[Sequence[Sequence[int]], Sequence[Sequence[float]]]
 
 __all__ = [
     "AccessModeName",

@@ -1,7 +1,7 @@
 r"""Dataclasses exchanged across the modern ELIPS API.
 
 :class:`RecordInput` is the write-side model; :class:`Row`, :class:`Hit`,
-:class:`WalRecord`, and :class:`ArenaHealth` are read-side results.
+:class:`WalRecord`, and :class:`CollectionHealth` are read-side results.
 
 Examples::
 
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from elips._native import ChunkInfo, DocumentAttachment, EmbeddingLineage
-from elips.types import CodecName, MetaValue, PayloadLike, Vector
+from elips.typing import CodecName, MetaValue, PayloadLike, Vector
 
 
 def _clone_document_attachment(document: DocumentAttachment) -> DocumentAttachment:
@@ -34,8 +34,8 @@ def _clone_document_attachment(document: DocumentAttachment) -> DocumentAttachme
 class RecordInput:
     r"""RecordInput(*, vector=None, text=None, meta=None, key=None, document=None, chunk=None, lineage=None) -> RecordInput
 
-    Structured input record for :meth:`elips.Arena.write` and
-    :meth:`elips.Arena.write_many`.
+    Structured input record for :meth:`elips.Collection.write` and
+    :meth:`elips.Collection.write_many`.
 
     Args:
         vector (Sequence[float], optional): Explicit embedding vector. Default:
@@ -255,8 +255,8 @@ class RecordInput:
 class Row:
     r"""Row(key, meta, document=None, vector=None, chunk=None, lineage=None) -> Row
 
-    Materialized record returned by :meth:`elips.Arena.pull` and
-    :meth:`elips.Arena.sweep`.
+    Materialized record returned by :meth:`elips.Collection.pull` and
+    :meth:`elips.Collection.sweep`.
 
     Args:
         key (str): Record identifier.
@@ -310,8 +310,8 @@ class Row:
 class Hit:
     r"""Hit(key, distance, meta, document=None, vector=None, chunk=None, lineage=None) -> Hit
 
-    Search hit returned by :meth:`elips.Arena.probe`,
-    :meth:`elips.Arena.probe_text`, and :meth:`elips.Arena.probe_hybrid`.
+    Search hit returned by :meth:`elips.Collection.probe`,
+    :meth:`elips.Collection.probe_text`, and :meth:`elips.Collection.probe_hybrid`.
 
     Args:
         key (str): Record identifier.
@@ -443,11 +443,11 @@ class WalRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class ArenaHealth:
-    r"""ArenaHealth(*, name, live, pending_removals, dimension, metric, read_only, sealed) -> ArenaHealth
+class CollectionHealth:
+    r"""CollectionHealth(*, name, live, pending_removals, dimension, metric, read_only, sealed) -> ArenaHealth
 
-    A point-in-time health snapshot of one arena, from
-    :meth:`elips.Arena.health`.
+    A point-in-time health snapshot of one collection, from
+    :meth:`elips.Collection.health`.
 
     Args:
         name (str): Arena name.
@@ -455,7 +455,7 @@ class ArenaHealth:
         pending_removals (int): Deleted records not yet reclaimed. Tombstones
             occupy the search beam and hold memory until compaction, so a large
             value relative to ``live`` is a signal to call
-            :meth:`elips.Arena.vacuum`.
+            :meth:`elips.Collection.vacuum`.
         dimension (int): Vector dimension.
         metric ("cosine" | "euclidean" | "dot_product"): Similarity metric.
         read_only (bool): Whether the arena currently refuses writes.
@@ -464,13 +464,13 @@ class ArenaHealth:
     Examples::
 
         >>> import elips
-        >>> engine = elips.connect(":memory:", dimension=2)
-        >>> arena = engine.arena("documents")
-        >>> _ = arena.write(vector=[1.0, 0.0])
-        >>> health = arena.health()
+        >>> db = elips.connect(":memory:", dimension=2)
+        >>> docs = db.collection("documents")
+        >>> _ = docs.write(vector=[1.0, 0.0])
+        >>> health = docs.health()
         >>> (health.live, health.pending_removals)
         (1, 0)
-        >>> engine.close()
+        >>> db.close()
     """
 
     name: str
@@ -495,7 +495,7 @@ class ArenaHealth:
         Examples::
 
             >>> import elips
-            >>> health = elips.ArenaHealth(
+            >>> health = elips.CollectionHealth(
             ...     name="a", live=8, pending_removals=2,
             ...     dimension=2, metric="cosine",
             ...     read_only=False, sealed=False,
@@ -510,4 +510,4 @@ class ArenaHealth:
         return self.pending_removals / total
 
 
-__all__ = ["ArenaHealth", "Hit", "RecordInput", "Row", "WalRecord"]
+__all__ = ["CollectionHealth", "Hit", "RecordInput", "Row", "WalRecord"]

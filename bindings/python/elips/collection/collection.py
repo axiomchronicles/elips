@@ -1,31 +1,31 @@
 r"""Typed collection facade over the native :class:`elips.Vault` handle.
 
-:class:`Arena` owns record normalization, embedder fan-out, and the overload
-dispatch that lets one ``write`` accept a vector, a text, or a
-:class:`~elips.RecordInput`.
+:class:`Collection` owns the overload dispatch that lets one ``write`` accept a
+vector, a text, or a :class:`~elips.RecordInput`. Two concerns it used to carry
+inline now live beside it: embedder resolution in ``_embedding``, and
+native-dict-to-model conversion in ``_hydration``.
 
 Examples::
 
     >>> import elips
-    >>> engine = elips.connect(":memory:", dimension=2)
-    >>> arena = engine.arena("documents")
-    >>> _ = arena.write(vector=[1.0, 0.0], meta={"kind": "design"})
-    >>> arena.count()
+    >>> db = elips.connect(":memory:", dimension=2)
+    >>> docs = db.collection("documents")
+    >>> _ = docs.add(vector=[1.0, 0.0], meta={"kind": "design"})
+    >>> docs.count()
     1
-    >>> engine.close()
+    >>> db.close()
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional, cast, overload
+from typing import cast, overload
 
-from elips._modern._records import (
+from elips._internal.coercion import (
     build_record_inputs_from_columns,
     coerce_record_input,
 )
-from elips._modern.models import ArenaHealth, Hit, RecordInput, Row
-from elips._modern.typing import Embedder, RecordInputLike
+from elips._internal.protocols import Embedder, RecordInputLike
 from elips._native import (
     ChunkInfo,
     Database,
@@ -33,14 +33,20 @@ from elips._native import (
     EmbeddingLineage,
     Filter,
     QueryPlan,
-    Result,
     Vault,
 )
-from elips.types import PayloadLike, StoredRecord, Vector
+from elips.collection._embedding import (
+    has_native_text_embedder,
+    resolve_lineage,
+    resolve_vectors,
+)
+from elips.collection._hydration import hit_from_result, row_from_record
+from elips.records.models import CollectionHealth, Hit, RecordInput, Row
+from elips.typing import PayloadLike, StoredRecord, Vector
 
 
-class Arena:
-    r"""Arena(db, name, *, embedder=None, text_slot="__elips_text__") -> Arena
+class Collection:
+    r"""Collection(db, name, *, embedder=None, text_slot="__elips_text__") -> Collection
 
     Typed convenience wrapper over a single :class:`elips.Vault`.
 
@@ -55,12 +61,12 @@ class Arena:
     Examples::
 
         >>> import elips
-        >>> engine = elips.connect(":memory:", dimension=2)
-        >>> arena = engine.arena("documents")
-        >>> key = arena.write(text="alpha note", meta={"kind": "design"})
-        >>> arena.pull([key])[0].text
+        >>> db = elips.connect(":memory:", dimension=2)
+        >>> docs = db.collection("documents")
+        >>> key = docs.write(text="alpha note", meta={"kind": "design"})
+        >>> docs.pull([key])[0].text
         'alpha note'
-        >>> engine.close()
+        >>> db.close()
     """
 
     def __init__(
@@ -80,7 +86,7 @@ class Arena:
     def name(self) -> str:
         r"""name -> str
 
-        Return the vault name wrapped by this arena.
+        Return the vault name wrapped by this collection.
         """
 
         return self._vault.name
@@ -97,16 +103,16 @@ class Arena:
     def count(self) -> int:
         r"""count() -> int
 
-        Return the number of records in the arena.
+        Return the number of records in the collection.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> arena.count()
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> docs.count()
             0
-            >>> engine.close()
+            >>> db.close()
         """
 
         return self._vault.count()
@@ -146,7 +152,7 @@ class Arena:
     ) -> str:
         r"""write(record=None, /, *, vector=None, text=None, meta=None, key=None, document=None, chunk=None, lineage=None) -> str
 
-        Write a single record into the arena.
+        Write a single record into the collection.
 
         Args:
             record (RecordInput or mapping, optional): Structured record input.
@@ -170,15 +176,15 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha note", meta={"kind": "design"})
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha note", meta={"kind": "design"})
             >>> isinstance(key, str)
             True
             >>> record = elips.RecordInput(text="beta note", meta={"kind": "ops"})
-            >>> isinstance(arena.write(record), str)
+            >>> isinstance(docs.write(record), str)
             True
-            >>> engine.close()
+            >>> db.close()
         """
 
         if record is not None and any(
@@ -207,7 +213,7 @@ class Arena:
     def write_many(self, records: Sequence[RecordInputLike]) -> list[str]:
         r"""write_many(records) -> list[str]
 
-        Write a batch of structured records into the arena.
+        Write a batch of structured records into the collection.
 
         Args:
             records (Sequence[RecordInput or mapping]): Batch of records. Each
@@ -219,28 +225,30 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> keys = arena.write_many([
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> keys = docs.write_many([
             ...     elips.RecordInput(text="alpha note", meta={"kind": "alpha"}),
             ...     {"text": "beta note", "meta": {"kind": "beta"}},
             ... ])
             >>> len(keys)
             2
-            >>> engine.close()
+            >>> db.close()
         """
 
         normalized_records = [coerce_record_input(record) for record in records]
         if not normalized_records:
             raise ValueError("write_many requires at least one record")
 
-        resolved_vectors, embedded_indices = self._resolve_vectors(normalized_records)
+        resolved_vectors, embedded_indices = resolve_vectors(
+            normalized_records, db=self._db, embedder=self._embedder
+        )
 
         assigned: list[str] = []
         for index, record in enumerate(normalized_records):
             vector = resolved_vectors[index]
             payload = record.materialize_meta()
-            lineage = self._resolve_lineage(
+            lineage = resolve_lineage(
                 record,
                 vector_generated=index in embedded_indices,
             )
@@ -346,21 +354,21 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> keys = arena.ingest([
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> keys = docs.ingest([
             ...     elips.RecordInput(text="alpha note", meta={"kind": "alpha"}),
             ...     {"text": "beta note", "meta": {"kind": "beta"}},
             ... ])
             >>> len(keys)
             2
-            >>> legacy = arena.ingest(
+            >>> legacy = docs.ingest(
             ...     texts=["gamma note"],
             ...     meta=[{"kind": "gamma"}],
             ... )
             >>> len(legacy)
             1
-            >>> engine.close()
+            >>> db.close()
         """
 
         if records is not None:
@@ -405,17 +413,17 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha old", meta={"rev": 1})
-            >>> rows = arena.merge(
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha old", meta={"rev": 1})
+            >>> rows = docs.merge(
             ...     texts=["alpha new"],
             ...     meta=[{"rev": 2}],
             ...     keys=[key],
             ... )
             >>> len(rows)
             1
-            >>> engine.close()
+            >>> db.close()
         """
 
         # Route explicitly: `ingest` overloads the structured and
@@ -461,12 +469,12 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(vector=[1.0, 0.0], text="alpha")
-            >>> arena.probe([1.0, 0.0], top=1)[0].text
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(vector=[1.0, 0.0], text="alpha")
+            >>> docs.probe([1.0, 0.0], top=1)[0].text
             'alpha'
-            >>> engine.close()
+            >>> db.close()
         """
 
         results = self._vault.seek(
@@ -476,7 +484,9 @@ class Arena:
             threshold=max_distance,
         )
         return [
-            self._hit_from_result(result, include_vectors=include_vectors)
+            hit_from_result(
+                result, vault=self._vault, include_vectors=include_vectors
+            )
             for result in results
         ]
 
@@ -495,7 +505,7 @@ class Arena:
         Run text-first retrieval.
 
         When the database has a native text embedder, the call uses
-        :meth:`elips.Vault.seek_text`. Otherwise the arena falls back to the
+        :meth:`elips.Vault.seek_text`. Otherwise the collection falls back to the
         configured Python embedder and issues a hybrid search.
 
         Args:
@@ -507,7 +517,7 @@ class Arena:
             include_vectors (bool, optional): Whether to hydrate stored vectors
                 on each hit. Default: ``False``.
             lexical_weight (float, optional): Hybrid lexical weight used when
-                the arena falls back to Python-side embedding. Default:
+                the collection falls back to Python-side embedding. Default:
                 ``0.25``.
 
         Returns:
@@ -516,15 +526,15 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(text="alpha design note", meta={"kind": "design"})
-            >>> arena.probe_text("alpha", top=1)[0].text
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(text="alpha design note", meta={"kind": "design"})
+            >>> docs.probe_text("alpha", top=1)[0].text
             'alpha design note'
-            >>> engine.close()
+            >>> db.close()
         """
 
-        if self._has_native_text():
+        if has_native_text_embedder(self._db):
             results = self._vault.seek_text(
                 text,
                 top=top,
@@ -532,8 +542,11 @@ class Arena:
                 threshold=max_distance,
             )
         else:
-            embedder = self._require_embedder()
-            query = embedder([text])
+            if self._embedder is None:
+                raise ValueError(
+                    "this collection needs an embedder for text-first operations"
+                )
+            query = self._embedder([text])
             if len(query) != 1:
                 raise ValueError(
                     "embedder must return exactly one vector for a single text probe"
@@ -548,7 +561,9 @@ class Arena:
             )
 
         return [
-            self._hit_from_result(result, include_vectors=include_vectors)
+            hit_from_result(
+                result, vault=self._vault, include_vectors=include_vectors
+            )
             for result in results
         ]
 
@@ -570,12 +585,12 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(text="alpha design note")
-            >>> len(arena.probe_hybrid([1.0, 0.0], "alpha", top=1))
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(text="alpha design note")
+            >>> len(docs.probe_hybrid([1.0, 0.0], "alpha", top=1))
             1
-            >>> engine.close()
+            >>> db.close()
         """
 
         results = self._vault.seek_hybrid(
@@ -587,7 +602,9 @@ class Arena:
             lexical_weight=lexical_weight,
         )
         return [
-            self._hit_from_result(result, include_vectors=include_vectors)
+            hit_from_result(
+                result, vault=self._vault, include_vectors=include_vectors
+            )
             for result in results
         ]
 
@@ -607,13 +624,13 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(text="alpha design note", meta={"kind": "design"})
-            >>> plan = arena.explain([1.0, 0.0], top=1, has_text_component=True)
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(text="alpha design note", meta={"kind": "design"})
+            >>> plan = docs.explain([1.0, 0.0], top=1, has_text_component=True)
             >>> hasattr(plan, "strategy")
             True
-            >>> engine.close()
+            >>> db.close()
         """
 
         return self._vault.explain_seek(
@@ -637,20 +654,20 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha note")
-            >>> arena.pull([key])[0].text
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha note")
+            >>> docs.pull([key])[0].text
             'alpha note'
-            >>> engine.close()
+            >>> db.close()
         """
 
         rows: list[Row] = []
         for key in keys:
-            fetched = cast(Optional[StoredRecord], self._vault.fetch(key))
+            fetched = cast(StoredRecord | None, self._vault.fetch(key))
             if fetched is None:
                 continue
-            rows.append(self._row_from_record(fetched, include_vectors=include_vectors))
+            rows.append(row_from_record(fetched, include_vectors=include_vectors))
         return rows
 
     def sweep(
@@ -663,17 +680,17 @@ class Arena:
     ) -> list[Row]:
         r"""sweep(*, where=None, offset=0, limit=None, include_vectors=False) -> list[Row]
 
-        Scan arena records and return typed rows.
+        Scan collection records and return typed rows.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(text="alpha note")
-            >>> len(arena.sweep())
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(text="alpha note")
+            >>> len(docs.sweep())
             1
-            >>> engine.close()
+            >>> db.close()
         """
 
         rows = self._vault.scan(
@@ -682,7 +699,7 @@ class Arena:
             limit=-1 if limit is None else limit,
         )
         return [
-            self._row_from_record(cast(StoredRecord, row), include_vectors=include_vectors)
+            row_from_record(cast(StoredRecord, row), include_vectors=include_vectors)
             for row in rows
         ]
 
@@ -699,12 +716,12 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha note", meta={"kind": "design"})
-            >>> arena.discard([key])
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha note", meta={"kind": "design"})
+            >>> docs.discard([key])
             1
-            >>> engine.close()
+            >>> db.close()
         """
 
         victims: list[str] = []
@@ -746,19 +763,19 @@ class Arena:
         consuming memory until compaction.
 
         The index compacts itself as soon as tombstones reach its configured
-        ``compaction_ratio``, so on a small arena this often reads ``0``
+        ``compaction_ratio``, so on a small collection this often reads ``0``
         immediately after a delete.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> keys = [arena.write(vector=[float(i), 1.0]) for i in range(20)]
-            >>> _ = arena.discard(keys[:2])        # 2/20 = 0.1, under the 0.2 default
-            >>> arena.pending_removals
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> keys = [docs.write(vector=[float(i), 1.0]) for i in range(20)]
+            >>> _ = docs.discard(keys[:2])        # 2/20 = 0.1, under the 0.2 default
+            >>> docs.pending_removals
             2
-            >>> engine.close()
+            >>> db.close()
         """
 
         return self._vault.pending_removals
@@ -767,7 +784,7 @@ class Arena:
     def read_only(self) -> bool:
         r"""read_only -> bool
 
-        Whether this arena currently refuses writes.
+        Whether this collection currently refuses writes.
         """
 
         return self._vault.read_only
@@ -778,7 +795,7 @@ class Arena:
 
         Whether the owning engine has been closed.
 
-        Writes to a sealed arena raise :class:`elips.StorageError` rather than
+        Writes to a sealed collection raise :class:`elips.StorageError` rather than
         succeeding and then failing to persist.
         """
 
@@ -787,7 +804,7 @@ class Arena:
     def freeze(self, frozen: bool = True) -> None:
         r"""freeze(frozen=True) -> None
 
-        Make this arena reject writes, or allow them again.
+        Make this collection reject writes, or allow them again.
 
         Useful while serving a snapshot you do not want mutated, without
         reopening the whole database read-only.
@@ -799,18 +816,18 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> arena.freeze()
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> docs.freeze()
             >>> try:
-            ...     arena.write(vector=[1.0, 0.0])
+            ...     docs.write(vector=[1.0, 0.0])
             ... except elips.StorageError:
             ...     print("refused")
             refused
-            >>> arena.freeze(False)
-            >>> isinstance(arena.write(vector=[1.0, 0.0]), str)
+            >>> docs.freeze(False)
+            >>> isinstance(docs.write(vector=[1.0, 0.0]), str)
             True
-            >>> engine.close()
+            >>> db.close()
         """
 
         self._vault.set_read_only(frozen)
@@ -818,7 +835,7 @@ class Arena:
     def vacuum(self) -> None:
         r"""vacuum() -> None
 
-        Reclaim index space held by deleted records in this arena.
+        Reclaim index space held by deleted records in this collection.
 
         The index compacts itself once tombstones pass its configured
         ``compaction_ratio``, so routine churn needs no intervention. Call this
@@ -828,14 +845,14 @@ class Arena:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> keys = [arena.write(vector=[float(i), 1.0]) for i in range(20)]
-            >>> _ = arena.discard(keys[:2])
-            >>> arena.vacuum()
-            >>> arena.pending_removals
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> keys = [docs.write(vector=[float(i), 1.0]) for i in range(20)]
+            >>> _ = docs.discard(keys[:2])
+            >>> docs.vacuum()
+            >>> docs.pending_removals
             0
-            >>> engine.close()
+            >>> db.close()
         """
 
         self._vault.vacuum()
@@ -854,64 +871,64 @@ class Arena:
     def compress(self) -> None:
         r"""compress() -> None
 
-        Train a codebook over this arena and compress it in place, freeing the
+        Train a codebook over this collection and compress it in place, freeing the
         full-precision vectors.
 
         Requires a codec on the engine's configuration (pass ``quantization=``
         to :func:`elips.connect`). Raises :class:`ConfigError` if none is set,
-        if the arena is empty, or if it has already been compressed.
+        if the collection is empty, or if it has already been compressed.
 
         Compression is a separate step from configuring it because product
         quantization cannot encode the first record: a codebook has to be
-        learned from real data. Before this call the arena stores full fp32;
+        learned from real data. Before this call the collection stores full fp32;
         after it, writes are encoded on arrival, and :meth:`pull` and
         :meth:`sweep` return reconstructions with ``approximate`` set.
 
-        Holds the arena's writer lock throughout, so treat it like
+        Holds the collection's writer lock throughout, so treat it like
         :meth:`vacuum` -- a maintenance operation, not part of the write path.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=8, quantization="sq8")
-            >>> arena = engine.arena("documents")
+            >>> db = elips.connect(":memory:", dimension=8, quantization="sq8")
+            >>> docs = db.collection("documents")
             >>> for i in range(32):
-            ...     _ = arena.write(vector=[float(i % 4)] * 8)
-            >>> arena.health().codec
+            ...     _ = docs.write(vector=[float(i % 4)] * 8)
+            >>> docs.health().codec
             'none'
-            >>> arena.compress()
-            >>> arena.health().codec
+            >>> docs.compress()
+            >>> docs.health().codec
             'sq8'
-            >>> arena.probe([1.0] * 8, top=1)[0].approximate
+            >>> docs.probe([1.0] * 8, top=1)[0].approximate
             True
-            >>> engine.close()
+            >>> db.close()
         """
 
         self._vault.quantize()
 
-    def health(self) -> ArenaHealth:
-        r"""health() -> ArenaHealth
+    def health(self) -> CollectionHealth:
+        r"""health() -> CollectionHealth
 
-        Return a point-in-time health snapshot of this arena.
+        Return a point-in-time health snapshot of this collection.
 
         Returns:
-            ArenaHealth: Live count, tombstone count, dimension, metric, and
+            CollectionHealth: Live count, tombstone count, dimension, metric, and
             lifecycle flags.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> _ = arena.write(vector=[1.0, 0.0])
-            >>> health = arena.health()
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> _ = docs.write(vector=[1.0, 0.0])
+            >>> health = docs.health()
             >>> (health.live, health.tombstone_ratio)
             (1, 0.0)
-            >>> engine.close()
+            >>> db.close()
         """
 
         info = self._vault.info()
-        return ArenaHealth(
+        return CollectionHealth(
             name=self._vault.name,
             live=info.count,
             pending_removals=self._vault.pending_removals,
@@ -923,107 +940,37 @@ class Arena:
             code_bytes=info.code_bytes,
         )
 
-    def _resolve_vectors(
-        self,
-        records: Sequence[RecordInput],
-    ) -> tuple[list[Vector | None], set[int]]:
-        resolved_vectors = [record.vector for record in records]
-        missing_indices = [
-            index for index, vector in enumerate(resolved_vectors) if vector is None
-        ]
-        if not missing_indices:
-            return resolved_vectors, set()
+    # ---- conventional names ----
+    #
+    # `add` and `search` are what every comparable library calls these, and are
+    # the names the public API leads with. The originals stay: they are not
+    # deprecated, just less discoverable.
 
-        if self._has_native_text():
-            return resolved_vectors, set()
+    add = write
+    """add(record=None, /, **fields) -> str: alias for :meth:`write`."""
 
-        embedder = self._require_embedder()
-        texts: list[str] = []
-        for index in missing_indices:
-            text = records[index].document_text
-            if text is None:
-                raise ValueError(
-                    "records without vectors require text or document text"
-                )
-            texts.append(text)
+    add_many = write_many
+    """add_many(records) -> list[str]: alias for :meth:`write_many`."""
 
-        embedded = embedder(texts)
-        if len(embedded) != len(missing_indices):
-            raise ValueError("embedder returned a batch with the wrong length")
+    search = probe_text
+    """search(text, **kwargs) -> list[Hit]: alias for :meth:`probe_text`."""
 
-        for index, vector in zip(missing_indices, embedded):
-            resolved_vectors[index] = vector
+    search_vector = probe
+    """search_vector(vector, **kwargs) -> list[Hit]: alias for :meth:`probe`."""
 
-        return resolved_vectors, set(missing_indices)
+    search_hybrid = probe_hybrid
+    """search_hybrid(vector, text, **kwargs) -> list[Hit]: alias for :meth:`probe_hybrid`."""
 
-    def _row_from_record(
-        self,
-        record: StoredRecord,
-        *,
-        include_vectors: bool,
-    ) -> Row:
-        return Row(
-            key=record["id"],
-            meta=dict(record["data"]),
-            document=record["document"],
-            vector=tuple(record["vector"]) if include_vectors else None,
-            chunk=record["chunk"],
-            lineage=record["lineage"],
-            approximate=record["approximate"],
-            codec=record["codec"],
-        )
+    delete = discard
+    """delete(keys=None, *, where=None) -> int: alias for :meth:`discard`."""
 
-    def _hit_from_result(self, result: Result, *, include_vectors: bool) -> Hit:
-        fetched = (
-            cast(Optional[StoredRecord], self._vault.fetch(result.id))
-            if include_vectors
-            else None
-        )
-        document = result.document if result.document is not None else (
-            fetched["document"] if fetched is not None else None
-        )
-        return Hit(
-            key=result.id,
-            distance=result.distance,
-            meta=dict(result.data),
-            document=document,
-            vector=tuple(fetched["vector"]) if fetched is not None else None,
-            chunk=result.chunk if result.chunk is not None else (
-                fetched["chunk"] if fetched is not None else None
-            ),
-            lineage=result.lineage if result.lineage is not None else (
-                fetched["lineage"] if fetched is not None else None
-            ),
-            approximate=result.approximate,
-            codec=result.codec,
-        )
-
-    def _resolve_lineage(
-        self,
-        record: RecordInput,
-        *,
-        vector_generated: bool,
-    ) -> EmbeddingLineage | None:
-        if record.lineage is not None:
-            return record.lineage
-
-        if not vector_generated:
-            return None
-
-        generated = EmbeddingLineage()
-        generated.provider = "python"
-        generated.model = "callable"
-        generated.revision = ""
-        generated.attributes = {}
-        return generated
-
-    def _has_native_text(self) -> bool:
-        return bool(self._db.config.has_text_embedder)
-
-    def _require_embedder(self) -> Embedder:
-        if self._embedder is None:
-            raise ValueError("this arena needs an embedder for text-first operations")
-        return self._embedder
+    get = pull
+    """get(keys, *, include_vectors=True) -> list[Row]: alias for :meth:`pull`."""
 
 
-__all__ = ["Arena"]
+#: The collection type was called ``Arena`` before 1.1. ``arena`` also collides
+#: with the allocator sense of the word in a project that does its own memory
+#: management, which is the other reason for the rename.
+Arena = Collection
+
+__all__ = ["Arena", "Collection"]

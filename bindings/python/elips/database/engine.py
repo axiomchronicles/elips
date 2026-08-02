@@ -1,14 +1,14 @@
 r"""Typed database facade over the native :class:`elips.Database` handle.
 
-:class:`Engine` is a context manager that hands out :class:`~elips.Arena`
-collections and exposes WAL replay, checkpointing, and transactions.
+:class:`Engine` is a context manager that hands out :class:`~elips.Collection`
+handles and exposes WAL replay, checkpointing, and transactions.
 
 Examples::
 
     >>> import elips
-    >>> with elips.connect(":memory:", dimension=2) as engine:
-    ...     arena = engine.arena("documents")
-    ...     arena.count()
+    >>> with elips.connect(":memory:", dimension=2) as db:
+    ...     docs = db.collection("documents")
+    ...     docs.count()
     0
 """
 
@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import os
 from types import TracebackType
+from typing import Self
 
-from elips._modern.arena import Arena
-from elips._modern.models import WalRecord
-from elips._modern.typing import Embedder
+from elips._internal.protocols import Embedder
 from elips._native import Config, Database, replay_wal
+from elips.collection.collection import Collection
+from elips.records.models import WalRecord
 
 DEFAULT_TEXT_SLOT = "__elips_text__"
 
@@ -28,21 +29,21 @@ DEFAULT_TEXT_SLOT = "__elips_text__"
 class Engine:
     r"""Engine(db, *, default_embedder=None) -> Engine
 
-    High-level wrapper around :class:`elips.core.Database`.
+    High-level wrapper around :class:`~elips.Database`.
 
     Args:
         db (Database): Open ELIPS database handle.
-        default_embedder (Embedder, optional): Batch embedder used by arenas
-            when the database does not have a native text embedder. Default:
-            ``None``.
+        default_embedder (Embedder, optional): Batch embedder used by
+            collections when the database does not have a native text embedder.
+            Default: ``None``.
 
     Examples::
 
         >>> import elips
-        >>> engine = elips.connect(":memory:", dimension=2)
-        >>> engine.config.dimension_val
+        >>> db = elips.connect(":memory:", dimension=2)
+        >>> db.config.dimension_val
         2
-        >>> engine.close()
+        >>> db.close()
     """
 
     def __init__(
@@ -55,13 +56,30 @@ class Engine:
         self._default_embedder = default_embedder
 
     @property
-    def raw(self) -> Database:
-        r"""raw -> Database
+    def native(self) -> Database:
+        r"""native -> Database
 
-        Return the underlying low-level database handle.
+        The underlying native handle: the explicit escape hatch.
+
+        Everything the high-level API does goes through this object, so
+        reaching for it is supported rather than a workaround. It is spelled
+        out rather than exposed implicitly so that dropping to the low-level
+        API is a visible decision at the call site.
+
+        Examples::
+
+            >>> import elips
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> vault = db.native.vault("documents")
+            >>> vault.count()
+            0
+            >>> db.close()
         """
 
         return self._db
+
+    #: Prior name for :attr:`native`.
+    raw = native
 
     @property
     def config(self) -> Config:
@@ -72,20 +90,23 @@ class Engine:
 
         return self._db.config
 
-    def arena(
+    def collection(
         self,
         name: str,
         *,
         embedder: Embedder | None = None,
         text_slot: str = DEFAULT_TEXT_SLOT,
-    ) -> Arena:
-        r"""arena(name, *, embedder=None, text_slot="__elips_text__") -> Arena
+    ) -> Collection:
+        r"""collection(name, *, embedder=None, text_slot="__elips_text__") -> Collection
 
-        Create a typed high-level arena wrapper for a named vault.
+        Open a named collection, creating it on first write.
+
+        There is no separate "create collection" step: vaults are created
+        lazily, so naming one that does not exist yet is not an error.
 
         Args:
-            name (str): Vault name.
-            embedder (Embedder, optional): Arena-specific embedder override.
+            name (str): Collection name.
+            embedder (Embedder, optional): Per-collection embedder override.
                 Default: ``None``.
             text_slot (str, optional): Reserved compatibility argument from the
                 early wrapper design. The current document-aware runtime stores
@@ -93,24 +114,27 @@ class Engine:
                 it into metadata. Default: ``"__elips_text__"``.
 
         Returns:
-            Arena: High-level arena wrapper.
+            Collection: Typed collection wrapper.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> arena.name
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> docs.name
             'documents'
-            >>> engine.close()
+            >>> db.close()
         """
 
-        return Arena(
+        return Collection(
             self._db,
             name,
             embedder=embedder if embedder is not None else self._default_embedder,
             text_slot=text_slot,
         )
+
+    #: Prior name for :meth:`collection`.
+    arena = collection
 
     def checkpoint(self) -> None:
         r"""checkpoint() -> None
@@ -131,9 +155,9 @@ class Engine:
     def vacuum(self) -> None:
         r"""vacuum() -> None
 
-        Reclaim index space held by deleted records across every arena.
+        Reclaim index space held by deleted records across every collection.
 
-        Deletes leave tombstones so graph navigation stays intact. Each arena
+        Deletes leave tombstones so graph navigation stays intact. Each collection
         compacts itself once tombstones pass its configured
         ``compaction_ratio``, but after a bulk delete it is worth reclaiming
         immediately. Unlike :meth:`compact`, this does not rewrite the on-disk
@@ -142,34 +166,37 @@ class Engine:
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha note")
-            >>> _ = arena.discard([key])
-            >>> engine.vacuum()
-            >>> arena.pending_removals
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha note")
+            >>> _ = docs.discard([key])
+            >>> db.vacuum()
+            >>> docs.pending_removals
             0
-            >>> engine.close()
+            >>> db.close()
         """
 
         self._db.vacuum()
 
-    def vault_names(self) -> list[str]:
-        r"""vault_names() -> list[str]
+    def collection_names(self) -> list[str]:
+        r"""collection_names() -> list[str]
 
-        Return the names of every arena that currently exists.
+        Return the names of every collection that currently exists.
 
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> _ = engine.arena("documents").write(text="alpha note")
-            >>> engine.vault_names()
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> _ = db.collection("documents").add(text="alpha note")
+            >>> db.collection_names()
             ['documents']
-            >>> engine.close()
+            >>> db.close()
         """
 
         return self._db.list_vaults()
+
+    #: Prior name for :meth:`collection_names`.
+    vault_names = collection_names
 
     def pending_writes(self) -> list[WalRecord]:
         r"""pending_writes() -> list[WalRecord]
@@ -189,11 +216,11 @@ class Engine:
 
             >>> import elips, tempfile
             >>> path = tempfile.mkdtemp()
-            >>> engine = elips.connect(path, dimension=2)
-            >>> _ = engine.arena("documents").write(vector=[1.0, 0.0])
-            >>> [record.op for record in engine.pending_writes()]
+            >>> db = elips.connect(path, dimension=2)
+            >>> _ = db.collection("documents").add(vector=[1.0, 0.0])
+            >>> [record.op for record in db.pending_writes()]
             ['insert']
-            >>> engine.close()
+            >>> db.close()
         """
 
         path = self._db.path
@@ -209,13 +236,13 @@ class Engine:
 
         Close the underlying database handle.
 
-        Checkpoints, releases the cross-process lock, and seals every arena so
+        Checkpoints, releases the cross-process lock, and seals every collection so
         later writes raise instead of silently failing to persist.
         """
 
         self._db.close()
 
-    def __enter__(self) -> Engine:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(

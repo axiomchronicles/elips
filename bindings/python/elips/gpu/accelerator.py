@@ -19,9 +19,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
-from elips.types import DistanceMatrix, MetricName, TopKResult, VectorBatch
+from elips.typing import DistanceMatrix, MetricName, TopKResult, VectorBatch
 
 if TYPE_CHECKING:
     from elips._native import GpuConfig, GpuDevice, GpuDeviceInfo
@@ -374,7 +374,7 @@ class Accelerator:
 
         self._device.close()
 
-    def __enter__(self) -> Accelerator:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(

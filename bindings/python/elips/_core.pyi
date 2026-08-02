@@ -1,14 +1,11 @@
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import IntEnum
 from typing import (
     Any,
-    Callable,
-    Iterable,
     Literal,
-    Mapping,
-    Optional,
-    Sequence,
+    Self,
+    TypeAlias,
     TypedDict,
-    Union,
 )
 
 # -- Module attributes ---------------------------------------------------------
@@ -17,15 +14,15 @@ __version__: str
 
 # -- Type aliases --------------------------------------------------------------
 
-MetaValue = Union[bool, int, float, str]
-Vector = Sequence[float]
-PayloadLike = Mapping[str, MetaValue]
+MetaValue: TypeAlias = bool | int | float | str
+Vector: TypeAlias = Sequence[float]
+PayloadLike: TypeAlias = Mapping[str, MetaValue]
 
-MetricName = Literal["cosine", "euclidean", "dot_product"]
-IndexName = Literal["graph", "exact"]
-DurabilityName = Literal["paranoid", "standard", "relaxed", "ephemeral"]
-AccessModeName = Literal["read_write", "read_only"]
-ComparatorName = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
+MetricName: TypeAlias = Literal["cosine", "euclidean", "dot_product"]
+IndexName: TypeAlias = Literal["graph", "exact"]
+DurabilityName: TypeAlias = Literal["paranoid", "standard", "relaxed", "ephemeral"]
+AccessModeName: TypeAlias = Literal["read_write", "read_only"]
+ComparatorName: TypeAlias = Literal["eq", "ne", "lt", "le", "gt", "ge", "gte"]
 CodecName = Literal["none", "pq", "opq", "sq8"]
 
 class StoredRecord(TypedDict):
@@ -35,9 +32,9 @@ class StoredRecord(TypedDict):
     id: str
     vector: tuple[float, ...]
     data: dict[str, MetaValue]
-    document: Optional["DocumentAttachment"]
-    chunk: Optional["ChunkInfo"]
-    lineage: Optional["EmbeddingLineage"]
+    document: DocumentAttachment | None
+    chunk: ChunkInfo | None
+    lineage: EmbeddingLineage | None
     approximate: bool
     codec: CodecName
 
@@ -251,20 +248,20 @@ class Config:
     """
 
     def __init__(self) -> None: ...
-    def dimension(self, dim: int) -> "Config": ...
-    def metric(self, metric: str) -> "Config": ...
-    def index(self, type: str) -> "Config": ...
-    def graph_params(self, params: GraphParams) -> "Config": ...
-    def quantization(self, params: QuantParams) -> "Config": ...
-    def durability(self, level: str) -> "Config": ...
-    def access_mode(self, mode: str) -> "Config": ...
-    def segmented_storage(self, enabled: bool) -> "Config": ...
-    def metadata_acceleration(self, enabled: bool) -> "Config": ...
-    def auto_text_embedder(self, enabled: bool) -> "Config": ...
+    def dimension(self, dim: int) -> Config: ...
+    def metric(self, metric: str) -> Config: ...
+    def index(self, type: str) -> Config: ...
+    def graph_params(self, params: GraphParams) -> Config: ...
+    def quantization(self, params: QuantParams) -> Config: ...
+    def durability(self, level: str) -> Config: ...
+    def access_mode(self, mode: str) -> Config: ...
+    def segmented_storage(self, enabled: bool) -> Config: ...
+    def metadata_acceleration(self, enabled: bool) -> Config: ...
+    def auto_text_embedder(self, enabled: bool) -> Config: ...
     def local_text_embedder(
         self,
         config: LocalEmbedderConfig = ...,
-    ) -> "Config": ...
+    ) -> Config: ...
     def text_embedder(
         self,
         embedder: Callable[[Sequence[str]], Sequence[Vector]],
@@ -272,8 +269,8 @@ class Config:
         model: str = ...,
         revision: str = ...,
         dimension: int = ...,
-    ) -> "Config": ...
-    def gpu(self, config: "GpuConfig") -> "Config": ...
+    ) -> Config: ...
+    def gpu(self, config: GpuConfig) -> Config: ...
 
     @property
     def dimension_val(self) -> int:
@@ -327,16 +324,16 @@ class Config:
     def has_pending_local_text_embedder(self) -> bool:
         """True when a local embedder is configured but not yet instantiated."""
     @property
-    def local_text_embedder_config(self) -> Optional[LocalEmbedderConfig]:
+    def local_text_embedder_config(self) -> LocalEmbedderConfig | None:
         """The pending local embedder configuration, or None."""
     @property
     def has_text_embedder(self) -> bool:
         """Return whether a text embedder is configured."""
     @property
-    def text_embedder_info(self) -> Optional[TextEmbedderInfo]:
+    def text_embedder_info(self) -> TextEmbedderInfo | None:
         """Return resolved metadata for the current or expected text embedder."""
     @property
-    def gpu_val(self) -> Optional["GpuConfig"]:
+    def gpu_val(self) -> GpuConfig | None:
         """Get the GPU configuration if set, else None."""
 
     def __repr__(self) -> str: ...
@@ -414,7 +411,7 @@ class IvfPqBuildParams:
 
 class GpuIndexBuildParams:
     """GPU index build parameter variant."""
-    params: Union[GraphIndexBuildParams, IvfPqBuildParams]
+    params: GraphIndexBuildParams | IvfPqBuildParams
 
     def __init__(self) -> None: ...
     def __repr__(self) -> str: ...
@@ -617,9 +614,9 @@ class Result:
     def data(self) -> dict[str, MetaValue]:
         """Metadata payload attached to the record."""
 
-    document: Optional[DocumentAttachment]
-    chunk: Optional[ChunkInfo]
-    lineage: Optional[EmbeddingLineage]
+    document: DocumentAttachment | None
+    chunk: ChunkInfo | None
+    lineage: EmbeddingLineage | None
 
     @property
     def approximate(self) -> bool:
@@ -651,35 +648,35 @@ class Filter:
     """
 
     def __init__(self) -> None: ...
-    def field(self, name: str) -> "Filter": ...
-    def equals(self, value: MetaValue) -> "Filter": ...
-    def not_equals(self, value: MetaValue) -> "Filter": ...
-    def lt(self, value: MetaValue) -> "Filter": ...
-    def le(self, value: MetaValue) -> "Filter": ...
-    def gt(self, value: MetaValue) -> "Filter": ...
-    def gte(self, value: MetaValue) -> "Filter": ...
-    def one_of(self, values: Iterable[MetaValue]) -> "Filter": ...
-    def contains(self, substring: str) -> "Filter": ...
-    def and_(self, other: "Filter") -> "Filter": ...
-    def or_(self, other: "Filter") -> "Filter": ...
+    def field(self, name: str) -> Filter: ...
+    def equals(self, value: MetaValue) -> Filter: ...
+    def not_equals(self, value: MetaValue) -> Filter: ...
+    def lt(self, value: MetaValue) -> Filter: ...
+    def le(self, value: MetaValue) -> Filter: ...
+    def gt(self, value: MetaValue) -> Filter: ...
+    def gte(self, value: MetaValue) -> Filter: ...
+    def one_of(self, values: Iterable[MetaValue]) -> Filter: ...
+    def contains(self, substring: str) -> Filter: ...
+    def and_(self, other: Filter) -> Filter: ...
+    def or_(self, other: Filter) -> Filter: ...
 
     @staticmethod
-    def not_(inner: "Filter") -> "Filter": ...
+    def not_(inner: Filter) -> Filter: ...
 
     @staticmethod
     def compare(
         field: str,
-        op: Union[Comparator, ComparatorName],
+        op: Comparator | ComparatorName,
         value: MetaValue,
-    ) -> "Filter":
+    ) -> Filter:
         """Build a single comparison predicate."""
 
     @staticmethod
-    def in_set(field: str, values: Iterable[MetaValue]) -> "Filter":
+    def in_set(field: str, values: Iterable[MetaValue]) -> Filter:
         """Build a predicate matching records whose field equals any value."""
 
     @staticmethod
-    def has_substring(field: str, substring: str) -> "Filter":
+    def has_substring(field: str, substring: str) -> Filter:
         """Build a predicate matching records whose string field contains substring."""
 
     def matches(self, payload: PayloadLike) -> bool:
@@ -688,7 +685,7 @@ class Filter:
     def matches_all(self) -> bool:
         """True when this filter is empty and therefore matches every record."""
 
-    def exact_constraints(self) -> Optional[list[tuple[str, list[MetaValue]]]]:
+    def exact_constraints(self) -> list[tuple[str, list[MetaValue]]] | None:
         """Equality constraints resolvable via the metadata index, or None."""
 
     def __repr__(self) -> str: ...
@@ -706,7 +703,7 @@ class TransactionVault:
         self,
         vector: Vector,
         data: PayloadLike = ...,
-        id: Optional[str] = ...,
+        id: str | None = ...,
     ) -> str: ...
     def erase(self, id: str) -> None: ...
 
@@ -731,7 +728,7 @@ class Transaction:
     def vault(self, name: str) -> TransactionVault: ...
     def commit(self) -> None: ...
     def rollback(self) -> None: ...
-    def __enter__(self) -> "Transaction": ...
+    def __enter__(self) -> Self: ...
     def __exit__(self, *args: Any) -> bool: ...
 
 # -- Vault --------------------------------------------------------------------
@@ -751,10 +748,10 @@ class Vault:
         self,
         vector: Vector,
         data: PayloadLike = ...,
-        id: Optional[str] = ...,
-        document: Optional[DocumentAttachment] = ...,
-        chunk: Optional[ChunkInfo] = ...,
-        lineage: Optional[EmbeddingLineage] = ...,
+        id: str | None = ...,
+        document: DocumentAttachment | None = ...,
+        chunk: ChunkInfo | None = ...,
+        lineage: EmbeddingLineage | None = ...,
     ) -> str:
         """Ingest a single record. Returns the assigned UUIDv7 id.
 
@@ -774,9 +771,9 @@ class Vault:
         self,
         text: str,
         data: PayloadLike = ...,
-        id: Optional[str] = ...,
-        chunk: Optional[ChunkInfo] = ...,
-        lineage: Optional[EmbeddingLineage] = ...,
+        id: str | None = ...,
+        chunk: ChunkInfo | None = ...,
+        lineage: EmbeddingLineage | None = ...,
     ) -> str:
         """Embed and ingest a text document using the configured text embedder."""
 
@@ -804,7 +801,7 @@ class Vault:
         vector: Vector,
         top: int = ...,
         where: Filter = ...,
-        threshold: Optional[float] = ...,
+        threshold: float | None = ...,
     ) -> list[Result]:
         """Top-k nearest neighbors sorted ascending by distance.
 
@@ -823,7 +820,7 @@ class Vault:
         text: str,
         top: int = ...,
         where: Filter = ...,
-        threshold: Optional[float] = ...,
+        threshold: float | None = ...,
     ) -> list[Result]:
         """Query using text directly. Requires a configured text embedder."""
 
@@ -833,7 +830,7 @@ class Vault:
         text: str,
         top: int = ...,
         where: Filter = ...,
-        threshold: Optional[float] = ...,
+        threshold: float | None = ...,
         lexical_weight: float = ...,
     ) -> list[Result]:
         """Blend vector similarity with lexical overlap over attached documents."""
@@ -843,12 +840,12 @@ class Vault:
         vector: Vector,
         top: int = ...,
         where: Filter = ...,
-        threshold: Optional[float] = ...,
+        threshold: float | None = ...,
         has_text_component: bool = ...,
     ) -> QueryPlan:
         """Return the planner decision for a query shape."""
 
-    def fetch(self, id: str) -> Optional[dict[str, Any]]:
+    def fetch(self, id: str) -> dict[str, Any] | None:
         """Fetch a record's full data by ID.
 
         Returns:
@@ -1004,23 +1001,23 @@ class Database:
             List of Result objects.
         """
 
-    def gpu_info(self) -> "GpuDeviceInfo":
+    def gpu_info(self) -> GpuDeviceInfo:
         """Return information about the active accelerator device or CPU fallback."""
 
-    def gpu_stats(self) -> "GpuMetricsSnapshot":
+    def gpu_stats(self) -> GpuMetricsSnapshot:
         """Return a snapshot of GPU runtime metrics."""
 
     @property
     def config(self) -> Config:
         """The effective configuration of this database."""
 
-    def __enter__(self) -> "Database": ...
+    def __enter__(self) -> Self: ...
     def __exit__(self, *args: Any) -> None: ...
     def __repr__(self) -> str: ...
 
 # -- Module-level utility functions -------------------------------------------
 
-def distance(metric: Union[str, Metric], a: Vector, b: Vector) -> float:
+def distance(metric: str | Metric, a: Vector, b: Vector) -> float:
     """Compute the ordering-normalized distance between two vectors.
 
     Args:
@@ -1032,7 +1029,7 @@ def distance(metric: Union[str, Metric], a: Vector, b: Vector) -> float:
         The distance: smaller = more similar for all metrics.
     """
 
-def requires_normalization(metric: Union[str, Metric]) -> bool:
+def requires_normalization(metric: str | Metric) -> bool:
     """Return True if vectors should be L2-normalized for this metric.
 
     Args:
@@ -1155,7 +1152,7 @@ def gpu_can_fit_index(
 def gpu_error_message(error: GpuError) -> str:
     """Return the human-readable name of a :class:`GpuError` value."""
 
-def gpu_select(config: GpuConfig = ...) -> Optional[GpuDevice]:
+def gpu_select(config: GpuConfig = ...) -> GpuDevice | None:
     """Select and initialize a GPU backend.
 
     Args:
@@ -1296,7 +1293,7 @@ class GpuDevice:
         self,
         queries: Iterable[Vector],
         database: Iterable[Vector],
-        metric: Union[str, Metric] = "cosine",
+        metric: str | Metric = "cosine",
     ) -> list[list[float]]:
         """Compute all pairwise distances between two batches on the GPU.
 
@@ -1342,7 +1339,7 @@ class GpuDevice:
     def closed(self) -> bool:
         """True once :meth:`close` has run."""
 
-    def __enter__(self) -> "GpuDevice": ...
+    def __enter__(self) -> Self: ...
     def __exit__(self, *exc: object) -> None: ...
     def __repr__(self) -> str: ...
 
@@ -1370,13 +1367,13 @@ class SearchStatement:
 
     vault: str
     query: VectorRef
-    top: Optional[int]
+    top: int | None
     """Result limit, or None when unspecified."""
-    threshold: Optional[float]
+    threshold: float | None
     """Maximum distance, or None."""
     where: Filter
     """Metadata filter; matches everything when absent."""
-    rank_by: Optional[str]
+    rank_by: str | None
     """Ranking field, or None to rank by distance."""
     projection: list[str]
     """Requested fields; empty means all fields."""
@@ -1397,8 +1394,8 @@ class ScanStatement:
     def __init__(self) -> None: ...
     vault: str
     where: Filter
-    offset: Optional[int]
-    limit: Optional[int]
+    offset: int | None
+    limit: int | None
     def __repr__(self) -> str: ...
 
 class InsertStatement:
@@ -1418,13 +1415,13 @@ class DeleteStatement:
     id: str
     def __repr__(self) -> str: ...
 
-Statement = Union[
-    SearchStatement,
-    FetchStatement,
-    ScanStatement,
-    InsertStatement,
-    DeleteStatement,
-]
+Statement: TypeAlias = (
+    SearchStatement
+    | FetchStatement
+    | ScanStatement
+    | InsertStatement
+    | DeleteStatement
+)
 
 def parse_eql(source: str) -> Statement:
     """Parse an EQL statement into its abstract syntax tree.
@@ -1532,9 +1529,9 @@ class IndexSnapshot:
         """Record identifiers, aligned with :attr:`vectors`."""
     vectors: list[float]
     """Row-major vector data."""
-    ivf: Optional[IvfSnapshot]
+    ivf: IvfSnapshot | None
     """IVF clustering state, when present."""
-    pq: Optional[PqSnapshot]
+    pq: PqSnapshot | None
     """Product-quantization state, when present."""
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
@@ -1573,11 +1570,11 @@ class WalEntry:
     def data(self) -> dict[str, MetaValue]:
         """Metadata payload."""
     @property
-    def document(self) -> Optional[DocumentAttachment]: ...
+    def document(self) -> DocumentAttachment | None: ...
     @property
-    def chunk(self) -> Optional[ChunkInfo]: ...
+    def chunk(self) -> ChunkInfo | None: ...
     @property
-    def lineage(self) -> Optional[EmbeddingLineage]: ...
+    def lineage(self) -> EmbeddingLineage | None: ...
     def __repr__(self) -> str: ...
 
 def replay_wal(path: str) -> list[WalEntry]:
@@ -1677,13 +1674,13 @@ def open(
     metric: str = ...,
     index: str = ...,
     access_mode: str = ...,
-    gpu: Optional[GpuConfig] = ...,
-    embedder: Optional[Union[Callable[[Sequence[str]], Sequence[Vector]], LocalEmbedderConfig]] = ...,
+    gpu: GpuConfig | None = ...,
+    embedder: Callable[[Sequence[str]], Sequence[Vector]] | LocalEmbedderConfig | None = ...,
     embedder_provider: str = ...,
     embedder_model: str = ...,
     embedder_revision: str = ...,
     use_default_text_embedder: bool = ...,
-    quantization: Union[QuantParams, str, None] = ...,
+    quantization: QuantParams | str | None = ...,
 ) -> Database:
     """Open (or create) a database with simple parameters.
 

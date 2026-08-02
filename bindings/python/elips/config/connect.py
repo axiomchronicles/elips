@@ -7,25 +7,25 @@ options the keyword form does not cover.
 Examples::
 
     >>> from elips import connect
-    >>> engine = connect(":memory:", dimension=2, metric="cosine")
-    >>> engine.vault_names()
+    >>> db = connect(":memory:", dimension=2, metric="cosine")
+    >>> db.vault_names()
     []
-    >>> engine.close()
+    >>> db.close()
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from elips._modern.engine import Engine
-from elips._modern.typing import Embedder
+from elips._internal.protocols import Embedder
 from elips._native import (
     Config,
     LocalEmbedderConfig,
     QuantParams,
     open_with_config as _open_with_config,
 )
-from elips.types import AccessModeName, CodecName, IndexName, MetricName
+from elips.database.engine import Engine
+from elips.typing import AccessModeName, CodecName, IndexName, MetricName
 
 if TYPE_CHECKING:
     from elips._native import GpuConfig
@@ -103,7 +103,7 @@ def connect(
         quantization (QuantParams or str, optional): Vector compression codec,
             either a :class:`QuantParams` or a bare name such as ``"sq8"``.
             Selecting one does not compress anything by itself -- call
-            :meth:`elips.Arena.compress` once the arena holds representative
+            :meth:`elips.Collection.compress` once the arena holds representative
             data. Default: ``None``.
         gpu (GpuConfig, optional): GPU runtime configuration. Default:
             ``None``.
@@ -114,12 +114,12 @@ def connect(
         Examples::
 
             >>> import elips
-            >>> engine = elips.connect(":memory:", dimension=2)
-            >>> arena = engine.arena("documents")
-            >>> key = arena.write(text="alpha note", meta={"kind": "design"})
+            >>> db = elips.connect(":memory:", dimension=2)
+            >>> docs = db.collection("documents")
+            >>> key = docs.write(text="alpha note", meta={"kind": "design"})
             >>> isinstance(key, str)
             True
-            >>> engine.close()
+            >>> db.close()
     """
 
     config = (
@@ -189,10 +189,10 @@ def connect_with_config(
 
         >>> import elips
         >>> config = elips.Config().dimension(2).metric("cosine")
-        >>> engine = elips.connect_with_config(":memory:", config)
-        >>> engine.config.metric_val
+        >>> db = elips.connect_with_config(":memory:", config)
+        >>> db.config.metric_val
         'cosine'
-        >>> engine.close()
+        >>> db.close()
     """
 
     runtime_embedder: Embedder | None = None

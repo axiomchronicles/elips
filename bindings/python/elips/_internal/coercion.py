@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from elips._modern.models import RecordInput
-from elips._modern.typing import RecordInputLike
+from elips._internal.protocols import RecordInputLike
 from elips._native import ChunkInfo, DocumentAttachment, EmbeddingLineage
-from elips.types import PayloadLike, Vector
+from elips.records.models import RecordInput
+from elips.typing import PayloadLike, Vector
 
 
 def coerce_record_input(record: RecordInputLike) -> RecordInput:

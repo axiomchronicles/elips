@@ -1,32 +1,26 @@
 r"""ELIPS low-level binding facade.
 
-This module re-exports the compiled :mod:`elips._core` extension through a
-regular Python module so the low-level runtime API stays easy to import
-directly.
-
-The re-export list used to be maintained by hand -- 85 names spelled out twice,
-once in an import block and once in ``__all__``. Adding a single ``py::class_``
-in C++ therefore meant editing four Python-side locations, and forgetting one
-was invisible until a user hit it. The surface is now taken from the extension
-itself, so it cannot drift.
-
-Examples::
-
-    >>> import elips.core as core
-    >>> db = core.open(":memory:", dimension=2, metric="cosine")
-    >>> docs = db.vault("documents")
-    >>> docs.count()
-    0
+.. deprecated:: 1.1
+    Use :mod:`elips.native` for the low-level runtime API. This module remains
+    as a compatibility shim: it re-exports the extension's surface so existing
+    imports keep working.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 from elips import _native
 
 if TYPE_CHECKING:
     from elips._native import *  # noqa: F403
+
+warnings.warn(
+    "elips.core is deprecated; import from elips.native instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __version__ = _native.__version__
 _has_gpu = _native.has_gpu

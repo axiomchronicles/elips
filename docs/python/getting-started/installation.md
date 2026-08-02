@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- **Python**: 3.9 or later
+- **Python**: 3.11 or later
 - **Compiler**: C++23 capable (Clang 17+, GCC 13+, or MSVC 2022+)
 - **CMake**: 3.24 or later
 - **Ninja**: Recommended build generator

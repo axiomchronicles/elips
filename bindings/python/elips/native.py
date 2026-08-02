@@ -60,5 +60,9 @@ def __getattr__(name: str) -> Any:
     return value
 
 
+#: True when the extension was compiled with GPU bindings; see `_native.has_gpu`.
+has_gpu: bool = _native.has_gpu
+
+
 def __dir__() -> list[str]:
     return sorted(__all__)

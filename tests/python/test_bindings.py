@@ -862,11 +862,12 @@ def test_type_stubs():
 
     with open(stub_path, "r", encoding="utf-8") as f:
         stub_text = f.read()
-    assert "def gpu(self, config: \"GpuConfig\") -> \"Config\": ..." in stub_text
+    # Spellings track the 3.11 floor: PEP 604 unions, no quoted forward refs.
+    assert "def gpu(self, config: GpuConfig) -> Config: ..." in stub_text
     assert "pinned_host_pool_mb: int" in stub_text
     assert "auto_rebuild_on_startup: bool" in stub_text
     assert "def gpu_devices() -> list[GpuDeviceInfo]:" in stub_text
-    assert "gpu: Optional[GpuConfig] = ..." in stub_text
+    assert "gpu: GpuConfig | None = ..." in stub_text
     print("  PASS test_type_stubs")
 
 

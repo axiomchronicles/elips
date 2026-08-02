@@ -270,7 +270,7 @@ setup(
     package_data={"elips": ["py.typed", "_core.pyi"]},
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild},
-    python_requires=">=3.9",
+    python_requires=">=3.11",
     zip_safe=False,
 )
 ```
@@ -278,8 +278,9 @@ setup(
 The `CMakeBuild` custom command invokes CMake configure + build with `ELIPS_BUILD_PYTHON=ON`. The `zip_safe=False` flag is required because the extension is a shared library that cannot be loaded from a zip archive.
 
 Key points:
-- **Python 3.9+** is the minimum version
-- `find_packages(...)` now includes the private `elips._modern` package
+- **Python 3.11+** is the minimum version
+- `packages` lists the public subpackages (`elips.collection`, `elips.database`,
+  `elips.query`, …) plus the private `elips._internal`
 - The extension is always built from source (no pre-built wheels)
 - `package_data` ensures `py.typed` and `_core.pyi` are included in distributions
 - `pip` builds are limited to CPU; GPU backends must be configured via direct CMake
