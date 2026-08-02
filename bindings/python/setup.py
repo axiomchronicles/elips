@@ -3,6 +3,13 @@
 For local development the extension is built via the top-level CMake project
 (`-DELIPS_BUILD_PYTHON=ON`), which places `_core` inside the `elips/` package.
 This setup.py drives `cibuildwheel` / `pip` builds via CMake.
+
+The C++ sources live at the repository root, outside this directory, so an
+sdist has to carry its own copy of them under `core_src/`. That copy is made by
+the `sdist` command below -- at build time, not at import time. Populating it
+from module scope meant that merely importing this file (which `pip`, `build`,
+and most editors do routinely) deleted and rewrote a directory tree, and left
+behind an untracked duplicate of the engine that silently went stale.
 """
 
 import shutil
@@ -12,41 +19,72 @@ from pathlib import Path
 
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
+from setuptools.command.sdist import sdist
 
-# Locate directory paths
 CURRENT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CURRENT_DIR.parent.parent
+VENDORED_DIR = CURRENT_DIR / "core_src"
 
-# If we are in the development repository, copy C++ sources to make bindings self-contained
-if (REPO_ROOT / "CMakeLists.txt").exists() and (REPO_ROOT / "src").exists():
-    core_src_dir = CURRENT_DIR / "core_src"
-    if core_src_dir.exists():
-        shutil.rmtree(core_src_dir)
-    core_src_dir.mkdir(exist_ok=True)
+# Everything CMake needs to configure and build `elips_pymodule`. The CLI,
+# benchmarks, and test suites are excluded deliberately: this build always
+# passes -DELIPS_BUILD_{CLI,BENCH,TESTS}=OFF, so CMake never descends into
+# them, and shipping them would only enlarge the sdist.
+VENDORED_PATHS = ("CMakeLists.txt", "include", "src")
 
-    # Copy essential folders and files
-    to_copy = ["src", "include", "cli", "benchmarks", "tests", "CMakeLists.txt"]
-    for name in to_copy:
-        src_path = REPO_ROOT / name
-        dst_path = core_src_dir / name
-        if src_path.exists():
-            if src_path.is_dir():
-                shutil.copytree(src_path, dst_path)
-            else:
-                shutil.copy2(src_path, dst_path)
 
-    # Copy bindings/python/elips_python.cpp into core_src/bindings/python/elips_python.cpp
-    bindings_py_dir = core_src_dir / "bindings" / "python"
-    bindings_py_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(CURRENT_DIR / "elips_python.cpp", bindings_py_dir / "elips_python.cpp")
+def _is_development_checkout(root: Path) -> bool:
+    """True when `root` is the ELIPS repository rather than an unpacked sdist."""
 
-    ROOT = core_src_dir
-else:
-    # We are running from a packaged sdist, the source files must already be in core_src
-    ROOT = CURRENT_DIR / "core_src"
-    if not ROOT.exists():
-        # Fallback to parent workspace root just in case
-        ROOT = CURRENT_DIR.parents[2]
+    return (root / "CMakeLists.txt").exists() and (root / "src").exists()
+
+
+def _cmake_source_dir() -> Path:
+    """Return the tree to point CMake at.
+
+    In a development checkout this is the repository itself, so a build always
+    compiles the sources actually on disk. From an unpacked sdist it is the
+    vendored `core_src/` copy.
+    """
+
+    if _is_development_checkout(REPO_ROOT):
+        return REPO_ROOT
+    if _is_development_checkout(VENDORED_DIR):
+        return VENDORED_DIR
+    raise SystemExit(
+        "cannot locate the ELIPS C++ sources: expected a repository checkout "
+        f"at {REPO_ROOT} or a vendored copy at {VENDORED_DIR}"
+    )
+
+
+def _vendor_sources() -> None:
+    """Refresh `core_src/` with the sources an sdist needs to compile."""
+
+    if VENDORED_DIR.exists():
+        shutil.rmtree(VENDORED_DIR)
+    VENDORED_DIR.mkdir(parents=True)
+
+    for name in VENDORED_PATHS:
+        source = REPO_ROOT / name
+        if not source.exists():
+            raise SystemExit(f"cannot build an sdist: {source} is missing")
+        if source.is_dir():
+            shutil.copytree(source, VENDORED_DIR / name)
+        else:
+            shutil.copy2(source, VENDORED_DIR / name)
+
+    # CMake refers to the binding by its in-repo path, so mirror that layout.
+    binding = VENDORED_DIR / "bindings" / "python"
+    binding.mkdir(parents=True)
+    shutil.copy2(CURRENT_DIR / "elips_python.cpp", binding / "elips_python.cpp")
+
+
+class VendorSourcesSdist(sdist):
+    """Vendor the C++ sources into `core_src/` before the archive is built."""
+
+    def run(self) -> None:
+        if _is_development_checkout(REPO_ROOT):
+            _vendor_sources()
+        super().run()
 
 
 class CMakeExtension(Extension):
@@ -56,11 +94,12 @@ class CMakeExtension(Extension):
 
 class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:
+        root = _cmake_source_dir()
         out_dir = Path(self.get_ext_fullpath(ext.name)).resolve().parent
         out_dir.mkdir(parents=True, exist_ok=True)
         cfg = "Release"
         cmake_args = [
-            "cmake", "-S", str(ROOT), "-B", self.build_temp,
+            "cmake", "-S", str(root), "-B", self.build_temp,
             f"-DCMAKE_BUILD_TYPE={cfg}",
             "-DELIPS_BUILD_PYTHON=ON",
             "-DELIPS_BUILD_TESTS=OFF",
@@ -69,7 +108,7 @@ class CMakeBuild(build_ext):
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DELIPS_PYTHON_OUTPUT_DIR={out_dir}",
         ]
-        local_pybind11 = ROOT / "build" / "_deps" / "pybind11-src"
+        local_pybind11 = root / "build" / "_deps" / "pybind11-src"
         if local_pybind11.exists():
             cmake_args.append(
                 f"-DELIPS_PYBIND11_SOURCE_DIR={local_pybind11.resolve()}"
@@ -87,7 +126,6 @@ class CMakeBuild(build_ext):
 
 setup(
     ext_modules=[CMakeExtension("elips._core")],
-    cmdclass={"build_ext": CMakeBuild},
+    cmdclass={"build_ext": CMakeBuild, "sdist": VendorSourcesSdist},
     zip_safe=False,
 )
-
