@@ -21,11 +21,12 @@
 #include "elips/storage/WAL.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
+#include "elips/gpu_engine/GpuDeviceInfo.hpp"
+
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/DynamicBatcher.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuDeviceInfo.hpp"
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
