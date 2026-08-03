@@ -157,8 +157,7 @@ auto db = elips::open("/data/vectors",
 
 ```python
 # Python
-reader = elips.open("/data/vectors",
-    elips.Config().access_mode("read_only"))
+reader = elips.open("/data/vectors", elips.Config().access_mode("read_only"))
 results = reader.vault("docs").seek([1.0, 0.0], top=5)
 reader.close()
 ```

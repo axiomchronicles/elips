@@ -41,16 +41,18 @@ lineage from the configured embedder when not provided.
 ### `place_many()`
 
 ```python
-vault.place_many([
-    {"vector": [1.0, 0.0], "data": {"kind": "vector-only"}},
-    {"text": "alpha design note", "data": {"kind": "text-first"}},
-    {
-        "vector": [0.0, 1.0],
-        "document": elips.DocumentAttachment(text="beta note"),
-        "chunk": chunk,
-        "lineage": lineage,
-    },
-])
+vault.place_many(
+    [
+        {"vector": [1.0, 0.0], "data": {"kind": "vector-only"}},
+        {"text": "alpha design note", "data": {"kind": "text-first"}},
+        {
+            "vector": [0.0, 1.0],
+            "document": elips.DocumentAttachment(text="beta note"),
+            "chunk": chunk,
+            "lineage": lineage,
+        },
+    ]
+)
 ```
 
 Each batch record may include:

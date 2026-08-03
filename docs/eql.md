@@ -4,8 +4,10 @@ EQL is a small, expression-oriented language with a lexer, recursive-descent
 parser, AST, and executor. Run it from any surface:
 
 ```python
-db.query("seek in docs nearest $q top 10 where year >= 2023 yield",
-         bindings={"q": query_vector})
+db.query(
+    "seek in docs nearest $q top 10 where year >= 2023 yield",
+    bindings={"q": query_vector},
+)
 ```
 ```bash
 elips query /my_db --eql 'seek in docs nearest [0.1, 0.2, 0.3] top 5 yield'

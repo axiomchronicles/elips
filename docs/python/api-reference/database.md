@@ -76,7 +76,7 @@ Transactions buffer vector `place()` and `erase()` calls and commit atomically.
 
 ```python
 rows = db.query(
-    "seek in documents nearest $q top 5 where kind = \"design\" yield",
+    'seek in documents nearest $q top 5 where kind = "design" yield',
     bindings={"q": [1.0, 0.0]},
 )
 ```

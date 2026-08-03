@@ -24,7 +24,7 @@ The `py.typed` file is an **empty marker file** that tells type checkers (MyPy, 
 `setup.py` declares both files as package data:
 
 ```python
-package_data={"elips": ["py.typed", "_core.pyi"]},
+package_data = ({"elips": ["py.typed", "_core.pyi"]},)
 ```
 
 ## IDE Support
@@ -65,9 +65,9 @@ docs: elips.Vault = db.vault("documents")
 rid: str = docs.place([1.0, 2.0, 3.0], {"title": "Test"})
 
 result: elips.Result = docs.seek([1.0, 0.0, 0.0], top=5)[0]
-reveal_type(result.id)       # Revealed type is "str"
-reveal_type(result.distance) # Revealed type is "float"
-reveal_type(result.data)     # Revealed type is "dict[str, MetaValue]"
+reveal_type(result.id)  # Revealed type is "str"
+reveal_type(result.distance)  # Revealed type is "float"
+reveal_type(result.data)  # Revealed type is "dict[str, MetaValue]"
 ```
 
 ### Pyright
@@ -121,6 +121,7 @@ Each is declared as a simple `class` inheriting from its parent exception:
 class ElipsError(Exception):
     """Base exception for all ELIPS errors."""
 
+
 class DimensionMismatch(ElipsError):
     """Vector dimension does not match the database/vault configuration."""
 ```
@@ -139,6 +140,7 @@ Each member is typed with `: int`:
 ```python
 class Metric(IntEnum):
     """Similarity metrics supported by ELIPS."""
+
     cosine: int
     euclidean: int
     dot_product: int

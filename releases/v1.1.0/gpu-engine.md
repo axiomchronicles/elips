@@ -101,7 +101,9 @@ import elips
 # Probe available GPUs
 specs = elips.accelerators()
 for spec in specs:
-    print(f"Device: {spec.name}, Backend: {spec.backend}, VRAM: {spec.memory_gb:.2f} GB")
+    print(
+        f"Device: {spec.name}, Backend: {spec.backend}, VRAM: {spec.memory_gb:.2f} GB"
+    )
 
 # Initialize best GPU
 gpu = elips.accelerator()
@@ -111,24 +113,19 @@ else:
     with gpu:
         # Pre-reserve 512 MB pool
         gpu.reserve(512 * 1024 * 1024)
-        
-        corpus = [
-            [0.1, 0.2, 0.9, 0.4],
-            [0.9, 0.1, 0.0, 0.2],
-            [0.0, 0.8, 0.1, 0.5]
-        ]
-        queries = [
-            [0.12, 0.18, 0.85, 0.41],
-            [0.88, 0.11, 0.02, 0.19]
-        ]
-        
+
+        corpus = [[0.1, 0.2, 0.9, 0.4], [0.9, 0.1, 0.0, 0.2], [0.0, 0.8, 0.1, 0.5]]
+        queries = [[0.12, 0.18, 0.85, 0.41], [0.88, 0.11, 0.02, 0.19]]
+
         # Execute GPU Batch Search
         top_indices, top_distances = gpu.search(queries, corpus, top=2, metric="cosine")
-        
+
         for q_idx, (indices, dists) in enumerate(zip(top_indices, top_distances)):
             print(f"Query {q_idx} hits:", list(zip(indices, dists)))
-            
+
         # Inspect accurate memory usage (F9 Fix)
         used, avail, peak = gpu.memory_usage()
-        print(f"Pool VRAM: Used={used/1e6:.1f}MB, Avail={avail/1e6:.1f}MB, Peak={peak/1e6:.1f}MB")
+        print(
+            f"Pool VRAM: Used={used / 1e6:.1f}MB, Avail={avail / 1e6:.1f}MB, Peak={peak / 1e6:.1f}MB"
+        )
 ```

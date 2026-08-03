@@ -90,10 +90,10 @@ Return `True` if vectors should be L2-normalized before use with this metric.
 **Examples:**
 
 ```python
-elips.requires_normalization("cosine")              # True
-elips.requires_normalization("euclidean")           # False
-elips.requires_normalization("dot_product")         # False
-elips.requires_normalization(elips.Metric.cosine)   # True
+elips.requires_normalization("cosine")  # True
+elips.requires_normalization("euclidean")  # False
+elips.requires_normalization("dot_product")  # False
+elips.requires_normalization(elips.Metric.cosine)  # True
 elips.requires_normalization(elips.Metric.euclidean)  # False
 ```
 
@@ -116,9 +116,9 @@ Convert a `Metric` enum value to its canonical string name.
 **Examples:**
 
 ```python
-elips.metric_to_string(elips.Metric.cosine)      # "cosine"
-elips.metric_to_string(elips.Metric.euclidean)   # "euclidean"
-elips.metric_to_string(elips.Metric.dot_product) # "dot_product"
+elips.metric_to_string(elips.Metric.cosine)  # "cosine"
+elips.metric_to_string(elips.Metric.euclidean)  # "euclidean"
+elips.metric_to_string(elips.Metric.dot_product)  # "dot_product"
 ```
 
 ## `elips.metric_from_string()`
@@ -147,10 +147,10 @@ m = elips.metric_from_string("cosine")
 print(m)  # Metric.cosine
 print(int(m) == int(elips.Metric.cosine))  # True
 
-elips.metric_from_string("euclidean")    # Metric.euclidean
+elips.metric_from_string("euclidean")  # Metric.euclidean
 elips.metric_from_string("dot_product")  # Metric.dot_product
 
-elips.metric_from_string("unknown")      # ValueError
+elips.metric_from_string("unknown")  # ValueError
 ```
 
 ## String/Enum Dual Overloads
@@ -178,9 +178,9 @@ v1 = [1.0, 0.0, 0.0]
 v2 = [0.0, 1.0, 0.0]
 v3 = [0.0, 0.0, 1.0]
 
-print(elips.distance("cosine", v1, v2))       # 1.0
-print(elips.distance("cosine", v1, v1))       # 0.0
-print(elips.distance("euclidean", v1, v2))    # 1.414...
+print(elips.distance("cosine", v1, v2))  # 1.0
+print(elips.distance("cosine", v1, v1))  # 0.0
+print(elips.distance("euclidean", v1, v2))  # 1.414...
 
 # Check normalization requirements
 for metric in [elips.Metric.cosine, elips.Metric.euclidean, elips.Metric.dot_product]:
@@ -215,6 +215,7 @@ The `Vector` and `Metric` types are available for annotation:
 from typing import Union
 from elips import Metric
 from elips.types import Vector
+
 
 def my_distance(metric: Union[str, Metric], a: Vector, b: Vector) -> float:
     return elips.distance(metric, a, b)

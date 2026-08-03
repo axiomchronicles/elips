@@ -79,7 +79,9 @@ fetch from <vault> id "<uuid>" [project <fields>] yield
 ```
 
 ```python
-results = db.query('fetch from items id "018f3c7a-0000-7000-8000-000000000001" project name, val yield')
+results = db.query(
+    'fetch from items id "018f3c7a-0000-7000-8000-000000000001" project name, val yield'
+)
 ```
 
 #### SCAN — Metadata Iteration
@@ -89,7 +91,7 @@ scan in <vault> [where <conditions>] [limit <n>] yield
 ```
 
 ```python
-results = db.query('scan in items where val >= 10 limit 100 yield')
+results = db.query("scan in items where val >= 10 limit 100 yield")
 ```
 
 #### ERASE — Remove by ID
@@ -245,21 +247,21 @@ A single EQL token produced by the lexer.
 tokens = elips.tokenize_eql("seek in docs nearest [1.0, 0.5] top 5 yield")
 
 # First token: keyword
-print(tokens[0].kind)   # TokenKind.word
-print(tokens[0].text)   # "seek"
-print(tokens[0].number) # 0.0 (irrelevant for non-number tokens)
+print(tokens[0].kind)  # TokenKind.word
+print(tokens[0].text)  # "seek"
+print(tokens[0].number)  # 0.0 (irrelevant for non-number tokens)
 
 # Number token
-num_token = tokens[6]   # The "5" token
-print(num_token.kind)       # TokenKind.number
-print(num_token.text)       # "5"
-print(num_token.number)     # 5.0
-print(num_token.is_integer) # True
+num_token = tokens[6]  # The "5" token
+print(num_token.kind)  # TokenKind.number
+print(num_token.text)  # "5"
+print(num_token.number)  # 5.0
+print(num_token.is_integer)  # True
 
 # Float number token
 float_token = tokens[4]  # The "1.0" token
-print(float_token.number)     # 1.0
-print(float_token.is_integer) # False
+print(float_token.number)  # 1.0
+print(float_token.is_integer)  # False
 ```
 
 ## Error Handling

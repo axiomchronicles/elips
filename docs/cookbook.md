@@ -24,6 +24,7 @@ def retrieve(question, k=5):
     hits = docs.seek(embed(question), top=k)
     return [h.data["text"] for h in hits]
 
+
 context = "\n\n".join(retrieve(user_question))
 answer = llm(f"Answer using the context:\n{context}\n\nQ: {user_question}")
 ```
@@ -33,8 +34,9 @@ answer = llm(f"Answer using the context:\n{context}\n\nQ: {user_question}")
 ```python
 items = db.vault("items")
 # items placed with their content/collaborative embedding + metadata
-recs = items.seek(user_embedding, top=20,
-                  where=elips.Filter().field("in_stock").equals(True))
+recs = items.seek(
+    user_embedding, top=20, where=elips.Filter().field("in_stock").equals(True)
+)
 ```
 
 ## Agent long-term memory
@@ -44,8 +46,10 @@ mem = db.vault("memory")
 mem.place(embed(observation), {"ts": now, "session": sid, "kind": "fact"})
 
 recent_facts = mem.seek(
-    embed(current_goal), top=10,
-    where=elips.Filter().field("session").equals(sid).field("kind").equals("fact"))
+    embed(current_goal),
+    top=10,
+    where=elips.Filter().field("session").equals(sid).field("kind").equals("fact"),
+)
 ```
 
 ## Time-decayed retrieval
@@ -53,9 +57,13 @@ recent_facts = mem.seek(
 ```python
 # fetch a generous candidate set, then re-rank by similarity * recency in Python
 cands = mem.seek(embed(query), top=100)
+
+
 def score(h):
     age_days = (now - h.data["ts"]) / 86400
-    return (1 - h.distance) * (0.97 ** age_days)
+    return (1 - h.distance) * (0.97**age_days)
+
+
 ranked = sorted(cands, key=score, reverse=True)[:10]
 ```
 
@@ -70,11 +78,14 @@ if near:
 ## Metadata-filtered search (EQL)
 
 ```python
-results = db.query("""
+results = db.query(
+    """
     seek in articles nearest $q top 10
     where category in ["ai", "systems"] and year >= 2023
     project title, author yield
-""", bindings={"q": embed(query)})
+""",
+    bindings={"q": embed(query)},
+)
 ```
 
 ## Hybrid pre-filter then vector rank
@@ -96,13 +107,7 @@ gpu.ivf_pq_params.n_lists = 2048
 gpu.ivf_pq_params.pq_dim = 48
 gpu.ivf_pq_params.pq_bits = 8
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("exact")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("exact").gpu(gpu)
 
 db = elips.open_with_config("/data/search-gpu", config)
 docs = db.vault("corpus")

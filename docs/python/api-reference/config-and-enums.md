@@ -87,7 +87,7 @@ params = elips.GraphParams(
     max_connections=32,
     ef_construction=400,
     ef_search=100,
-    compaction_ratio=0.2,   # tombstone fraction that triggers vacuum() (0 = manual only)
+    compaction_ratio=0.2,  # tombstone fraction that triggers vacuum() (0 = manual only)
 )
 ```
 
@@ -216,13 +216,7 @@ gpu.ivf_pq_params.pq_dim = 48
 gpu.ivf_pq_params.pq_bits = 8
 gpu.ivf_pq_params.kmeans_n_iters = 20
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("exact")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("exact").gpu(gpu)
 ```
 
 ### `GpuIndexAlgorithm`

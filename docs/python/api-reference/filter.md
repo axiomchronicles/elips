@@ -159,8 +159,11 @@ def and_(self, other: Filter) -> Filter
 Logical AND. Both this filter and `other` must match.
 
 ```python
-f = elips.Filter().field("cat").equals("tech").and_(
-    elips.Filter().field("score").gte(90)
+f = (
+    elips.Filter()
+    .field("cat")
+    .equals("tech")
+    .and_(elips.Filter().field("score").gte(90))
 )
 # Both conditions must be true
 ```
@@ -170,8 +173,12 @@ Note: Chaining field predicates on the same filter is already an AND. Use `.and_
 ```python
 # These are equivalent:
 f1 = elips.Filter().field("cat").equals("tech").field("score").gte(90)
-f2 = (elips.Filter().field("cat").equals("tech")
-      .and_(elips.Filter().field("score").gte(90)))
+f2 = (
+    elips.Filter()
+    .field("cat")
+    .equals("tech")
+    .and_(elips.Filter().field("score").gte(90))
+)
 ```
 
 #### `Filter.or_()`
@@ -183,8 +190,11 @@ def or_(self, other: Filter) -> Filter
 Logical OR. Either this filter or `other` (or both) must match.
 
 ```python
-f = elips.Filter().field("tier").equals("pro").or_(
-    elips.Filter().field("year").gte(2023)
+f = (
+    elips.Filter()
+    .field("tier")
+    .equals("pro")
+    .or_(elips.Filter().field("year").gte(2023))
 )
 # Matches if tier == "pro" OR year >= 2023
 ```
@@ -199,9 +209,7 @@ def not_(inner: Filter) -> Filter
 Logical NOT. Negates the inner filter.
 
 ```python
-f = elips.Filter.not_(
-    elips.Filter().field("draft").equals(True)
-)
+f = elips.Filter.not_(elips.Filter().field("draft").equals(True))
 # Matches records where draft is NOT True
 ```
 
@@ -210,11 +218,17 @@ f = elips.Filter.not_(
 ### Multi-field AND
 
 ```python
-f = (elips.Filter()
-     .field("category").equals("tech")
-     .field("score").gte(80)
-     .field("country").one_of(["US", "GB"])
-     .field("title").contains("intro"))
+f = (
+    elips.Filter()
+    .field("category")
+    .equals("tech")
+    .field("score")
+    .gte(80)
+    .field("country")
+    .one_of(["US", "GB"])
+    .field("title")
+    .contains("intro")
+)
 ```
 
 ### Complex Boolean Expression
@@ -222,7 +236,9 @@ f = (elips.Filter()
 ```python
 # (category == "tech" AND score >= 80) OR (category == "finance" AND year >= 2022)
 tech_high = elips.Filter().field("category").equals("tech").field("score").gte(80)
-finance_recent = elips.Filter().field("category").equals("finance").field("year").gte(2022)
+finance_recent = (
+    elips.Filter().field("category").equals("finance").field("year").gte(2022)
+)
 
 combined = tech_high.or_(finance_recent)
 ```
@@ -239,9 +255,7 @@ active = elips.Filter.not_(
 ### With seek()
 
 ```python
-f = (elips.Filter()
-     .field("category").equals("tech")
-     .field("score").gte(0.8))
+f = elips.Filter().field("category").equals("tech").field("score").gte(0.8)
 
 results = docs.seek([1.0, 0.0, 0.0], top=10, where=f)
 ```

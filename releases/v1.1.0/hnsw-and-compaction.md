@@ -92,12 +92,14 @@ config = (
     elips.Config()
     .dimension(256)
     .metric("cosine")
-    .graph_params(elips.GraphParams(
-        max_connections=32,
-        ef_construction=200,
-        ef_search=100,
-        compaction_ratio=0.15 # Auto-vacuum when 15% of records deleted
-    ))
+    .graph_params(
+        elips.GraphParams(
+            max_connections=32,
+            ef_construction=200,
+            ef_search=100,
+            compaction_ratio=0.15,  # Auto-vacuum when 15% of records deleted
+        )
+    )
 )
 
 db = elips.open_with_config("/var/data/compaction_demo", config)
@@ -105,7 +107,7 @@ vault = db.vault("items")
 
 # 2. Populate and delete records
 for i in range(1000):
-    vault.place([float(i)/1000.0] * 256, {"item_id": i})
+    vault.place([float(i) / 1000.0] * 256, {"item_id": i})
 
 for i in range(300):
     vault.erase(f"record-{i}")
@@ -115,5 +117,5 @@ print(f"Pending tombstoned records: {vault.pending_removals}")
 
 # 4. Trigger explicit manual vacuuming
 vault.vacuum()
-print(f"Post-vacuum pending tombstones: {vault.pending_removals}") # 0
+print(f"Post-vacuum pending tombstones: {vault.pending_removals}")  # 0
 ```

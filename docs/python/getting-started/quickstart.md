@@ -63,13 +63,7 @@ gpu.policy = elips.GpuPolicy.require_gpu
 gpu.build_mode = elips.IndexBuildMode.gpu_build_gpu_serve
 gpu.algorithm = elips.GpuIndexAlgorithm.brute_force
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("exact")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("exact").gpu(gpu)
 ```
 
 IVF-Flat on GPU:
@@ -81,13 +75,7 @@ gpu.algorithm = elips.GpuIndexAlgorithm.ivf_flat
 gpu.ivf_pq_params.n_lists = 1024
 gpu.ef_search = 32
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("exact")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("exact").gpu(gpu)
 ```
 
 IVF-PQ on GPU:
@@ -101,13 +89,7 @@ gpu.ivf_pq_params.pq_dim = 48
 gpu.ivf_pq_params.pq_bits = 8
 gpu.ivf_pq_params.kmeans_n_iters = 20
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("exact")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("exact").gpu(gpu)
 ```
 
 Graph-oriented GPU path:
@@ -119,13 +101,7 @@ gpu.algorithm = elips.GpuIndexAlgorithm.cagra
 gpu.graph_params.graph_degree = 48
 gpu.graph_params.intermediate_graph_degree = 96
 
-config = (
-    elips.Config()
-    .dimension(384)
-    .metric("cosine")
-    .index("graph")
-    .gpu(gpu)
-)
+config = elips.Config().dimension(384).metric("cosine").index("graph").gpu(gpu)
 ```
 
 Notes:

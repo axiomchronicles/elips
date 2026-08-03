@@ -155,7 +155,7 @@ enable autocompletion, inline documentation, and type validation.
 The stub is declared as package data in `setup.py`:
 
 ```python
-package_data={"elips": ["py.typed", "_core.pyi"]},
+package_data = ({"elips": ["py.typed", "_core.pyi"]},)
 ```
 
 For details on the stub contents, see [Type Stubs & IDE Support](../typing/type-stubs.md).
@@ -202,7 +202,8 @@ Users can import errors either way:
 
 ```python
 import elips
-elips.DimensionMismatch          # exported from the package root
+
+elips.DimensionMismatch  # exported from the package root
 
 from elips.exceptions import DimensionMismatch  # via submodule
 ```

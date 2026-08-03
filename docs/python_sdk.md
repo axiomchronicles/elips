@@ -82,10 +82,12 @@ engine = elips.connect(
 )
 arena = engine.arena("documents")
 
-keys = arena.write_many([
-    elips.RecordInput(text="alpha design note", meta={"kind": "design"}),
-    {"text": "beta runbook", "meta": {"kind": "ops"}},
-])
+keys = arena.write_many(
+    [
+        elips.RecordInput(text="alpha design note", meta={"kind": "design"}),
+        {"text": "beta runbook", "meta": {"kind": "ops"}},
+    ]
+)
 
 rows = arena.pull(keys, include_vectors=True)
 hits = arena.probe_text("alpha", top=2)

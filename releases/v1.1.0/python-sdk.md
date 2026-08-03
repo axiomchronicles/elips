@@ -35,13 +35,18 @@ import elips
 # Fluent Filter Builder
 f = (
     elips.Filter()
-    .field("tenant").equals("acme")
-    .field("score").gte(0.8)
-    .field("region").one_of(["us-east", "eu-west"])
+    .field("tenant")
+    .equals("acme")
+    .field("score")
+    .gte(0.8)
+    .field("region")
+    .one_of(["us-east", "eu-west"])
 )
 
 # Test filter standalone
-print("Matches sample:", f.matches({"tenant": "acme", "score": 0.9, "region": "us-east"})) # True
+print(
+    "Matches sample:", f.matches({"tenant": "acme", "score": 0.9, "region": "us-east"})
+)  # True
 
 # Query Vault with Filter
 db = elips.open("/var/data/vecs")
@@ -108,8 +113,8 @@ db = elips.open_with_config("/var/data/durable_db", config)
 # Context Manager automatically commits on clean exit, rolls back on exception
 with db.begin_transaction() as txn:
     v = txn.vault("items")
-    v.place([0.1]*128, {"sku": "A100"})
-    v.place([0.2]*128, {"sku": "B200"})
+    v.place([0.1] * 128, {"sku": "A100"})
+    v.place([0.2] * 128, {"sku": "B200"})
 ```
 
 ---
