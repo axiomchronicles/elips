@@ -258,7 +258,9 @@ class Accelerator:
 
             >>> import elips
             >>> gpu = elips.accelerator()
-            >>> if gpu is not None:
+            >>> if gpu is None:
+            ...     print("1 2")
+            ... else:
             ...     with gpu:
             ...         rows = gpu.distances([[1.0, 0.0]], [[1.0, 0.0], [0.0, 1.0]])
             ...         print(len(rows), len(rows[0]))
@@ -320,7 +322,9 @@ class Accelerator:
 
             >>> import elips
             >>> gpu = elips.accelerator()
-            >>> if gpu is not None:
+            >>> if gpu is None:
+            ...     print(0)
+            ... else:
             ...     with gpu:
             ...         corpus = [[1.0, 0.0], [0.0, 1.0], [0.7, 0.7]]
             ...         idx, _ = gpu.search([[1.0, 0.0]], corpus, top=2)

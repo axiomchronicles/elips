@@ -255,6 +255,9 @@ if(ELIPS_BUILD_PYTHON)
     if(ELIPS_GPU_ENABLED)
         target_compile_definitions(elips_pymodule PRIVATE ELIPS_GPU_ENABLED)
     endif()
+    if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_link_options(elips_pymodule PRIVATE -static-libgcc -static-libstdc++)
+    endif()
 
     set(
         ELIPS_PYTHON_OUTPUT_DIR
@@ -266,5 +269,24 @@ if(ELIPS_BUILD_PYTHON)
         OUTPUT_NAME _core
         LIBRARY_OUTPUT_DIRECTORY "${ELIPS_PYTHON_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY "${ELIPS_PYTHON_OUTPUT_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${ELIPS_PYTHON_OUTPUT_DIR}"
     )
+    if(CMAKE_CONFIGURATION_TYPES)
+        foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
+            string(TOUPPER ${CONFIG} CONFIG_UPPER)
+            set_target_properties(elips_pymodule PROPERTIES
+                LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+                RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+                ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+            )
+        endforeach()
+    endif()
+    if(CMAKE_BUILD_TYPE)
+        string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
+        set_target_properties(elips_pymodule PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY_${CMAKE_BUILD_TYPE_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+            RUNTIME_OUTPUT_DIRECTORY_${CMAKE_BUILD_TYPE_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+            ARCHIVE_OUTPUT_DIRECTORY_${CMAKE_BUILD_TYPE_UPPER} "${ELIPS_PYTHON_OUTPUT_DIR}"
+        )
+    endif()
 endif()
