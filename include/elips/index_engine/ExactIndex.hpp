@@ -2,7 +2,7 @@
 #define ELIPS_INDEX_ENGINE_EXACT_INDEX_HPP
 
 #include <cstddef>
-#include <expected>
+#include "elips/domain/Expected.hpp"
 #include <span>
 #include <string_view>
 #include <vector>

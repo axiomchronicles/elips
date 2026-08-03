@@ -1824,6 +1824,127 @@ The returned handle owns the backend independently of any
         .def("__repr__", [](const elips::gpu::GpuMetricsSnapshot& s) {
             return "<GpuMetricsSnapshot backend=" + s.backend + ">";
         });
+#else
+    // ===================== CPU Fallback Surface for GPU Control =====================
+    enum class CpuGpuError {
+        device_not_found,
+        insufficient_memory,
+        kernel_launch_failed,
+        transfer_failed,
+        index_build_failed,
+        unsupported_metric,
+        initialization_failed,
+        backend_unavailable
+    };
+
+    py::enum_<CpuGpuError>(m, "GpuError")
+        .value("device_not_found", CpuGpuError::device_not_found)
+        .value("insufficient_memory", CpuGpuError::insufficient_memory)
+        .value("kernel_launch_failed", CpuGpuError::kernel_launch_failed)
+        .value("transfer_failed", CpuGpuError::transfer_failed)
+        .value("index_build_failed", CpuGpuError::index_build_failed)
+        .value("unsupported_metric", CpuGpuError::unsupported_metric)
+        .value("initialization_failed", CpuGpuError::initialization_failed)
+        .value("backend_unavailable", CpuGpuError::backend_unavailable);
+
+    py::class_<elips::gpu::GpuDeviceInfo>(m, "GpuDeviceInfo")
+        .def(py::init([]() {
+            elips::gpu::GpuDeviceInfo info;
+            info.name = "CPU Fallback Engine";
+            info.vendor = "Software";
+            info.backend = "cpu";
+            return info;
+        }))
+        .def_readonly("name", &elips::gpu::GpuDeviceInfo::name)
+        .def_readonly("vendor", &elips::gpu::GpuDeviceInfo::vendor)
+        .def_readonly("backend", &elips::gpu::GpuDeviceInfo::backend)
+        .def_readonly("total_memory_bytes", &elips::gpu::GpuDeviceInfo::total_device_memory_bytes)
+        .def_readonly("free_memory_bytes", &elips::gpu::GpuDeviceInfo::free_device_memory_bytes)
+        .def_readonly("has_unified_memory", &elips::gpu::GpuDeviceInfo::has_unified_memory)
+        .def_readonly("supports_fp16", &elips::gpu::GpuDeviceInfo::supports_fp16)
+        .def_readonly("supports_cagra", &elips::gpu::GpuDeviceInfo::supports_cagra)
+        .def_readonly("supports_ivf_pq", &elips::gpu::GpuDeviceInfo::supports_ivf_pq)
+        .def_readonly("device_index", &elips::gpu::GpuDeviceInfo::device_index)
+        .def_readonly("supports_bf16", &elips::gpu::GpuDeviceInfo::supports_bf16)
+        .def_readonly("supports_int8", &elips::gpu::GpuDeviceInfo::supports_int8)
+        .def_readonly("compute_capability_major", &elips::gpu::GpuDeviceInfo::compute_capability_major)
+        .def_readonly("compute_capability_minor", &elips::gpu::GpuDeviceInfo::compute_capability_minor)
+        .def_readonly("max_threads_per_block", &elips::gpu::GpuDeviceInfo::max_threads_per_block)
+        .def_readonly("multiprocessor_count", &elips::gpu::GpuDeviceInfo::multiprocessor_count)
+        .def_readonly("shared_memory_per_block_bytes", &elips::gpu::GpuDeviceInfo::shared_memory_per_block_bytes)
+        .def_readonly("l2_cache_bytes", &elips::gpu::GpuDeviceInfo::l2_cache_bytes)
+        .def_readonly("peak_tflops_fp32", &elips::gpu::GpuDeviceInfo::peak_tflops_fp32)
+        .def_readonly("peak_tflops_fp16", &elips::gpu::GpuDeviceInfo::peak_tflops_fp16)
+        .def_readonly("host_to_device_bandwidth_gb_s", &elips::gpu::GpuDeviceInfo::host_to_device_bandwidth_gb_s)
+        .def_readonly("device_to_host_bandwidth_gb_s", &elips::gpu::GpuDeviceInfo::device_to_host_bandwidth_gb_s)
+        .def_readonly("supports_dynamic_batching", &elips::gpu::GpuDeviceInfo::supports_dynamic_batching)
+        .def_readonly("supports_half_precision_search", &elips::gpu::GpuDeviceInfo::supports_half_precision_search)
+        .def_property_readonly("memory_gb", [](const elips::gpu::GpuDeviceInfo& i) {
+            return static_cast<double>(i.total_device_memory_bytes) / (1024.0 * 1024.0 * 1024.0);
+        })
+        .def("__repr__", [](const elips::gpu::GpuDeviceInfo& i) {
+            return "<GpuDeviceInfo name='" + i.name + "' backend=" + i.backend +
+                   " device_index=" + std::to_string(i.device_index) + ">";
+        });
+
+    struct CpuBatchStats {
+        size_t queries_coalesced{0};
+        size_t kernel_launches{0};
+        double avg_batch_size{0.0};
+        double p99_latency_us{0.0};
+    };
+
+    py::class_<CpuBatchStats>(m, "BatchStats")
+        .def(py::init<>())
+        .def_readonly("queries_coalesced", &CpuBatchStats::queries_coalesced)
+        .def_readonly("kernel_launches", &CpuBatchStats::kernel_launches)
+        .def_readonly("avg_batch_size", &CpuBatchStats::avg_batch_size)
+        .def_readonly("p99_latency_us", &CpuBatchStats::p99_latency_us)
+        .def("__repr__", [](const CpuBatchStats&) {
+            return "<BatchStats coalesced=0 launches=0>";
+        });
+
+    m.def("gpu_devices", []() {
+        return std::vector<elips::gpu::GpuDeviceInfo>{};
+    });
+
+    m.def("gpu_cpu_fallback_info", []() {
+        elips::gpu::GpuDeviceInfo info;
+        info.name = "CPU Fallback Engine";
+        info.vendor = "Software";
+        info.backend = "cpu";
+        return info;
+    });
+
+    m.def("gpu_runtime_device_info", []() {
+        elips::gpu::GpuDeviceInfo info;
+        info.name = "CPU Engine";
+        info.vendor = "Software";
+        info.backend = "cpu";
+        return info;
+    });
+
+    m.def("gpu_error_message", [](CpuGpuError err) {
+        switch (err) {
+            case CpuGpuError::device_not_found: return "device not found";
+            case CpuGpuError::insufficient_memory: return "insufficient memory";
+            case CpuGpuError::kernel_launch_failed: return "kernel launch failed";
+            case CpuGpuError::transfer_failed: return "transfer failed";
+            case CpuGpuError::index_build_failed: return "index build failed";
+            case CpuGpuError::unsupported_metric: return "unsupported metric";
+            case CpuGpuError::initialization_failed: return "initialization failed";
+            case CpuGpuError::backend_unavailable: return "backend unavailable";
+        }
+        return "unknown gpu error";
+    });
+
+    m.def("gpu_can_fit_index", [](const elips::gpu::GpuDeviceInfo&, size_t, size_t) {
+        return false;
+    });
+
+    m.def("gpu_select", [](py::object) {
+        return py::none();
+    }, py::arg("config") = py::none());
 #endif
 
     py::class_<elips::DocumentAttachment>(m, "DocumentAttachment")
