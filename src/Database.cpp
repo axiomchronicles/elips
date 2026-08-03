@@ -197,9 +197,9 @@ std::string resolve_persisted_storage_path(const fs::path& root,
         return {};
     }
     if (!persisted.storage_path_relative) {
-        return persisted.info.storage_path;
+        return fs::path(persisted.info.storage_path).make_preferred().string();
     }
-    return (root / persisted.info.storage_path).string();
+    return (root / fs::path(persisted.info.storage_path)).make_preferred().string();
 }
 
 void write_text_embedder_manifest(const fs::path& path,

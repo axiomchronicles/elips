@@ -478,8 +478,8 @@ def test_database_context_manager():
         with elips.open(db_path, dimension=2) as pdb:
             pdb.vault("p").place([1.0, 2.0])
         # Reopen to verify persisted
-        db2 = elips.open(db_path)
-        assert db2.vault("p").count() == 1
+        with elips.open(db_path) as db2:
+            assert db2.vault("p").count() == 1
 
     print("  PASS test_database_context_manager")
 
