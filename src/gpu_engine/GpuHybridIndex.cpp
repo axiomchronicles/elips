@@ -61,7 +61,7 @@ void GpuHybridIndex::remove(const RecordID& id) {
 
 std::vector<IndexPort::Hit> GpuHybridIndex::search(std::span<const float> query,
                                                     std::size_t k) const {
-    const auto gpu_hits = gpu_index_->search(query, k);
+    auto gpu_hits = gpu_index_->search(query, k);
     if (!gpu_hits.empty() || gpu_index_->size() == 0 || k == 0) {
         return gpu_hits;
     }

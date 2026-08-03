@@ -24,12 +24,16 @@ GpuSearchPipeline::batch_search(
     for (size_t q = 0; q < nq; ++q) {
         results[q].reserve(k);
         for (size_t j = 0; j < k; ++j) {
-            uint32_t idx = indices[q * k + j];
+            const uint32_t idx = indices[q * k + j];
             if (idx >= nb) break;
             results[q].push_back(elips::SearchResult{
                 db_ids[idx],
                 values[q * k + j],
-                {}
+                {},
+                std::nullopt,
+                std::nullopt,
+                std::nullopt,
+                quant::CodecId::none
             });
         }
     }

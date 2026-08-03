@@ -1,7 +1,6 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_GRAPH_INDEX_HPP
 #define ELIPS_GPU_ENGINE_GPU_GRAPH_INDEX_HPP
 
-#include <expected>
 #include <memory>
 #include <span>
 #include <string>
@@ -9,6 +8,7 @@
 #include <vector>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuIndexPort.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"

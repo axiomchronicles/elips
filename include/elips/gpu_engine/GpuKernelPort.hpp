@@ -1,10 +1,10 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_KERNEL_PORT_HPP
 #define ELIPS_GPU_ENGINE_GPU_KERNEL_PORT_HPP
 
-#include <expected>
 #include <span>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 
 namespace elips::gpu {

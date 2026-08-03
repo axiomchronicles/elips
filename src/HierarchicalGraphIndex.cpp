@@ -2,9 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <expected>
 #include <queue>
 #include <unordered_set>
+
+#include "elips/domain/Expected.hpp"
 
 #include "elips/vector_engine/Metrics.hpp"
 

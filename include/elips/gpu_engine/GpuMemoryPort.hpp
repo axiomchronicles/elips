@@ -1,9 +1,9 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_MEMORY_PORT_HPP
 #define ELIPS_GPU_ENGINE_GPU_MEMORY_PORT_HPP
 
-#include <expected>
 #include <cstddef>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 

@@ -1,11 +1,11 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_INGESTION_PIPELINE_HPP
 #define ELIPS_GPU_ENGINE_GPU_INGESTION_PIPELINE_HPP
 
-#include <expected>
 #include <span>
 #include <vector>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 

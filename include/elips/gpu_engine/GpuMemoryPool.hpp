@@ -2,10 +2,10 @@
 #define ELIPS_GPU_ENGINE_GPU_MEMORY_POOL_HPP
 
 #include <cstddef>
-#include <expected>
 #include <mutex>
 #include <vector>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 

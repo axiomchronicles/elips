@@ -1,12 +1,12 @@
 #include "elips/gpu_engine/GpuIVFPQIndex.hpp"
 
 #include <algorithm>
-#include <expected>
 #include <limits>
 #include <numeric>
 
 #include "detail/IvfIndexState.hpp"
 #include "elips/domain/Errors.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuIndexTransferManager.hpp"
 #include "elips/gpu_engine/GpuQuantizationPipeline.hpp"
 #include "elips/vector_engine/Metrics.hpp"
@@ -271,7 +271,7 @@ GpuIVFPQIndex::search_batch(std::span<const float> queries, size_t k,
         auto& row = out[q];
         row.reserve(hits.size());
         for (const auto& [id, distance] : hits) {
-            row.push_back(SearchResult{.id = id, .distance = distance});
+            row.push_back(SearchResult{.id = id, .distance = distance, .data = {}, .document = std::nullopt, .chunk = std::nullopt, .lineage = std::nullopt, .codec = quant::CodecId::none});
         }
     }
     return out;

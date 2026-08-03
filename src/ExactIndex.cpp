@@ -1,11 +1,11 @@
 #include "elips/index_engine/ExactIndex.hpp"
 
 #include <algorithm>
-#include <expected>
 #include <string>
 #include <string_view>
 
 #include "elips/domain/Errors.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips {

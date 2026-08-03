@@ -1,7 +1,8 @@
 #include "elips/gpu_engine/GpuDistributedIndex.hpp"
 
 #include <algorithm>
-#include <expected>
+
+#include "elips/domain/Expected.hpp"
 
 #include "elips/gpu_engine/GpuIndexTransferManager.hpp"
 

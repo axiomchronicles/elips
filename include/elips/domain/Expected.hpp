@@ -53,13 +53,13 @@ public:
         if (!has_value()) throw std::runtime_error("bad expected access");
         return std::get<T>(var_);
     }
-    constexpr const T& operator*() const & noexcept { return std::get<T>(var_); }
-    constexpr T& operator*() & noexcept { return std::get<T>(var_); }
-    constexpr const T* operator->() const noexcept { return &std::get<T>(var_); }
-    constexpr T* operator->() noexcept { return &std::get<T>(var_); }
+    constexpr const T& operator*() const & noexcept { return *std::get_if<T>(&var_); }
+    constexpr T& operator*() & noexcept { return *std::get_if<T>(&var_); }
+    constexpr const T* operator->() const noexcept { return std::get_if<T>(&var_); }
+    constexpr T* operator->() noexcept { return std::get_if<T>(&var_); }
 
-    constexpr const E& error() const & noexcept { return std::get<E>(var_); }
-    constexpr E& error() & noexcept { return std::get<E>(var_); }
+    constexpr const E& error() const & noexcept { return *std::get_if<E>(&var_); }
+    constexpr E& error() & noexcept { return *std::get_if<E>(&var_); }
 
 private:
     std::variant<T, E> var_;

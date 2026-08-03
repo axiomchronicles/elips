@@ -1,10 +1,10 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_QUANTIZATION_PIPELINE_HPP
 #define ELIPS_GPU_ENGINE_GPU_QUANTIZATION_PIPELINE_HPP
 
-#include <expected>
 #include <span>
 #include <vector>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"
 
 namespace elips::gpu {

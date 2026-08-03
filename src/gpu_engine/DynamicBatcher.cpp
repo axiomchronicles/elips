@@ -26,7 +26,7 @@ DynamicBatcher::enqueue(std::span<const float> query_vector, size_t k) {
     pq.k = k;
     auto future = pq.promise.get_future();
     {
-        std::lock_guard lock(mutex_);
+        const std::lock_guard lock(mutex_);
         pending_.push_back(std::move(pq));
     }
     cv_.notify_one();
@@ -36,7 +36,7 @@ DynamicBatcher::enqueue(std::span<const float> query_vector, size_t k) {
 void DynamicBatcher::flush() {
     std::vector<PendingQuery> batch;
     {
-        std::lock_guard lock(mutex_);
+        const std::lock_guard lock(mutex_);
         batch.swap(pending_);
     }
     if (batch.empty() || !search_fn_) return;
@@ -59,7 +59,7 @@ void DynamicBatcher::flush() {
         }
     } catch (...) {
         for (auto& pq : batch) {
-            try { pq.promise.set_exception(std::current_exception()); } catch (...) {}
+            try { pq.promise.set_exception(std::current_exception()); } catch (...) { (void)0; }
         }
     }
 }
@@ -73,7 +73,7 @@ void DynamicBatcher::worker_loop() {
         if (pending_.empty()) continue;
 
         std::vector<PendingQuery> batch;
-        size_t take = std::min(pending_.size(), max_batch_);
+        const size_t take = std::min(pending_.size(), max_batch_);
         batch.assign(std::make_move_iterator(pending_.begin()),
                      std::make_move_iterator(pending_.begin() + static_cast<ptrdiff_t>(take)));
         pending_.erase(pending_.begin(), pending_.begin() + static_cast<ptrdiff_t>(take));
@@ -98,7 +98,7 @@ void DynamicBatcher::worker_loop() {
                 }
             } catch (...) {
                 for (auto& pq : batch) {
-                    try { pq.promise.set_exception(std::current_exception()); } catch (...) {}
+                    try { pq.promise.set_exception(std::current_exception()); } catch (...) { (void)0; }
                 }
             }
         }

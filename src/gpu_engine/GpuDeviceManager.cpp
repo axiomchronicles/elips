@@ -53,8 +53,8 @@ GpuDeviceInfo GpuDeviceManager::runtime_device_info() const {
         return cpu_fallback_info();
     }
 
-    GpuSelector selector;
-    GpuConfig config;
+    const GpuSelector selector;
+    const GpuConfig config;
     auto selected = selector.select(config, devices);
     if (!selected.has_value() || *selected == nullptr) {
         return cpu_fallback_info();

@@ -2,12 +2,12 @@
 #define ELIPS_GPU_ENGINE_GPU_DISTRIBUTED_INDEX_HPP
 
 #include <atomic>
-#include <expected>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuIndexPort.hpp"
 
 namespace elips::gpu {

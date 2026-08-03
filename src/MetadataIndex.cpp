@@ -9,7 +9,7 @@
 namespace elips {
 namespace {
 
-std::set<RecordID> intersect_sets(std::set<RecordID> left,
+std::set<RecordID> intersect_sets(const std::set<RecordID>& left,
                                   const std::set<RecordID>& right) {
     std::set<RecordID> out;
     std::set_intersection(left.begin(), left.end(), right.begin(), right.end(),

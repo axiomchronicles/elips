@@ -123,9 +123,9 @@ float lexical_overlap_score(std::string_view query, std::string_view document) {
     if (document_terms.empty()) {
         return 0.0F;
     }
-    std::set<std::string> query_set(query_terms.begin(), query_terms.end());
-    std::set<std::string> document_set(document_terms.begin(),
-                                       document_terms.end());
+    const std::set<std::string> query_set(query_terms.begin(), query_terms.end());
+    const std::set<std::string> document_set(document_terms.begin(),
+                                             document_terms.end());
     std::vector<std::string> overlap;
     std::set_intersection(query_set.begin(), query_set.end(),
                           document_set.begin(), document_set.end(),
@@ -323,7 +323,7 @@ std::optional<PersistedTextEmbedder> resolve_text_embedder_for_open(
     }
 
     if (effective.has_pending_local_text_embedder()) {
-        auto options = *effective.local_text_embedder_options();
+        auto options = effective.local_text_embedder_options().value();
         if (options.dimension == 0U) {
             options.dimension = effective.dimension();
         }
@@ -407,7 +407,7 @@ std::optional<PersistedTextEmbedder> resolve_text_embedder_for_open(
         return std::nullopt;
     }
 
-    LocalTextEmbedderOptions options{
+    const LocalTextEmbedderOptions options{
         .model = "default",
         .revision = "v1",
         .storage_path = persistent
@@ -487,7 +487,7 @@ Record get_record(std::istream& in, bool with_extras, bool with_codec) {
                              static_cast<std::uint64_t>(dim) * sizeof(float));
         values.resize(dim);
         in.read(reinterpret_cast<char*>(values.data()),
-                static_cast<std::streamsize>(dim) * sizeof(float));
+                static_cast<std::streamsize>(static_cast<std::size_t>(dim) * sizeof(float)));
     }
     Payload payload = get_payload(in);
 
@@ -872,7 +872,7 @@ RecordID Vault::place(const Vector& vector, Payload payload,
                       std::optional<ChunkInfo> chunk,
                       std::optional<EmbeddingLineage> lineage) {
     const std::unique_lock lock(mutex_);
-    return place_locked(vector, std::move(payload), std::move(id),
+    return place_locked(vector, std::move(payload), id,
                         std::move(document), std::move(chunk),
                         std::move(lineage));
 }
@@ -910,7 +910,9 @@ RecordID Vault::place_locked(const Vector& vector, Payload payload,
                   std::move(payload),
                   std::move(document),
                   std::move(chunk),
-                  std::move(lineage)};
+                  std::move(lineage),
+                  {},
+                  quant::CodecId::none};
 
     // Once a codebook exists, the code is what the vault keeps: the fp32 vector
     // is dropped rather than stored alongside, which is where the memory saving
@@ -1009,12 +1011,6 @@ RecordID Vault::place_document(std::string text, Payload payload,
     }
 
     const RecordID record_id = id.value_or(RecordID::generate());
-    DocumentAttachment document{
-        .text = text,
-        .uri = {},
-        .mime_type = "text/plain",
-    };
-
     if (!chunk.has_value()) {
         chunk = ChunkInfo{.document_key = record_id.to_string()};
     } else if (chunk->document_key.empty()) {
@@ -1041,7 +1037,12 @@ RecordID Vault::place_document(std::string text, Payload payload,
     // Embed outside the vault lock: it is a pure function of the text and can
     // be slow, so holding the exclusive lock across it would serialize readers
     // for no reason.
-    Vector embedded = config_.text_embedder()->embed(text);
+    const Vector embedded = config_.text_embedder()->embed(text);
+    DocumentAttachment document{
+        .text = std::move(text),
+        .uri = {},
+        .mime_type = "text/plain",
+    };
     return place(embedded, std::move(payload), record_id, std::move(document),
                  std::move(chunk), std::move(lineage));
 }
@@ -1291,7 +1292,7 @@ std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
         const auto it = records_.find(result.id);
         const float lexical_score =
             (it != records_.end() && it->second.document.has_value())
-                ? lexical_overlap_score(text, it->second.document->text)
+                ? lexical_overlap_score(text, it->second.document.value().text)
                 : 0.0F;
         result.distance =
             ((1.0F - weight) * result.distance) + (weight * (1.0F - lexical_score));
@@ -1573,7 +1574,7 @@ VaultInfo Vault::info() const noexcept {
 ElipsInstance::ElipsInstance(std::string path, Config config, bool persistent,
                              std::optional<LockManager> lock)
     : path_(std::move(path)),
-      config_(config),
+      config_(std::move(config)),
       persistent_(persistent),
       lock_(std::move(lock)) {}
 
@@ -1584,6 +1585,7 @@ ElipsInstance::~ElipsInstance() {
             checkpoint_locked();
         } catch (...) {
             // E.16: destructors must not throw. Best-effort checkpoint.
+            (void)0;
         }
     }
 
@@ -1888,7 +1890,7 @@ void Transaction::enqueue_place(std::string vault, const Vector& vector,
         throw InvalidVector{"vector contains NaN or Inf"};
     }
     ops_.push_back(PendingOp{false, std::move(vault), vector, std::move(payload),
-                             std::move(id)});
+                             id});
 }
 
 void Transaction::enqueue_erase(std::string vault, const RecordID& id) {
@@ -1903,6 +1905,7 @@ void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
         } catch (...) {
             // Undo is a best-effort in-memory operation on structures that were
             // just successfully mutated; nothing here can be usefully retried.
+            (void)0;
         }
     }
 }
@@ -1917,7 +1920,7 @@ void Transaction::commit() {
     // vault existence and writability. Runtime I/O failure is still possible,
     // which is what the undo log below is for.
     for (const auto& op : ops_) {
-        Vault& vault = db_->vault_locked(op.vault);
+        const Vault& vault = db_->vault_locked(op.vault);
         if (vault.read_only() || vault.sealed()) {
             throw StorageError{vault.sealed()
                                    ? "database is closed: this write would "

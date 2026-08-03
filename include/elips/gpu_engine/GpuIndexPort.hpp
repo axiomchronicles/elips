@@ -1,13 +1,13 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_INDEX_PORT_HPP
 #define ELIPS_GPU_ENGINE_GPU_INDEX_PORT_HPP
 
-#include <expected>
 #include <memory>
 #include <span>
 #include <string_view>
 #include <variant>
 #include <vector>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/domain/SearchResult.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"

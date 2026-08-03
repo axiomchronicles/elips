@@ -22,7 +22,7 @@ void normalize_if_needed(elips::Metric metric, std::span<float> row) {
         return;
     }
     float norm = 0.0F;
-    for (float value : row) {
+    for (const float value : row) {
         norm += value * value;
     }
     norm = std::sqrt(norm);
@@ -139,7 +139,7 @@ std::vector<float> IvfIndexState::train_centroids(
             const auto list = assignments[vec];
             ++counts[list];
             const auto* row = vectors.data() + vec * dimension_;
-            auto* sum = sums.data() + list * dimension_;
+            auto* sum = sums.data() + static_cast<std::size_t>(list) * dimension_;
             for (std::size_t dim = 0; dim < dimension_; ++dim) {
                 sum[dim] += row[dim];
             }
@@ -177,7 +177,7 @@ std::vector<std::uint32_t> IvfIndexState::assign_vectors_to_centroids(
         std::uint32_t best_list = 0;
         for (std::uint32_t list = 0; list < n_lists; ++list) {
             const auto centroid = std::span<const float>{
-                centroids.data() + list * dimension_,
+                centroids.data() + static_cast<std::size_t>(list) * dimension_,
                 static_cast<std::size_t>(dimension_)};
             const auto current = elips::distance(metric_, row, centroid);
             if (current < best_distance) {

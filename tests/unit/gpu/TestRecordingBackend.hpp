@@ -3,9 +3,10 @@
 
 #include <algorithm>
 #include <cstring>
-#include <expected>
 #include <utility>
 #include <vector>
+
+#include "elips/domain/Expected.hpp"
 
 #include "elips/gpu_engine/GpuPort.hpp"
 #include "elips/vector_engine/Metrics.hpp"

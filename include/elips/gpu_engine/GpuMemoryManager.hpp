@@ -2,12 +2,12 @@
 #define ELIPS_GPU_ENGINE_GPU_MEMORY_MANAGER_HPP
 
 #include <cstddef>
-#include <expected>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuMemoryPort.hpp"
 #include "elips/gpu_engine/GpuPort.hpp"

@@ -279,7 +279,7 @@ LocalTextEmbedder::LocalTextEmbedder(LocalTextEmbedderOptions options)
 LocalTextEmbedder::~LocalTextEmbedder() = default;
 
 void LocalTextEmbedder::ensure_loaded() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(mutex_);
     if (artifact_ != nullptr) {
         return;
     }
@@ -346,7 +346,7 @@ Vector LocalTextEmbedder::embed(std::string_view text) const {
 
     Artifact artifact;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        const std::lock_guard<std::mutex> lock(mutex_);
         artifact = *artifact_;
     }
 
@@ -399,12 +399,12 @@ std::uint16_t LocalTextEmbedder::output_dimension() const noexcept {
 bool LocalTextEmbedder::rehydratable() const noexcept { return true; }
 
 bool LocalTextEmbedder::loaded() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(mutex_);
     return artifact_ != nullptr;
 }
 
 void LocalTextEmbedder::unload() noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(mutex_);
     artifact_.reset();
 }
 

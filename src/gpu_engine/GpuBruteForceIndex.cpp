@@ -1,13 +1,11 @@
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 
 #include <algorithm>
-#include <expected>
 #include <string>
 #include <string_view>
 
-#include "elips/gpu_engine/GpuSearchPipeline.hpp"
-#include "elips/gpu_engine/GpuIndexTransferManager.hpp"
 #include "elips/domain/Errors.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
@@ -157,7 +155,7 @@ GpuBruteForceIndex::search_batch(std::span<const float> queries, size_t k,
         return std::unexpected(GpuError::IndexBuildFailed);
     }
 
-    size_t nq = queries.size() / dimension_;
+    const size_t nq = queries.size() / dimension_;
     if (count_ == 0 || k == 0) {
         return std::vector<std::vector<SearchResult>>(nq);
     }

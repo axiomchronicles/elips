@@ -135,7 +135,7 @@ void WAL::append_insert(const std::string& vault, const RecordID& id,
                         const std::optional<EmbeddingLineage>& lineage) {
     append(Entry{Op::insert, vault, id,
                  std::vector<float>(vector.begin(), vector.end()), payload,
-                 document, chunk, lineage});
+                 document, chunk, lineage, {}, quant::CodecId::none});
 }
 
 void WAL::append_insert_quantized(
@@ -155,12 +155,12 @@ void WAL::append_erase(const std::string& vault, const RecordID& id) {
 
 void WAL::append_txn_begin() {
     append(Entry{Op::txn_begin, {}, RecordID{}, {}, {}, std::nullopt,
-                 std::nullopt, std::nullopt});
+                 std::nullopt, std::nullopt, {}, quant::CodecId::none});
 }
 
 void WAL::append_txn_commit() {
     append(Entry{Op::txn_commit, {}, RecordID{}, {}, {}, std::nullopt,
-                 std::nullopt, std::nullopt});
+                 std::nullopt, std::nullopt, {}, quant::CodecId::none});
 }
 
 void WAL::reset() {
@@ -283,7 +283,7 @@ std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
                     body, static_cast<std::uint64_t>(dim) * sizeof(float));
                 entry.vector.resize(dim);
                 body.read(reinterpret_cast<char*>(entry.vector.data()),
-                          static_cast<std::streamsize>(dim) * sizeof(float));
+                          static_cast<std::streamsize>(static_cast<std::size_t>(dim) * sizeof(float)));
                 entry.payload = detail::get_payload(body);
                 if (op == Op::insert_ex) {
                     entry.document = detail::get_document_attachment(body);

@@ -1,9 +1,9 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_INDEX_TRANSFER_MANAGER_HPP
 #define ELIPS_GPU_ENGINE_GPU_INDEX_TRANSFER_MANAGER_HPP
 
-#include <expected>
 #include <string>
 
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuIndexPort.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
 

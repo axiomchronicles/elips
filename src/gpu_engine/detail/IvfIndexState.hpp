@@ -3,13 +3,13 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"

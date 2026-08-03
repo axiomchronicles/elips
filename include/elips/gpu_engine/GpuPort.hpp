@@ -1,11 +1,11 @@
 #ifndef ELIPS_GPU_ENGINE_GPU_PORT_HPP
 #define ELIPS_GPU_ENGINE_GPU_PORT_HPP
 
-#include <expected>
 #include <span>
 #include <string_view>
 
 #include "elips/Config.hpp"
+#include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
