@@ -256,7 +256,7 @@ if(ELIPS_BUILD_PYTHON)
         target_compile_definitions(elips_pymodule PRIVATE ELIPS_GPU_ENABLED)
     endif()
     if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_link_options(elips_pymodule PRIVATE -static-libgcc -static-libstdc++)
+        target_link_options(elips_pymodule PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
     set(

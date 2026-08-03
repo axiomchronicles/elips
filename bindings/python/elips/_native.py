@@ -14,7 +14,16 @@ handles directly.
 
 from __future__ import annotations
 
+import contextlib
+import os
+import sys
 from typing import TYPE_CHECKING
+
+if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+    for path_entry in os.environ.get("PATH", "").split(os.path.pathsep):
+        if path_entry and os.path.isdir(path_entry):
+            with contextlib.suppress(OSError):
+                os.add_dll_directory(path_entry)
 
 from elips import _core
 
