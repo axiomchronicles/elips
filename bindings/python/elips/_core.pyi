@@ -68,17 +68,20 @@ class ParseError(ElipsError):
 
 class Metric(IntEnum):
     """Similarity metrics supported by ELIPS."""
+
     cosine = ...
     euclidean = ...
     dot_product = ...
 
 class IndexType(IntEnum):
     """Index backends."""
+
     graph = ...
     exact = ...
 
 class Durability(IntEnum):
     """Durability levels trading write throughput against crash safety."""
+
     paranoid = ...
     standard = ...
     relaxed = ...
@@ -86,6 +89,7 @@ class Durability(IntEnum):
 
 class Comparator(IntEnum):
     """Metadata comparison operators."""
+
     eq = ...
     ne = ...
     lt = ...
@@ -95,11 +99,13 @@ class Comparator(IntEnum):
 
 class AccessMode(IntEnum):
     """Database access mode."""
+
     read_write = ...
     read_only = ...
 
 class QueryStrategy(IntEnum):
     """Planner strategy chosen for a query."""
+
     ann_index = ...
     exact_candidates = ...
     full_scan = ...
@@ -108,6 +114,7 @@ class QueryStrategy(IntEnum):
 
 class TextEmbedderKind(IntEnum):
     """Runtime kind of text embedder attached to the database."""
+
     external = ...
     local_builtin = ...
 
@@ -115,6 +122,7 @@ class TextEmbedderKind(IntEnum):
 
 class TokenKind(IntEnum):
     """EQL token categories."""
+
     word = ...
     number = ...
     string = ...
@@ -123,6 +131,7 @@ class TokenKind(IntEnum):
 
 class Token:
     """A single EQL token produced by the lexer."""
+
     kind: TokenKind
     text: str
     number: float
@@ -271,7 +280,6 @@ class Config:
         dimension: int = ...,
     ) -> Config: ...
     def gpu(self, config: GpuConfig) -> Config: ...
-
     @property
     def dimension_val(self) -> int:
         """Get the configured dimension."""
@@ -342,6 +350,7 @@ class Config:
 
 class GpuPolicy(IntEnum):
     """GPU usage policy."""
+
     auto = ...
     prefer_gpu = ...
     require_gpu = ...
@@ -350,12 +359,14 @@ class GpuPolicy(IntEnum):
 
 class IndexBuildMode(IntEnum):
     """GPU index build vs. serve mode."""
+
     gpu_build_cpu_serve = ...
     gpu_build_gpu_serve = ...
     hybrid = ...
 
 class GpuIndexAlgorithm(IntEnum):
     """GPU index algorithm selection."""
+
     auto = ...
     cagra = ...
     ivf_flat = ...
@@ -364,6 +375,7 @@ class GpuIndexAlgorithm(IntEnum):
 
 class GpuPrecision(IntEnum):
     """GPU computation precision."""
+
     fp32 = ...
     fp16 = ...
     int8 = ...
@@ -371,6 +383,7 @@ class GpuPrecision(IntEnum):
 
 class GpuError(IntEnum):
     """GPU error codes."""
+
     device_not_found = ...
     insufficient_memory = ...
     kernel_launch_failed = ...
@@ -382,12 +395,14 @@ class GpuError(IntEnum):
 
 class GraphBuildAlgo(IntEnum):
     """Graph index build algorithm."""
+
     ivf_pq = ...
     nn_descent = ...
     iterative_search = ...
 
 class GraphIndexBuildParams:
     """Parameters for GPU graph index construction."""
+
     intermediate_graph_degree: int
     graph_degree: int
     build_algo: GraphBuildAlgo
@@ -399,6 +414,7 @@ class GraphIndexBuildParams:
 
 class IvfPqBuildParams:
     """Parameters for IVF-PQ index construction."""
+
     n_lists: int
     pq_dim: int
     pq_bits: int
@@ -411,6 +427,7 @@ class IvfPqBuildParams:
 
 class GpuIndexBuildParams:
     """GPU index build parameter variant."""
+
     params: GraphIndexBuildParams | IvfPqBuildParams
 
     def __init__(self) -> None: ...
@@ -418,6 +435,7 @@ class GpuIndexBuildParams:
 
 class KernelTiming:
     """Recorded GPU kernel timing."""
+
     kernel_name: str
     work_items: int
 
@@ -659,10 +677,8 @@ class Filter:
     def contains(self, substring: str) -> Filter: ...
     def and_(self, other: Filter) -> Filter: ...
     def or_(self, other: Filter) -> Filter: ...
-
     @staticmethod
     def not_(inner: Filter) -> Filter: ...
-
     @staticmethod
     def compare(
         field: str,
@@ -988,9 +1004,7 @@ class Database:
     def closed(self) -> bool:
         """True once :meth:`close` or :meth:`abandon` has run."""
 
-    def query(
-        self, eql: str, bindings: Mapping[str, Vector] = ...
-    ) -> list[Result]:
+    def query(self, eql: str, bindings: Mapping[str, Vector] = ...) -> list[Result]:
         """Execute a single EQL statement.
 
         Args:
@@ -1416,11 +1430,7 @@ class DeleteStatement:
     def __repr__(self) -> str: ...
 
 Statement: TypeAlias = (
-    SearchStatement
-    | FetchStatement
-    | ScanStatement
-    | InsertStatement
-    | DeleteStatement
+    SearchStatement | FetchStatement | ScanStatement | InsertStatement | DeleteStatement
 )
 
 def parse_eql(source: str) -> Statement:
@@ -1675,7 +1685,9 @@ def open(
     index: str = ...,
     access_mode: str = ...,
     gpu: GpuConfig | None = ...,
-    embedder: Callable[[Sequence[str]], Sequence[Vector]] | LocalEmbedderConfig | None = ...,
+    embedder: Callable[[Sequence[str]], Sequence[Vector]]
+    | LocalEmbedderConfig
+    | None = ...,
     embedder_provider: str = ...,
     embedder_model: str = ...,
     embedder_revision: str = ...,

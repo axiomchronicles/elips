@@ -99,7 +99,11 @@ class CMakeBuild(build_ext):
         out_dir.mkdir(parents=True, exist_ok=True)
         cfg = "Release"
         cmake_args = [
-            "cmake", "-S", str(root), "-B", self.build_temp,
+            "cmake",
+            "-S",
+            str(root),
+            "-B",
+            self.build_temp,
             f"-DCMAKE_BUILD_TYPE={cfg}",
             "-DELIPS_BUILD_PYTHON=ON",
             "-DELIPS_BUILD_TESTS=OFF",
@@ -110,16 +114,22 @@ class CMakeBuild(build_ext):
         ]
         local_pybind11 = root / "build" / "_deps" / "pybind11-src"
         if local_pybind11.exists():
-            cmake_args.append(
-                f"-DELIPS_PYBIND11_SOURCE_DIR={local_pybind11.resolve()}"
-            )
+            cmake_args.append(f"-DELIPS_PYBIND11_SOURCE_DIR={local_pybind11.resolve()}")
         subprocess.run(
             cmake_args,
             check=True,
         )
         subprocess.run(
-            ["cmake", "--build", self.build_temp, "--config", cfg, "--target", "elips_pymodule",
-             "-j"],
+            [
+                "cmake",
+                "--build",
+                self.build_temp,
+                "--config",
+                cfg,
+                "--target",
+                "elips_pymodule",
+                "-j",
+            ],
             check=True,
         )
 

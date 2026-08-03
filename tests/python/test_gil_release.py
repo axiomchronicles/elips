@@ -18,9 +18,8 @@ import random
 import threading
 import time
 
-import pytest
-
 import elips
+import pytest
 
 # Matched to the audit's measurement fixture. Smaller vectors make each seek
 # so cheap that per-call binding overhead, not the search, dominates the

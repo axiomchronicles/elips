@@ -36,7 +36,9 @@ def main() -> None:
         )
         arena = engine.arena("documents")
         embedder = engine.raw.config.text_embedder_info
-        print(f"text embedder: {embedder.provider}/{embedder.model}@{embedder.revision}")
+        print(
+            f"text embedder: {embedder.provider}/{embedder.model}@{embedder.revision}"
+        )
 
         arena.write_many(
             [

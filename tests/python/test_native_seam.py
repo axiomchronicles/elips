@@ -15,16 +15,13 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
-
 import elips
+import pytest
 from elips import _core, _native
 
 PACKAGE_DIR = pathlib.Path(elips.__file__).parent
 SOURCE_FILES = sorted(
-    path
-    for path in PACKAGE_DIR.rglob("*.py")
-    if "__pycache__" not in path.parts
+    path for path in PACKAGE_DIR.rglob("*.py") if "__pycache__" not in path.parts
 )
 
 
@@ -99,8 +96,7 @@ def test_modules_import_the_seam_not_the_extension(path: pathlib.Path) -> None:
     direct = [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        and node.module in {"elips._core", "_core"}
+        if isinstance(node, ast.ImportFrom) and node.module in {"elips._core", "_core"}
     ] + [
         node.lineno
         for node in ast.walk(tree)

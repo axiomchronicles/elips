@@ -75,17 +75,19 @@ def test_disable_default_embedder_requires_vector_first():
     docs = db.vault("docs")
     try:
         docs.place_document("alpha note")
-        assert False, "place_document should require a text embedder"
+        raise AssertionError("place_document should require a text embedder")
     except elips.ConfigError as error:
         message = str(error)
         assert "place()" in message
         assert "local text embedder" in message
 
-    docs.place([1.0] + [0.0] * 63, document=elips.DocumentAttachment(text="vector note"))
+    docs.place(
+        [1.0] + [0.0] * 63, document=elips.DocumentAttachment(text="vector note")
+    )
 
     try:
         docs.seek_text("alpha", top=1)
-        assert False, "seek_text should require a text embedder"
+        raise AssertionError("seek_text should require a text embedder")
     except elips.ConfigError as error:
         assert "seek()" in str(error)
 
@@ -121,7 +123,7 @@ def test_explicit_local_config_and_missing_artifact():
         os.remove(artifact_path)
         try:
             elips.open(db_path)
-            assert False, "missing artifact should fail reopen"
+            raise AssertionError("missing artifact should fail reopen")
         except elips.StorageError:
             pass
 
@@ -157,7 +159,7 @@ def test_non_rehydratable_python_embedder_requires_explicit_reopen():
 
         try:
             reopened.vault("docs").place_document("beta database")
-            assert False, "reopen without explicit embedder should fail"
+            raise AssertionError("reopen without explicit embedder should fail")
         except elips.ConfigError as error:
             assert "matching embedder" in str(error)
         reopened.close()

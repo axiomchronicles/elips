@@ -44,9 +44,7 @@ def build_record_inputs_from_columns(
 
     count = next((value for value in candidates if value is not None), 0)
     if count == 0:
-        raise ValueError(
-            "ingest requires records or at least one vector or text batch"
-        )
+        raise ValueError("ingest requires records or at least one vector or text batch")
 
     for value in candidates:
         if value is not None and value != count:
@@ -56,13 +54,9 @@ def build_record_inputs_from_columns(
     prepared_texts = list(texts) if texts is not None else [None] * count
     prepared_meta = list(meta) if meta is not None else [None] * count
     prepared_keys = list(keys) if keys is not None else [None] * count
-    prepared_documents = (
-        list(documents) if documents is not None else [None] * count
-    )
+    prepared_documents = list(documents) if documents is not None else [None] * count
     prepared_chunks = list(chunks) if chunks is not None else [None] * count
-    prepared_lineages = (
-        list(lineages) if lineages is not None else [None] * count
-    )
+    prepared_lineages = list(lineages) if lineages is not None else [None] * count
 
     records: list[RecordInput] = []
     for index in range(count):

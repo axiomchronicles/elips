@@ -176,8 +176,7 @@ class RecordInput:
             return False
 
         return bool(
-            self.document.uri
-            or self.document.mime_type not in ("", "text/plain")
+            self.document.uri or self.document.mime_type not in ("", "text/plain")
         )
 
     @classmethod
@@ -223,7 +222,11 @@ class RecordInput:
 
         modern_key = record.get("key")
         legacy_key = record.get("id")
-        if modern_key is not None and legacy_key is not None and modern_key != legacy_key:
+        if (
+            modern_key is not None
+            and legacy_key is not None
+            and modern_key != legacy_key
+        ):
             raise ValueError(
                 "record mapping cannot define both key and id with different values"
             )

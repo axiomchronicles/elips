@@ -48,12 +48,22 @@ def test_setup_py_has_no_import_time_side_effects(
         # module scope can have a side effect on import.
         if isinstance(
             node,
-            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom),
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.Import,
+                ast.ImportFrom,
+            ),
         ):
             continue
         for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
             func = call.func
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
             if name in destructive:
                 offenders.append(f"line {call.lineno}: {name}()")
 

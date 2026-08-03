@@ -42,24 +42,22 @@ def hit_from_result(
     """Build a :class:`~elips.Hit`, fetching the stored record only if needed."""
 
     fetched = (
-        cast(StoredRecord | None, vault.fetch(result.id))
-        if include_vectors
-        else None
+        cast(StoredRecord | None, vault.fetch(result.id)) if include_vectors else None
     )
     return Hit(
         key=result.id,
         distance=result.distance,
         meta=dict(result.data),
-        document=result.document if result.document is not None else (
-            fetched["document"] if fetched is not None else None
-        ),
+        document=result.document
+        if result.document is not None
+        else (fetched["document"] if fetched is not None else None),
         vector=tuple(fetched["vector"]) if fetched is not None else None,
-        chunk=result.chunk if result.chunk is not None else (
-            fetched["chunk"] if fetched is not None else None
-        ),
-        lineage=result.lineage if result.lineage is not None else (
-            fetched["lineage"] if fetched is not None else None
-        ),
+        chunk=result.chunk
+        if result.chunk is not None
+        else (fetched["chunk"] if fetched is not None else None),
+        lineage=result.lineage
+        if result.lineage is not None
+        else (fetched["lineage"] if fetched is not None else None),
         approximate=result.approximate,
         codec=result.codec,
     )

@@ -17,9 +17,8 @@ import tempfile
 import threading
 import warnings
 
-import pytest
-
 import elips
+import pytest
 from elips import _core as core, query as eql
 
 requires_gpu = pytest.mark.skipif(
@@ -425,9 +424,7 @@ def test_config_introspection_round_trips():
     assert not config.metadata_acceleration_enabled
 
 
-@pytest.mark.parametrize(
-    "level", ["paranoid", "standard", "relaxed", "ephemeral"]
-)
+@pytest.mark.parametrize("level", ["paranoid", "standard", "relaxed", "ephemeral"])
 def test_every_durability_level_round_trips(level):
     assert elips.Config().durability(level).durability_val == level
 
@@ -463,9 +460,7 @@ def test_describe_local_embedder_uses_fallback_dimension():
 
 
 def test_parse_seek_statement_exposes_the_tree():
-    stmt = elips.parse_eql(
-        'seek in docs nearest $q top 7 where year >= 2023 yield'
-    )
+    stmt = elips.parse_eql("seek in docs nearest $q top 7 where year >= 2023 yield")
     assert isinstance(stmt, eql.SearchStatement)
     assert stmt.vault == "docs"
     assert stmt.top == 7
@@ -492,7 +487,7 @@ def test_parse_rejects_invalid_eql():
 
 
 def test_parse_agrees_with_validate():
-    good = 'seek in docs nearest $q top 1 yield'
+    good = "seek in docs nearest $q top 1 yield"
     assert elips.validate_eql(good) is None
     assert isinstance(elips.parse_eql(good), eql.SearchStatement)
 
@@ -502,15 +497,13 @@ def test_parsed_filter_is_usable_against_the_database(memdb):
     for year in (2020, 2023, 2025):
         vault.place([float(year % 10), 0.0, 0.0, 0.0], {"year": year})
 
-    stmt = elips.parse_eql(
-        'seek in docs nearest $q top 5 where year >= 2023 yield'
-    )
+    stmt = elips.parse_eql("seek in docs nearest $q top 5 where year >= 2023 yield")
     matched = vault.scan(where=stmt.where, limit=100)
     assert {int(row["data"]["year"]) for row in matched} == {2023, 2025}
 
 
 def test_ast_nodes_are_mutable_for_query_rewriting():
-    stmt = elips.parse_eql('seek in docs nearest $q top 100 yield')
+    stmt = elips.parse_eql("seek in docs nearest $q top 100 yield")
     stmt.top = 10
     stmt.vault = "other"
     assert (stmt.top, stmt.vault) == (10, "other")
@@ -675,10 +668,10 @@ def test_gpu_distance_kernel_matches_the_cpu():
         rows = device.compute_distances(queries, corpus, metric="cosine")
 
     assert len(rows) == len(queries)
-    for query, row in zip(queries, rows):
+    for query, row in zip(queries, rows, strict=False):
         assert len(row) == len(corpus)
         for entry, expected in zip(
-            row, (elips.distance("cosine", query, c) for c in corpus)
+            row, (elips.distance("cosine", query, c) for c in corpus), strict=False
         ):
             assert entry == pytest.approx(expected, abs=1e-4)
 
@@ -916,7 +909,7 @@ def test_concurrent_writers_and_readers_on_one_vault(memdb):
         try:
             for i in range(100):
                 vault.place([float(worker * 1000 + i), 1.0, 0.0, 0.0])
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # noqa: BLE001 # pragma: no cover - failure path
             errors.append(exc)
 
     def reader() -> None:
@@ -925,7 +918,7 @@ def test_concurrent_writers_and_readers_on_one_vault(memdb):
                 vault.seek([1.0, 0.0, 0.0, 0.0], 5)
                 vault.count()
                 vault.scan(limit=4)
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # noqa: BLE001 # pragma: no cover - failure path
             errors.append(exc)
 
     writers = [threading.Thread(target=writer, args=(w,)) for w in range(3)]
@@ -952,7 +945,7 @@ def test_concurrent_transactions_do_not_interleave(memdb):
                     vault = txn.vault("v")
                     for i in range(5):
                         vault.place([float(worker_id), float(batch), float(i), 0.0])
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # noqa: BLE001 # pragma: no cover - failure path
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(w,)) for w in range(4)]
@@ -972,7 +965,7 @@ def test_concurrent_vault_creation_is_safe(memdb):
         try:
             for i in range(15):
                 memdb.vault(f"vault_{i}").place([float(worker_id), 0.0, 0.0, 0.0])
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # noqa: BLE001 # pragma: no cover - failure path
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(w,)) for w in range(6)]
@@ -1055,8 +1048,9 @@ def test_open_accepts_a_bare_codec_name():
 
 def test_vault_quantize_compresses_and_labels_results():
     params = elips.QuantParams(codec="pq", pq_dim=8, train_iters=4)
-    with elips.open(":memory:", dimension=32, metric="euclidean",
-                    quantization=params) as db:
+    with elips.open(
+        ":memory:", dimension=32, metric="euclidean", quantization=params
+    ) as db:
         vault = db.vault("main")
         rows = _gaussian_rows(300, 32)
         for row in rows:
@@ -1105,8 +1099,9 @@ def test_unquantized_vault_reports_exact_results():
 
 def test_quantize_rejects_invalid_states():
     params = elips.QuantParams(codec="pq", pq_dim=4, train_iters=3)
-    with elips.open(":memory:", dimension=16, metric="euclidean",
-                    quantization=params) as db:
+    with elips.open(
+        ":memory:", dimension=16, metric="euclidean", quantization=params
+    ) as db:
         vault = db.vault("main")
         # No codebook can be trained from nothing.
         with pytest.raises(elips.ConfigError):
@@ -1130,8 +1125,9 @@ def test_quantize_requires_a_configured_codec():
 
 def test_database_quantize_all_covers_every_vault():
     params = elips.QuantParams(codec="sq8")
-    with elips.open(":memory:", dimension=8, metric="euclidean",
-                    quantization=params) as db:
+    with elips.open(
+        ":memory:", dimension=8, metric="euclidean", quantization=params
+    ) as db:
         for name in ("alpha", "beta"):
             vault = db.vault(name)
             for row in _gaussian_rows(40, 8, seed=hash(name) % 1000):
@@ -1145,8 +1141,9 @@ def test_database_quantize_all_covers_every_vault():
 
 def test_inserts_after_quantization_are_encoded_on_arrival():
     params = elips.QuantParams(codec="sq8")
-    with elips.open(":memory:", dimension=8, metric="euclidean",
-                    quantization=params) as db:
+    with elips.open(
+        ":memory:", dimension=8, metric="euclidean", quantization=params
+    ) as db:
         vault = db.vault("main")
         for row in _gaussian_rows(40, 8):
             vault.place(row)
@@ -1164,8 +1161,9 @@ def test_quantized_vault_survives_reopen_on_disk():
     rows = _gaussian_rows(200, 32)
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "db")
-        with elips.open(path, dimension=32, metric="euclidean",
-                        quantization=params) as db:
+        with elips.open(
+            path, dimension=32, metric="euclidean", quantization=params
+        ) as db:
             vault = db.vault("main")
             for row in rows:
                 vault.place(row)
@@ -1174,8 +1172,9 @@ def test_quantized_vault_survives_reopen_on_disk():
 
         # The codebook is persisted with the snapshot, so the reopened vault is
         # still compressed and ranks identically.
-        with elips.open(path, dimension=32, metric="euclidean",
-                        quantization=params) as db:
+        with elips.open(
+            path, dimension=32, metric="euclidean", quantization=params
+        ) as db:
             vault = db.vault("main")
             assert vault.quantized
             assert vault.codec == "pq"
@@ -1193,10 +1192,11 @@ def test_quantized_vault_recall_is_useful():
         keys = [exact.place(row) for row in rows]
         truth = [h.id for h in exact.seek(rows[0], top=5)]
 
-    with elips.open(":memory:", dimension=16, metric="euclidean",
-                    quantization=params) as db:
+    with elips.open(
+        ":memory:", dimension=16, metric="euclidean", quantization=params
+    ) as db:
         vault = db.vault("main")
-        for key, row in zip(keys, rows):
+        for key, row in zip(keys, rows, strict=False):
             vault.place(row, id=key)
         vault.quantize()
         got = [h.id for h in vault.seek(rows[0], top=5)]

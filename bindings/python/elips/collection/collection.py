@@ -118,8 +118,7 @@ class Collection:
         return self._vault.count()
 
     @overload
-    def write(self, record: RecordInputLike, /) -> str:
-        ...
+    def write(self, record: RecordInputLike, /) -> str: ...
 
     @overload
     def write(
@@ -134,8 +133,7 @@ class Collection:
         document: DocumentAttachment | None = ...,
         chunk: ChunkInfo | None = ...,
         lineage: EmbeddingLineage | None = ...,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     def write(
         self,
@@ -288,8 +286,7 @@ class Collection:
         return assigned
 
     @overload
-    def ingest(self, records: Sequence[RecordInputLike], /) -> list[str]:
-        ...
+    def ingest(self, records: Sequence[RecordInputLike], /) -> list[str]: ...
 
     @overload
     def ingest(
@@ -304,8 +301,7 @@ class Collection:
         documents: Sequence[DocumentAttachment | None] | None = ...,
         chunks: Sequence[ChunkInfo | None] | None = ...,
         lineages: Sequence[EmbeddingLineage | None] | None = ...,
-    ) -> list[str]:
-        ...
+    ) -> list[str]: ...
 
     def ingest(
         self,
@@ -484,9 +480,7 @@ class Collection:
             threshold=max_distance,
         )
         return [
-            hit_from_result(
-                result, vault=self._vault, include_vectors=include_vectors
-            )
+            hit_from_result(result, vault=self._vault, include_vectors=include_vectors)
             for result in results
         ]
 
@@ -561,9 +555,7 @@ class Collection:
             )
 
         return [
-            hit_from_result(
-                result, vault=self._vault, include_vectors=include_vectors
-            )
+            hit_from_result(result, vault=self._vault, include_vectors=include_vectors)
             for result in results
         ]
 
@@ -602,9 +594,7 @@ class Collection:
             lexical_weight=lexical_weight,
         )
         return [
-            hit_from_result(
-                result, vault=self._vault, include_vectors=include_vectors
-            )
+            hit_from_result(result, vault=self._vault, include_vectors=include_vectors)
             for result in results
         ]
 

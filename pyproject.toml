@@ -1,0 +1,42 @@
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "ARG", # flake8-unused-arguments
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F403", "F405", "E402"]
+"**/core.py" = ["F401", "F403", "F405", "E402"]
+"**/errors.py" = ["E402", "F401"]
+"**/modern.py" = ["E402", "F401"]
+"**/exceptions.py" = ["E402", "F401"]
+"**/typing.py" = ["E402", "E501"]
+"**/_native.py" = ["F401", "F403", "F405", "E402"]
+"**/native.py" = ["F401", "F403", "F405"]
+"**/_internal/*.py" = ["E501", "E402"]
+"**/collection/*.py" = ["E501"]
+"**/config/connect.py" = ["E501"]
+"**/database/*.py" = ["E501"]
+"**/gpu/*.py" = ["E501"]
+"**/records/*.py" = ["E501"]
+"**/_core.pyi" = ["E501", "N818"]
+"**/setup.py" = ["E501"]
+"**/test.py" = ["E501"]
+"**/tests/**/*.py" = ["E501"]
+"**/examples/**/*.py" = ["E501"]

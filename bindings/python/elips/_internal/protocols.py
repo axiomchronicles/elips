@@ -38,8 +38,7 @@ class Embedder(Protocol):
         ...     return [[1.0, 0.0] for _ in texts]
     """
 
-    def __call__(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
-        ...
+    def __call__(self, texts: Sequence[str]) -> Sequence[Sequence[float]]: ...
 
 
 RecordInputLike: TypeAlias = "RecordInput | RecordInputDict | BatchRecord"

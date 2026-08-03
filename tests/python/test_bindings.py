@@ -3,15 +3,17 @@
 Tests every exposed Python API for correctness, typing, and C++ parity.
 """
 
-import sys
-import os
 import gc
+import os
 import subprocess
-import threading
+import sys
 import tempfile
 import textwrap
+import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "bindings", "python"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "bindings", "python")
+)
 import elips
 
 
@@ -20,10 +22,12 @@ def toy_embed(texts):
     out = []
     for text in texts:
         lowered = text.lower()
-        out.append([
-            1.0 if "alpha" in lowered else 0.0,
-            1.0 if "beta" in lowered else 0.0,
-        ])
+        out.append(
+            [
+                1.0 if "alpha" in lowered else 0.0,
+                1.0 if "beta" in lowered else 0.0,
+            ]
+        )
     return out
 
 
@@ -64,9 +68,7 @@ def run_binding_subprocess(script):
     env = os.environ.copy()
     existing_path = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
-        bindings_dir
-        if not existing_path
-        else bindings_dir + os.pathsep + existing_path
+        bindings_dir if not existing_path else bindings_dir + os.pathsep + existing_path
     )
 
     return subprocess.run(
@@ -75,14 +77,21 @@ def run_binding_subprocess(script):
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
 def test_exceptions():
     """Verify all 8 exceptions are importable and properly raised."""
     for name in [
-        "ElipsError", "DimensionMismatch", "InvalidVector", "ConfigError",
-        "NotFound", "StorageError", "LockConflict", "ParseError",
+        "ElipsError",
+        "DimensionMismatch",
+        "InvalidVector",
+        "ConfigError",
+        "NotFound",
+        "StorageError",
+        "LockConflict",
+        "ParseError",
     ]:
         exc = getattr(elips, name)
         assert issubclass(exc, Exception), f"{name} is not an Exception subclass"
@@ -95,13 +104,13 @@ def test_exceptions():
     db = elips.open(":memory:", dimension=2)
     try:
         db.vault("v").place([1.0])  # wrong dimension
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except elips.DimensionMismatch:
         pass
 
     try:
         elips.validate_eql("garbage syntax !!!")
-        assert False
+        raise AssertionError()
     except elips.ParseError:
         pass
 
@@ -159,7 +168,7 @@ def test_eql_tooling():
     # Validate fails on broken EQL
     try:
         elips.validate_eql("invalid")
-        assert False
+        raise AssertionError()
     except elips.ParseError:
         pass
 
@@ -168,12 +177,14 @@ def test_eql_tooling():
 
 def test_config():
     """Verify Config builder and property getters."""
-    c = (elips.Config()
-         .dimension(384)
-         .metric("euclidean")
-         .index("exact")
-         .durability("paranoid")
-         .graph_params(elips.GraphParams(32, 400, 100)))
+    c = (
+        elips.Config()
+        .dimension(384)
+        .metric("euclidean")
+        .index("exact")
+        .durability("paranoid")
+        .graph_params(elips.GraphParams(32, 400, 100))
+    )
 
     assert c.dimension_val == 384
     assert c.metric_val == "euclidean"
@@ -194,14 +205,16 @@ def test_config():
 
 def test_config_v2_surface():
     """Verify v2 configuration options and text embedder wiring."""
-    c = (elips.Config()
-         .dimension(2)
-         .metric("cosine")
-         .index("graph")
-         .access_mode("read_only")
-         .segmented_storage(False)
-         .metadata_acceleration(False)
-         .text_embedder(toy_embed, provider="pytest", model="toy"))
+    c = (
+        elips.Config()
+        .dimension(2)
+        .metric("cosine")
+        .index("graph")
+        .access_mode("read_only")
+        .segmented_storage(False)
+        .metadata_acceleration(False)
+        .text_embedder(toy_embed, provider="pytest", model="toy")
+    )
 
     assert c.access_mode_val == "read_only"
     assert c.access_mode_enum == elips.AccessMode.read_only
@@ -221,7 +234,9 @@ def test_database_crud():
 
     rid1 = docs.place([1.0, 0.0, 0.0], {"title": "alpha", "year": 2024})
     assert len(rid1) == 36  # UUIDv7 hex
-    rid2 = docs.place([0.0, 1.0, 0.0], {"title": "beta"}, id="00000000-0000-7000-8000-000000000001")
+    rid2 = docs.place(
+        [0.0, 1.0, 0.0], {"title": "beta"}, id="00000000-0000-7000-8000-000000000001"
+    )
     assert rid2 == "00000000-0000-7000-8000-000000000001"
 
     assert docs.count() == 2
@@ -259,10 +274,12 @@ def test_database_crud():
 
 def test_native_document_query_surface():
     """Verify native document ingest, lineage, text query, and planner APIs."""
-    config = (elips.Config()
-              .dimension(2)
-              .metric("cosine")
-              .text_embedder(toy_embed, provider="pytest", model="toy"))
+    config = (
+        elips.Config()
+        .dimension(2)
+        .metric("cosine")
+        .text_embedder(toy_embed, provider="pytest", model="toy")
+    )
     db = elips.open_with_config(":memory:", config)
     docs = db.vault("docs")
 
@@ -298,29 +315,33 @@ def test_native_document_query_surface():
 
 def test_place_many_text_batch_with_lineage():
     """Batch ingestion supports text-only rows plus explicit lineage objects."""
-    config = (elips.Config()
-              .dimension(2)
-              .metric("cosine")
-              .text_embedder(toy_embed, provider="pytest", model="toy"))
+    config = (
+        elips.Config()
+        .dimension(2)
+        .metric("cosine")
+        .text_embedder(toy_embed, provider="pytest", model="toy")
+    )
     db = elips.open_with_config(":memory:", config)
     docs = db.vault("docs")
 
     explicit_lineage = make_lineage(provider="custom", model="manual", revision="r1")
     explicit_lineage.attributes = {"stage": "batch"}
 
-    docs.place_many([
-        {
-            "text": "alpha note",
-            "data": {"kind": "alpha"},
-            "chunk": make_chunk("doc-alpha", ordinal=0, start=0, end=10),
-            "lineage": explicit_lineage,
-        },
-        {
-            "text": "beta note",
-            "data": {"kind": "beta"},
-            "chunk": make_chunk("doc-beta", ordinal=1, start=0, end=9),
-        },
-    ])
+    docs.place_many(
+        [
+            {
+                "text": "alpha note",
+                "data": {"kind": "alpha"},
+                "chunk": make_chunk("doc-alpha", ordinal=0, start=0, end=10),
+                "lineage": explicit_lineage,
+            },
+            {
+                "text": "beta note",
+                "data": {"kind": "beta"},
+                "chunk": make_chunk("doc-beta", ordinal=1, start=0, end=9),
+            },
+        ]
+    )
 
     assert docs.count() == 2
     alpha = docs.seek_text("alpha", top=1)[0]
@@ -343,17 +364,25 @@ def test_place_many():
     db = elips.open(":memory:", dimension=2)
     docs = db.vault("batch")
 
-    docs.place_many([
-        {"vector": [1.0, 0.0], "data": {"n": 1}},
-        {"vector": [0.0, 1.0], "data": {"n": 2}},
-        {"vector": [1.0, 1.0], "data": {"n": 3}},
-    ])
+    docs.place_many(
+        [
+            {"vector": [1.0, 0.0], "data": {"n": 1}},
+            {"vector": [0.0, 1.0], "data": {"n": 2}},
+            {"vector": [1.0, 1.0], "data": {"n": 3}},
+        ]
+    )
     assert docs.count() == 3
 
     # With IDs
-    docs.place_many([
-        {"vector": [2.0, 0.0], "id": "00000000-0000-7000-8000-00000000000a", "data": {"n": 10}},
-    ])
+    docs.place_many(
+        [
+            {
+                "vector": [2.0, 0.0],
+                "id": "00000000-0000-7000-8000-00000000000a",
+                "data": {"n": 10},
+            },
+        ]
+    )
     r = docs.fetch("00000000-0000-7000-8000-00000000000a")
     assert r is not None and r["data"]["n"] == 10
 
@@ -476,7 +505,7 @@ def test_eql_query():
     assert fetched[0].id == rid
 
     # Scan via EQL
-    scanned = db.query('scan in items where val >= 10 limit 1 yield')
+    scanned = db.query("scan in items where val >= 10 limit 1 yield")
     assert len(scanned) == 1
 
     # Erase via EQL
@@ -556,7 +585,9 @@ def test_gpu_device_info():
 def test_database_gpu_info_matches_runtime_snapshot():
     """Database GPU info matches the default runtime device snapshot."""
     if not elips._has_gpu:
-        print("  SKIP test_database_gpu_info_matches_runtime_snapshot (no GPU bindings)")
+        print(
+            "  SKIP test_database_gpu_info_matches_runtime_snapshot (no GPU bindings)"
+        )
         return
 
     db = elips.open(":memory:", dimension=2)
@@ -695,10 +726,14 @@ def test_gpu_database_teardown_subprocess():
 def test_gpu_modern_merge_replaces_existing_key_subprocess():
     """GPU-backed modern merge should replace an existing key without crashing."""
     if not elips._has_gpu:
-        print("  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no GPU bindings)")
+        print(
+            "  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no GPU bindings)"
+        )
         return
     if not has_runtime_gpu():
-        print("  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no runtime GPU device)")
+        print(
+            "  SKIP test_gpu_modern_merge_replaces_existing_key_subprocess (no runtime GPU device)"
+        )
         return
 
     script = textwrap.dedent(
@@ -779,7 +814,7 @@ def test_thread_safety_python():
     errors = []
     results = []
 
-    def worker(qid):
+    def worker(_qid):
         try:
             r = v.seek([0.0, 0.0, 0.0], top=10)
             results.append(len(r))
@@ -806,7 +841,7 @@ def test_edge_cases():
     v = db.vault("edge")
     try:
         v.place([])
-        assert False
+        raise AssertionError()
     except elips.DimensionMismatch:
         pass
 
@@ -860,7 +895,7 @@ def test_type_stubs():
     stub_path = os.path.join(elips_dir, "_core.pyi")
     assert os.path.exists(stub_path), "_core.pyi missing"
 
-    with open(stub_path, "r", encoding="utf-8") as f:
+    with open(stub_path, encoding="utf-8") as f:
         stub_text = f.read()
     # Spellings track the 3.11 floor: PEP 604 unions, no quoted forward refs.
     assert "def gpu(self, config: GpuConfig) -> Config: ..." in stub_text
@@ -873,8 +908,7 @@ def test_type_stubs():
 
 def test_public_facades_and_structured_record_api():
     """Structured record inputs and facade modules remain importable."""
-    import elips.core as core
-    import elips.modern as modern
+    from elips import core, modern
 
     assert core.Database is elips.Database
     assert modern.Engine is elips.Engine
@@ -884,11 +918,13 @@ def test_public_facades_and_structured_record_api():
     arena = engine.arena("docs")
 
     markdown = elips.DocumentAttachment(text="beta appendix", mime_type="text/markdown")
-    keys = arena.write_many([
-        elips.RecordInput(text="alpha note", meta={"kind": "alpha"}),
-        {"text": "beta note", "meta": {"kind": "beta"}},
-        {"vector": [0.0, 1.0], "document": markdown, "meta": {"kind": "appendix"}},
-    ])
+    keys = arena.write_many(
+        [
+            elips.RecordInput(text="alpha note", meta={"kind": "alpha"}),
+            {"text": "beta note", "meta": {"kind": "beta"}},
+            {"vector": [0.0, 1.0], "document": markdown, "meta": {"kind": "appendix"}},
+        ]
+    )
     assert len(keys) == 3
 
     legacy_key = arena.ingest(
@@ -944,8 +980,9 @@ def test_modern_document_api():
     assert hits[0].meta["kind"] == "alpha"
     assert len(hits[0].vector) == 2
 
-    filtered = arena.probe([0.0, 1.0], top=2,
-                           where=elips.Filter().field("kind").equals("beta"))
+    filtered = arena.probe(
+        [0.0, 1.0], top=2, where=elips.Filter().field("kind").equals("beta")
+    )
     assert len(filtered) == 1
     assert filtered[0].text == "beta note"
 
@@ -990,8 +1027,9 @@ def test_modern_probe_hybrid_and_explain():
 
 def test_modern_merge_replaces_existing_key():
     """Modern merge relies on vault-level replace semantics for repeated IDs."""
-    engine = elips.connect(":memory:", dimension=2, metric="cosine",
-                           index="exact", embedder=toy_embed)
+    engine = elips.connect(
+        ":memory:", dimension=2, metric="cosine", index="exact", embedder=toy_embed
+    )
     arena = engine.arena("docs")
 
     key = arena.write(vector=[1.0, 0.0], text="alpha old", meta={"rev": 1})
@@ -1029,7 +1067,7 @@ def test_parity_cpp_vs_python():
         {"name": "center"},
     ]
     ids = []
-    for vec, meta in zip(vectors, metas):
+    for vec, meta in zip(vectors, metas, strict=False):
         rid = v.place(vec, meta)
         ids.append(rid)
 
@@ -1056,10 +1094,7 @@ def test_segmented_persistence_and_read_only_mode():
     """Persistent v2 storage exposes manifest segments and shared read-only mode."""
     with tempfile.TemporaryDirectory() as td:
         db_path = os.path.join(td, "segmented")
-        config = (elips.Config()
-                  .dimension(64)
-                  .metric("cosine")
-                  .segmented_storage(True))
+        config = elips.Config().dimension(64).metric("cosine").segmented_storage(True)
 
         db = elips.open_with_config(db_path, config)
         docs = db.vault("docs")
@@ -1077,11 +1112,13 @@ def test_segmented_persistence_and_read_only_mode():
 
         assert reader_a.vault("docs").count() == 2
         assert reader_b.vault("docs").count() == 2
-        assert reader_b.vault("docs").seek_text("alpha", top=1)[0].data["kind"] == "alpha"
+        assert (
+            reader_b.vault("docs").seek_text("alpha", top=1)[0].data["kind"] == "alpha"
+        )
 
         try:
             reader_a.vault("docs").place([1.0, 0.0], {"kind": "gamma"})
-            assert False
+            raise AssertionError()
         except elips.StorageError:
             pass
 
@@ -1095,10 +1132,7 @@ def test_compact_and_rebuild_index_python_api():
     """Python maintenance APIs preserve searchability across compaction."""
     with tempfile.TemporaryDirectory() as td:
         db_path = os.path.join(td, "compact")
-        config = (elips.Config()
-                  .dimension(64)
-                  .metric("cosine")
-                  .segmented_storage(True))
+        config = elips.Config().dimension(64).metric("cosine").segmented_storage(True)
 
         db = elips.open_with_config(db_path, config)
         docs = db.vault("docs")
@@ -1162,9 +1196,10 @@ if __name__ == "__main__":
     for t in tests:
         try:
             t()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  FAIL {t.__name__}: {e}")
             import traceback
+
             traceback.print_exc()
             failed += 1
 
