@@ -53,6 +53,9 @@ inline void sync_file_data(int fd) {
     }
 #ifdef _WIN32
     if (_commit(fd) != 0) {
+        if (errno == EBADF) {
+            return;
+        }
         throw StorageError{"_commit failed"};
     }
 #else
@@ -75,7 +78,7 @@ inline void sync_file_data(int fd) {
 
 inline void sync_file_path(const std::filesystem::path& path) {
 #ifdef _WIN32
-    const int fd = ::_open(path.string().c_str(), _O_RDONLY | _O_BINARY);
+    const int fd = ::_open(path.string().c_str(), _O_RDWR | _O_BINARY);
     if (fd < 0) {
         throw StorageError{"cannot open for fsync: " + path.string()};
     }
