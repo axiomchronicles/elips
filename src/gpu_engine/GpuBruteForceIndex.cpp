@@ -6,6 +6,8 @@
 
 #include "elips/domain/Errors.hpp"
 #include "elips/domain/Expected.hpp"
+#include "elips/gpu_engine/GpuIndexTransferManager.hpp"
+#include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {

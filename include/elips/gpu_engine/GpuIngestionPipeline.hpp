@@ -25,7 +25,7 @@ public:
         size_t n, size_t dim, size_t pq_dim, size_t pq_bits);
 
 private:
-    GpuPort& backend_;
+    [[maybe_unused]] GpuPort& backend_;
 };
 
 } // namespace elips::gpu

@@ -28,7 +28,7 @@ public:
         std::span<uint8_t> codes_out);
 
 private:
-    GpuPort& backend_;
+    [[maybe_unused]] GpuPort& backend_;
 };
 
 } // namespace elips::gpu
