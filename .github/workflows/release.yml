@@ -4,17 +4,23 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU (Linux only for aarch64 wheels)
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,6 +31,7 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@v5
 
       - name: Prepare self-contained bindings directory
+        shell: bash
         run: |
           python3 -c "import shutil; from pathlib import Path; root = Path('bindings/python'); repo = Path('.'); src_copy = root / 'core_src'; src_copy.mkdir(exist_ok=True); [shutil.copytree(repo / d, src_copy / d, dirs_exist_ok=True) for d in ['src', 'include', 'cli', 'benchmarks', 'tests'] if (repo / d).exists()]; shutil.copy2(repo / 'CMakeLists.txt', src_copy / 'CMakeLists.txt')"
 
@@ -34,9 +41,10 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse bindings/python
         env:
-          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_ARCHS_WINDOWS: "AMD64"
           CIBW_BEFORE_BUILD: "pip install cmake ninja"
 
       - uses: actions/upload-artifact@v4
@@ -70,9 +78,48 @@ jobs:
           name: cibw-sdist
           path: bindings/python/dist/*.tar.gz
 
+  build_cli:
+    name: Build CLI executable on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure CMake
+        run: cmake -S . -B build_cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_CLI=ON -DELIPS_BUILD_PYTHON=OFF -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_BENCH=OFF
+
+      - name: Build elips_cli
+        run: cmake --build build_cli --config Release -j
+
+      - name: Package CLI (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build_cli
+          tar -czvf "../elips-cli-${{ matrix.os }}.tar.gz" elips
+
+      - name: Package CLI (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Compress-Archive -Path build_cli\elips.exe -DestinationPath elips-cli-windows-latest.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary-${{ matrix.os }}
+          path: |
+            elips-cli-*.tar.gz
+            elips-cli-*.zip
+
   publish:
     name: Publish to PyPI & Create GitHub Release
-    needs: [build_wheels, build_sdist]
+    needs: [build_wheels, build_sdist, build_cli]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,7 +130,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: cibw-*
+          pattern: '*'
           path: dist
           merge-multiple: true
 
@@ -100,3 +147,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true

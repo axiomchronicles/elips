@@ -1,7 +1,13 @@
 #include "elips/storage/WAL.hpp"
 
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include <cerrno>
 #include <cstring>
@@ -65,7 +71,11 @@ std::string encode_body(const WAL::Entry& entry) {
 
 WAL::WAL(std::filesystem::path path, bool sync_each_write)
     : path_(std::move(path)), sync_each_write_(sync_each_write) {
-    fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+#ifdef _WIN32
+    fd_ = ::_open(path_.string().c_str(), _O_WRONLY | _O_CREAT | _O_APPEND | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
+    fd_ = ::open(path_.string().c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+#endif
     if (fd_ < 0) {
         throw StorageError{"cannot open WAL for appending"};
     }
@@ -73,14 +83,22 @@ WAL::WAL(std::filesystem::path path, bool sync_each_write)
 
 WAL::~WAL() {
     if (fd_ >= 0) {
+#ifdef _WIN32
+        ::_close(fd_);
+#else
         ::close(fd_);
+#endif
     }
 }
 
 void WAL::write_all(const char* data, std::size_t size) {
     std::size_t written = 0;
     while (written < size) {
-        const ssize_t n = ::write(fd_, data + written, size - written);
+#ifdef _WIN32
+        const int n = ::_write(fd_, data + written, static_cast<unsigned int>(size - written));
+#else
+        const std::ptrdiff_t n = ::write(fd_, data + written, size - written);
+#endif
         if (n < 0) {
             if (errno == EINTR) {
                 continue;
@@ -147,9 +165,17 @@ void WAL::append_txn_commit() {
 
 void WAL::reset() {
     if (fd_ >= 0) {
+#ifdef _WIN32
+        ::_close(fd_);
+#else
         ::close(fd_);
+#endif
     }
-    fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#ifdef _WIN32
+    fd_ = ::_open(path_.string().c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
+    fd_ = ::open(path_.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endif
     if (fd_ < 0) {
         throw StorageError{"cannot truncate WAL"};
     }

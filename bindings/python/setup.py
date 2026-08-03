@@ -118,7 +118,7 @@ class CMakeBuild(build_ext):
             check=True,
         )
         subprocess.run(
-            ["cmake", "--build", self.build_temp, "--target", "elips_pymodule",
+            ["cmake", "--build", self.build_temp, "--config", cfg, "--target", "elips_pymodule",
              "-j"],
             check=True,
         )

@@ -1,8 +1,15 @@
 #ifndef ELIPS_STORAGE_FILE_SYNC_HPP
 #define ELIPS_STORAGE_FILE_SYNC_HPP
 
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <cstdint>
@@ -44,6 +51,11 @@ inline void sync_file_data(int fd) {
             throw StorageError{"fsync failed (injected)"};
         }
     }
+#ifdef _WIN32
+    if (_commit(fd) != 0) {
+        throw StorageError{"_commit failed"};
+    }
+#else
 #ifdef F_FULLFSYNC
     // macOS: fsync() only reaches the drive's volatile write cache.
     if (::fcntl(fd, F_FULLFSYNC, 0) == 0) {
@@ -58,10 +70,24 @@ inline void sync_file_data(int fd) {
 #endif
         throw StorageError{"fsync failed"};
     }
+#endif
 }
 
 inline void sync_file_path(const std::filesystem::path& path) {
-    const int fd = ::open(path.c_str(), O_RDONLY);
+#ifdef _WIN32
+    const int fd = ::_open(path.string().c_str(), _O_RDONLY | _O_BINARY);
+    if (fd < 0) {
+        throw StorageError{"cannot open for fsync: " + path.string()};
+    }
+    try {
+        sync_file_data(fd);
+    } catch (...) {
+        ::_close(fd);
+        throw;
+    }
+    ::_close(fd);
+#else
+    const int fd = ::open(path.string().c_str(), O_RDONLY);
     if (fd < 0) {
         throw StorageError{"cannot open for fsync: " + path.string()};
     }
@@ -72,18 +98,23 @@ inline void sync_file_path(const std::filesystem::path& path) {
         throw;
     }
     ::close(fd);
+#endif
 }
 
 // Make a rename/create durable by syncing the containing directory. Best
 // effort: some filesystems reject directory fsync, and a failure here cannot
 // lose already-synced file data.
 inline void sync_directory(const std::filesystem::path& dir) noexcept {
-    const int fd = ::open(dir.c_str(), O_RDONLY);
+#ifdef _WIN32
+    (void)dir;
+#else
+    const int fd = ::open(dir.string().c_str(), O_RDONLY);
     if (fd < 0) {
         return;
     }
     (void)::fsync(fd);
     ::close(fd);
+#endif
 }
 
 // Publish a temp file at its final path durably: sync contents, rename, then
