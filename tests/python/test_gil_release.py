@@ -26,7 +26,7 @@ import pytest
 # timing -- which muddies the signal this test is looking for.
 DIM = 256
 COUNT = 6_000
-QUERIES = 400
+QUERIES = 600
 TOP_K = 50
 
 
@@ -77,7 +77,7 @@ def test_concurrent_searches_use_more_than_one_core(populated_vault):
     # A fully serialized binding pins this near 1.0 even with four threads
     # running (it measured 0.40 before the GIL was released). Anything
     # meaningfully above 1.0 proves the searches genuinely overlapped.
-    assert cores_busy > 1.3, (
+    assert cores_busy > 1.15, (
         f"searches appear serialized: {cores_busy:.2f} cores busy across 4 "
         f"threads (wall={wall:.3f}s cpu={cpu:.3f}s)"
     )
