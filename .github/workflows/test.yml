@@ -97,9 +97,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Build module
+        shell: bash
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
           cmake --build build --config Release --target elips_pymodule -j
       - name: Import + smoke test
         shell: bash
