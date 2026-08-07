@@ -118,17 +118,32 @@ TEST_F(M2Test, ConcurrentEraseAndSearchStayConsistent) {
 TEST_F(M2Test, ConcurrentVaultCreationIsSafe) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     std::vector<std::thread> threads;
+    std::atomic<bool> failed{false};
+    std::string error_msg;
+    std::mutex err_mutex;
+
     for (int t = 0; t < 8; ++t) {
-        threads.emplace_back([&db, t] {
-            for (int i = 0; i < 20; ++i) {
-                auto& vault = db->vault("vault_" + std::to_string(i));
-                vault.place(elips::Vector{{static_cast<float>(t), 1.0F}});
+        threads.emplace_back([&db, t, &failed, &error_msg, &err_mutex] {
+            try {
+                for (int i = 0; i < 20; ++i) {
+                    auto& vault = db->vault("vault_" + std::to_string(i));
+                    vault.place(elips::Vector{{static_cast<float>(t), 1.0F}});
+                }
+            } catch (const std::exception& e) {
+                std::lock_guard lock(err_mutex);
+                failed = true;
+                error_msg = e.what();
+            } catch (...) {
+                std::lock_guard lock(err_mutex);
+                failed = true;
+                error_msg = "Unknown exception in thread";
             }
         });
     }
     for (auto& thread : threads) {
         thread.join();
     }
+    ASSERT_FALSE(failed) << "Thread threw exception: " << error_msg;
     EXPECT_EQ(db->list_vaults().size(), 20U);
     for (int i = 0; i < 20; ++i) {
         EXPECT_EQ(db->vault("vault_" + std::to_string(i)).info().count, 8U);
@@ -138,22 +153,37 @@ TEST_F(M2Test, ConcurrentVaultCreationIsSafe) {
 TEST_F(M2Test, ConcurrentTransactionsDoNotInterleave) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     std::vector<std::thread> threads;
+    std::atomic<bool> failed{false};
+    std::string error_msg;
+    std::mutex err_mutex;
+
     for (int t = 0; t < 4; ++t) {
-        threads.emplace_back([&db, t] {
-            for (int batch = 0; batch < 10; ++batch) {
-                auto txn = db->begin_transaction();
-                auto tv = txn.vault("v");
-                for (int i = 0; i < 5; ++i) {
-                    tv.place(elips::Vector{
-                        {static_cast<float>(t), static_cast<float>(batch)}});
+        threads.emplace_back([&db, t, &failed, &error_msg, &err_mutex] {
+            try {
+                for (int batch = 0; batch < 10; ++batch) {
+                    auto txn = db->begin_transaction();
+                    auto tv = txn.vault("v");
+                    for (int i = 0; i < 5; ++i) {
+                        tv.place(elips::Vector{
+                            {static_cast<float>(t), static_cast<float>(batch)}});
+                    }
+                    txn.commit();
                 }
-                txn.commit();
+            } catch (const std::exception& e) {
+                std::lock_guard lock(err_mutex);
+                failed = true;
+                error_msg = e.what();
+            } catch (...) {
+                std::lock_guard lock(err_mutex);
+                failed = true;
+                error_msg = "Unknown exception in thread";
             }
         });
     }
     for (auto& thread : threads) {
         thread.join();
     }
+    ASSERT_FALSE(failed) << "Thread threw exception: " << error_msg;
     EXPECT_EQ(db->vault("v").info().count, 4U * 10U * 5U);
 }
 

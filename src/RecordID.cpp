@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <random>
+#include <thread>
 
 #include "elips/domain/Errors.hpp"
 
@@ -13,7 +14,17 @@ constexpr std::size_t uuid_byte_count = 16;
 constexpr std::size_t uuid_hex_length = 32;
 
 std::uint64_t random_bits() {
-    static thread_local std::mt19937_64 engine{std::random_device{}()};
+    static thread_local std::mt19937_64 engine{[] {
+        std::uint64_t seed = static_cast<std::uint64_t>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        try {
+            std::random_device rd;
+            seed ^= (static_cast<std::uint64_t>(rd()) << 32) | rd();
+        } catch (...) {
+        }
+        seed ^= std::hash<std::thread::id>{}(std::this_thread::get_id());
+        return seed;
+    }()};
     return engine();
 }
 

@@ -1,8 +1,11 @@
 #include "elips/index_engine/HierarchicalGraphIndex.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <queue>
+#include <random>
+#include <thread>
 #include <unordered_set>
 
 #include "elips/domain/Expected.hpp"
@@ -22,7 +25,17 @@ HierarchicalGraphIndex::HierarchicalGraphIndex(Metric metric,
       row_width_(quantizer_ != nullptr ? quantizer_->code_bytes() : dimension),
       level_mult_(1.0 / std::log(static_cast<double>(std::max<std::size_t>(
                             params.max_connections, 2)))),
-      rng_(std::random_device{}()) {}
+      rng_([] {
+          std::uint64_t seed = static_cast<std::uint64_t>(
+              std::chrono::high_resolution_clock::now().time_since_epoch().count());
+          try {
+              std::random_device rd;
+              seed ^= (static_cast<std::uint64_t>(rd()) << 32) | rd();
+          } catch (...) {
+          }
+          seed ^= std::hash<std::thread::id>{}(std::this_thread::get_id());
+          return seed;
+      }()) {}
 
 HierarchicalGraphIndex::Probe::Probe(const HierarchicalGraphIndex& owner,
                                      std::span<const float> query)
