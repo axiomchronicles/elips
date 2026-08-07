@@ -27,7 +27,58 @@
 #include "elips/gpu_engine/GpuPort.hpp"
 #endif
 
+#if defined(_WIN32) && defined(__MINGW32__)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace elips {
+
+#if defined(_WIN32) && defined(__MINGW32__)
+class SharedMutex {
+public:
+    SharedMutex() noexcept {
+        InitializeSRWLock(&srw_);
+    }
+    ~SharedMutex() noexcept = default;
+
+    SharedMutex(const SharedMutex&) = delete;
+    SharedMutex& operator=(const SharedMutex&) = delete;
+    SharedMutex(SharedMutex&&) = delete;
+    SharedMutex& operator=(SharedMutex&&) = delete;
+
+    void lock() noexcept {
+        AcquireSRWLockExclusive(&srw_);
+    }
+
+    bool try_lock() noexcept {
+        return TryAcquireSRWLockExclusive(&srw_) != 0;
+    }
+
+    void unlock() noexcept {
+        ReleaseSRWLockExclusive(&srw_);
+    }
+
+    void lock_shared() noexcept {
+        AcquireSRWLockShared(&srw_);
+    }
+
+    bool try_lock_shared() noexcept {
+        return TryAcquireSRWLockShared(&srw_) != 0;
+    }
+
+    void unlock_shared() noexcept {
+        ReleaseSRWLockShared(&srw_);
+    }
+
+private:
+    SRWLOCK srw_{SRWLOCK_INIT};
+};
+#else
+using SharedMutex = std::shared_mutex;
+#endif
 
 class WAL;
 class Transaction;
@@ -227,7 +278,7 @@ private:
     gpu::GpuPort* gpu_backend_{nullptr};
 #endif
     // Guards every member above. Mutable so const (read) methods can share-lock.
-    mutable std::shared_mutex mutex_;
+    mutable SharedMutex mutex_;
 };
 
 // Top-level database handle. One per directory. Owns all vaults and persistence.
