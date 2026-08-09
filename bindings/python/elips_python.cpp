@@ -365,7 +365,7 @@ PYBIND11_MODULE(_core, m) {
     m.doc() = "ELIPS — embedded local vector database (C extension)";
 
     // ---- version ----
-    m.attr("__version__") = "1.0.0";
+    m.attr("__version__") = "1.1.0";
 
     // =====================  Error hierarchy  =====================
 
