@@ -1,3 +1,7 @@
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
+endif()
+
 cmake_minimum_required(VERSION 3.24)
 project(elips LANGUAGES CXX VERSION 1.1.0)
 
@@ -82,6 +86,9 @@ add_library(elips_core
     src/Database.cpp
 )
 target_include_directories(elips_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(WIN32)
+    target_compile_definitions(elips_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 if(MSVC)
     target_compile_options(elips_core PRIVATE /W4)
 else()

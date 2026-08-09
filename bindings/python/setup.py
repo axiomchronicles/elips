@@ -102,6 +102,7 @@ class CMakeBuild(build_ext):
         cmake_executable = "cmake"
         try:
             import cmake
+
             cmake_bin_dir = Path(cmake.CMAKE_BIN_DIR)
             if (cmake_bin_dir / "cmake").exists():
                 cmake_executable = str(cmake_bin_dir / "cmake")
