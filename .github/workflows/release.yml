@@ -133,18 +133,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download Python packages
         uses: actions/download-artifact@v4
         with:
-          pattern: '*'
-          path: dist
+          pattern: 'cibw-*'
+          path: pypi_dist
           merge-multiple: true
+
+      - name: Download CLI binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'cli-binary-*'
+          path: cli_dist
+          merge-multiple: true
+
+      - name: Prepare GitHub release assets
+        run: |
+          mkdir -p release_dist
+          cp pypi_dist/* release_dist/ 2>/dev/null || true
+          cp cli_dist/* release_dist/ 2>/dev/null || true
 
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: release_dist/*
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -152,5 +165,5 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist
+          packages-dir: pypi_dist
           skip-existing: true
