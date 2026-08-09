@@ -12,6 +12,7 @@ and most editors do routinely) deleted and rewrote a directory tree, and left
 behind an untracked duplicate of the engine that silently went stale.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -128,6 +129,17 @@ class CMakeBuild(build_ext):
         local_pybind11 = root / "build" / "_deps" / "pybind11-src"
         if local_pybind11.exists():
             cmake_args.append(f"-DELIPS_PYBIND11_SOURCE_DIR={local_pybind11.resolve()}")
+
+        if sys.platform == "darwin":
+            archflags = os.environ.get("ARCHFLAGS", "")
+            if "-arch x86_64" in archflags:
+                cmake_args.append("-DCMAKE_OSX_ARCHITECTURES=x86_64")
+            elif "-arch arm64" in archflags:
+                cmake_args.append("-DCMAKE_OSX_ARCHITECTURES=arm64")
+            elif "CMAKE_OSX_ARCHITECTURES" in os.environ:
+                cmake_args.append(
+                    f"-DCMAKE_OSX_ARCHITECTURES={os.environ['CMAKE_OSX_ARCHITECTURES']}"
+                )
         subprocess.run(
             cmake_args,
             check=True,
