@@ -10,7 +10,7 @@ jobs:
     name: ASan + UBSan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Configure (sanitizers)
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DELIPS_SANITIZE=address
@@ -21,7 +21,7 @@ jobs:
     name: ThreadSanitizer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Configure (TSan)
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DELIPS_SANITIZE=thread
@@ -32,7 +32,7 @@ jobs:
     name: Default Linux build excludes the GPU engine
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Configure with no flags at all
         run: cmake -S . -B build -G Ninja
@@ -54,7 +54,7 @@ jobs:
     name: clang-tidy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Install clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy
@@ -70,7 +70,7 @@ jobs:
     name: Fuzz the WAL parser
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Configure (libFuzzer)
         run: >
@@ -91,7 +91,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - uses: actions/setup-python@v5
         with:
