@@ -98,8 +98,20 @@ class CMakeBuild(build_ext):
         out_dir = Path(self.get_ext_fullpath(ext.name)).resolve().parent
         out_dir.mkdir(parents=True, exist_ok=True)
         cfg = "Release"
+
+        cmake_executable = "cmake"
+        try:
+            import cmake
+            cmake_bin_dir = Path(cmake.CMAKE_BIN_DIR)
+            if (cmake_bin_dir / "cmake").exists():
+                cmake_executable = str(cmake_bin_dir / "cmake")
+            elif (cmake_bin_dir / "cmake.exe").exists():
+                cmake_executable = str(cmake_bin_dir / "cmake.exe")
+        except (ImportError, AttributeError):
+            pass
+
         cmake_args = [
-            "cmake",
+            cmake_executable,
             "-S",
             str(root),
             "-B",
@@ -121,7 +133,7 @@ class CMakeBuild(build_ext):
         )
         subprocess.run(
             [
-                "cmake",
+                cmake_executable,
                 "--build",
                 self.build_temp,
                 "--config",
