@@ -118,3 +118,53 @@ jobs:
       - name: Type checking
         shell: bash
         run: cd bindings/python && python -m mypy --strict elips/
+
+  # --------------------------------------------------------------------------
+  # Phase 8B: docs-snippet harness. Builds the module, then executes the
+  # python code blocks in the docs tree against it. The seed doc MUST pass
+  # (proves the harness end-to-end); the full tree is report-only until the
+  # Phase 9 docs carry no-exec markers.
+  # --------------------------------------------------------------------------
+  docs-snippets:
+    name: Docs snippet harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build module
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
+          cmake --build build --config Release --target elips_pymodule -j
+      - name: Harness self-test
+        run: python scripts/run_doc_snippets.py --selftest
+      - name: Seed doc must execute cleanly
+        run: PYTHONPATH=bindings/python python scripts/run_doc_snippets.py docs/_redesign/_snippets_seed.md
+      - name: Full docs tree (report-only until Phase 9)
+        run: PYTHONPATH=bindings/python python scripts/run_doc_snippets.py --allow-fail docs
+
+  # --------------------------------------------------------------------------
+  # EXPERIMENTAL — GPU backend compile-checks. These prove the CUDA / HIP
+  # translation units compile against the real CMake wiring; they do NOT run
+  # on a GPU. They need x86_64 + nvcc/hipcc inside a vendor container, so they
+  # are non-blocking (continue-on-error) and run on the amd64 Linux runner.
+  # --------------------------------------------------------------------------
+  cuda-compile:
+    name: "EXPERIMENTAL: CUDA compile-check"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the CUDA backend (nvcc + cuBLAS, no GPU)
+        run: scripts/ci/compile_cuda.sh
+
+  hip-compile:
+    name: "EXPERIMENTAL: HIP/ROCm compile-check"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the HIP backend (hipcc + hipBLAS, no GPU)
+        run: scripts/ci/compile_hip.sh

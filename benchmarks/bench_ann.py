@@ -43,11 +43,15 @@ SEED = 1234
 # data + ground truth
 # --------------------------------------------------------------------------- #
 def make_data(dim: int, nb: int, nq: int, seed: int = SEED):
-    """Fixed-seed gaussian float32 base + query sets."""
-    rng = np.random.RandomState(seed)
-    xb = rng.randn(nb, dim).astype("float32")
-    xq = rng.randn(nq, dim).astype("float32")
-    return xb, xq
+    """Fixed-seed gaussian float32 base + query sets.
+
+    Thin wrapper over :func:`datasets.random_dataset` so the fixed-seed data is
+    defined in exactly one place (benchmarks/datasets.py).
+    """
+    from datasets import random_dataset
+
+    ds = random_dataset(dim, nb, nq, seed)
+    return ds.xb, ds.xq
 
 
 def exact_gt(xb: np.ndarray, xq: np.ndarray, k: int) -> np.ndarray:
@@ -205,12 +209,21 @@ def run_faiss_ivf(faiss, xb, xq, dim, nlist, nprobe, gt, k):
 # --------------------------------------------------------------------------- #
 # orchestration
 # --------------------------------------------------------------------------- #
-def run_all(dim, nb, nq, nprobe_sweep, k=K):
+def run_all(dim, nb, nq, nprobe_sweep, k=K, dataset=None):
     import elips
 
-    xb, xq = make_data(dim, nb, nq)
+    if dataset is None:
+        xb, xq = make_data(dim, nb, nq)
+    else:
+        xb, xq = dataset.xb, dataset.xq
+        dim, nb, nq = xb.shape[1], xb.shape[0], xq.shape[0]
     t = time.perf_counter()
-    gt = exact_gt(xb, xq, k)
+    # SIFT1M ships ground truth; random data uses the numpy exact oracle.
+    gt = (
+        dataset.gt[:, :k]
+        if dataset is not None and dataset.gt is not None
+        else exact_gt(xb, xq, k)
+    )
     gt_s = time.perf_counter() - t
     nlist = max(1, int(np.sqrt(nb)))
 
@@ -381,6 +394,8 @@ def main(argv=None):
     p.add_argument("--no-doc", action="store_true", help="skip writing the doc")
     p.add_argument("--strict-gate", action="store_true",
                    help="exit non-zero if the exact-Flat sanity gate fails")
+    p.add_argument("--sift1m", action="store_true",
+                   help="use the SIFT1M corpus (downloads once; random if offline)")
     args = p.parse_args(argv)
 
     if args.full:
@@ -393,7 +408,18 @@ def main(argv=None):
     nb = args.nb or nb
     nq = args.nq or nq
 
-    results, meta = run_all(dim, nb, nq, nprobe_sweep)
+    dataset = None
+    if args.sift1m:
+        from datasets import sift1m
+
+        dataset = sift1m()
+        if dataset is None:
+            print("SIFT1M unavailable (offline / not cached) — using random data",
+                  file=sys.stderr)
+        else:
+            nprobe_sweep = (1, 8, 32, 128)
+
+    results, meta = run_all(dim, nb, nq, nprobe_sweep, dataset=dataset)
     print_table(results, meta)
     if not args.no_doc:
         write_doc(results, meta, args.out)
