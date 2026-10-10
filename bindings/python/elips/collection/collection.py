@@ -42,7 +42,14 @@ from elips.collection._embedding import (
     resolve_lineage,
     resolve_vectors,
 )
-from elips.collection._hydration import hit_from_result, row_from_record
+from elips.collection._hydration import (
+    RESERVED_ID_KEY,
+    derive_record_id,
+    hit_from_result,
+    is_native_id,
+    resolve_native_id,
+    row_from_record,
+)
 from elips.exceptions import NotFoundError
 from elips.records.models import CollectionHealth, Hit, RecordInput, Row
 from elips.typing import PayloadLike, Vector
@@ -142,6 +149,18 @@ class Collection:
         for index, record in enumerate(normalized_records):
             vector = resolved_vectors[index]
             payload = record.materialize_meta()
+            key = record.key
+            # Chroma allows arbitrary string ids; a native RecordID is 32 hex
+            # digits. Non-native ids are hashed to a stable RecordID and the
+            # original is stashed under RESERVED_ID_KEY so it survives reopen.
+            if RESERVED_ID_KEY in payload:
+                raise ValueError(
+                    f"{RESERVED_ID_KEY!r} is a reserved metadata key and cannot "
+                    "be set by callers"
+                )
+            if key is not None and not is_native_id(key):
+                payload[RESERVED_ID_KEY] = key
+                key = derive_record_id(key)
             lineage = resolve_lineage(
                 record,
                 vector_generated=index in embedded_indices,
@@ -157,27 +176,39 @@ class Collection:
                         "an explicit vector or the low-level Vault.add() API"
                     )
                 assigned.append(
-                    self._vault.place_document(
-                        text,
+                    self._external_id(
+                        self._vault.place_document(
+                            text,
+                            payload,
+                            id=key,
+                            chunk=record.chunk,
+                            lineage=lineage,
+                        ),
                         payload,
-                        id=record.key,
-                        chunk=record.chunk,
-                        lineage=lineage,
                     )
                 )
                 continue
 
             assigned.append(
-                self._vault.place(
-                    vector,
+                self._external_id(
+                    self._vault.place(
+                        vector,
+                        payload,
+                        id=key,
+                        document=record.materialize_document(),
+                        chunk=record.chunk,
+                        lineage=lineage,
+                    ),
                     payload,
-                    id=record.key,
-                    document=record.materialize_document(),
-                    chunk=record.chunk,
-                    lineage=lineage,
                 )
             )
         return assigned
+
+    @staticmethod
+    def _external_id(native_id: str, payload: Mapping[str, Any]) -> str:
+        """Report the caller's original string id when one was stashed."""
+        original = payload.get(RESERVED_ID_KEY)
+        return original if original is not None else native_id
 
     def _ingest(
         self,
@@ -300,7 +331,7 @@ class Collection:
     def _pull(self, keys: Sequence[str], *, include_vectors: bool = True) -> list[Row]:
         rows: list[Row] = []
         for key in keys:
-            fetched = self._vault.fetch(key)
+            fetched = self._vault.fetch(resolve_native_id(key))
             if fetched is None:
                 continue
             rows.append(row_from_record(fetched, include_vectors=include_vectors))
@@ -332,9 +363,10 @@ class Collection:
 
         if keys is not None:
             for key in keys:
-                if key not in seen:
-                    seen.add(key)
-                    victims.append(key)
+                native = resolve_native_id(key)
+                if native not in seen:
+                    seen.add(native)
+                    victims.append(native)
 
         if where is not None:
             for row in self._vault.scan(where=where, offset=0, limit=-1):
