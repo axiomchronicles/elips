@@ -19,5 +19,19 @@ two layers (Collection built on Index). Metal validated first; CUDA/HIP experime
   `topk_threadgroup` approach, and the metallib build chain + resource/cloner design are
   directly referenceable. A dedicated study (`_faiss_3I_metal.md`) is in progress.
 
+- **ADR-R2 (DEEP rename through the core — user decision 2026-10-10).** The user chose the
+  deep rename over the public-boundary-only approach I recommended. The mission's naming table is
+  applied literally into the mature C++ core: core classes/methods/enums/files are renamed
+  (`Vault`→`Collection`, `place`→`add`, `seek`→`search`, `Database`→`Client`-tier, `IndexPort`→
+  `Index`, `GpuPort`→`GpuBackend`, `GpuSelector`→`BackendSelector`, `DynamicBatcher`→`QueryBatcher`,
+  `MetadataIndex`→`MetadataFilterIndex`, …), plus Python + EQL + CMake targets + test names + docs,
+  with a deprecation shim mapping old public names → new (DeprecationWarning, removed next minor).
+  **Collision rule:** where a Chroma name is a C++ keyword/reserved (`delete`), the C++ method takes
+  a safe synonym (`remove`) while Python exposes the Chroma name (`delete`). Accepted risk: large
+  invasive diff across the tested engine; mitigated by applying renames mechanically in batches,
+  keeping ctest+pytest green after each batch, and the naming map (`03_naming_map.md`) being written
+  and reviewed BEFORE any code change (Phase 5 gate).
+  **Superseded recommendation:** public-boundary-only (lower risk) — not chosen.
+
 ## Open questions
 _(record here with a recommended default, then proceed)_

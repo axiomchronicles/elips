@@ -35,6 +35,18 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - Phase 5 (naming) is **reconcile 3 layers + add Client/PersistentClient + expose FAISS Index API**, not greenfield.
 - Phase 7 (GPU) real work on Metal: move top-k onto the GPU, wire the dead `.metal` file, make real-kernel tests not skip.
 
+## Phase 5 checklist (deep rename — ADR-R2)
+- [x] Naming map drafted (3 agents → `_naming_cpp.md` 344 rows, `_naming_python.md`, `_naming_other.md`)
+- [x] `03_naming_map.md` ADR recorded (collisions resolved, DO-NOT-RENAME safety list, shim policy, batch plan)
+- [ ] Batch 1: C++ core types/methods → build+ctest green
+- [ ] Batch 2: file renames + include fixups
+- [ ] Batch 3: EQL verbs + AST
+- [ ] Batch 4: pybind + Python facades + kwargs → pytest green
+- [ ] Batch 5: CMake option aliases + target/test renames
+- [ ] Batch 6: error strings + typed exceptions
+- [ ] Batch 7: deprecation shim + MIGRATION.md; final old-term grep empty (except shim+MIGRATION)
+- [ ] Full suite green; one commit
+
 ## Open questions
 (see `04_architecture.md`)
 
