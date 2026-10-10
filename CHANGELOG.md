@@ -6,7 +6,32 @@ All notable changes to ELIPS are documented here. Format follows
 
 ## [Unreleased]
 
+> Re-architecture toward a FAISS-grade, Chroma-friendly API. See `MIGRATION.md`.
+
 ### Added
+- Chroma-style Python entry points `Client()` (ephemeral) and `PersistentClient(path=)`,
+  and the Collection API `add/upsert/get/update/delete/query/count/peek/modify` with
+  `ids/embeddings/documents/metadatas/n_results/where/include/offset` kwargs.
+- Typed exceptions `NotTrainedError`, `CollectionNotFoundError`, `BackendUnavailableError`.
+- EQL now accepts the new verbs `add/search/get/delete` (plus `metadata`, `k`).
+- FAISS-aligned CMake options `ELIPS_ENABLE_METAL/CUDA/ROCM/PYTHON` and `BUILD_TESTING`.
+
+### Changed (BREAKING — old names deprecated this release, removed next minor)
+- Public API renamed to FAISS/Chroma vocabulary across C++, Python, EQL, and CMake
+  (e.g. `Vault`→`Collection`, `ElipsInstance`→`Database`, `IndexPort`→`Index`,
+  `ExactIndex`→`IndexFlat`, `HierarchicalGraphIndex`→`IndexHNSW`, `GpuPort`→`GpuBackend`;
+  `place`→`add`, `seek`→`search`, `erase`→`remove`/`delete`, `fetch`→`get`). Full table in
+  `MIGRATION.md`. All old names still work via deprecation shims.
+- On-disk format is unchanged; existing databases open without migration.
+
+### Removed
+- The SYCL and Vulkan GPU backends (non-compiling stubs) and their ADRs/docs/options.
+  Supported backends are now Metal (validated on Apple Silicon), CUDA and HIP/ROCm
+  (experimental, not hardware-validated), and CPU.
+- Dead `IndexSnapshot*` bindings from the Python surface.
+
+### Deprecated
+- Old public names in all four surfaces (see `MIGRATION.md`); removal scheduled next minor.
 
 ### Fixed
 

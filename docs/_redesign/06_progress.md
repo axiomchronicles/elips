@@ -10,8 +10,8 @@ Running checklist. Update at every gate. Dates are absolute (today: 2026-10-10).
 | 2 | Prune GPU backends (SYCL, Vulkan) | DONE (2026-10-10) | ☑ |
 | 3 | Study FAISS | DONE (2026-10-10) | ☑ |
 | 4 | Gap analysis | DONE (2026-10-10) | ☑ |
-| 5 | Naming & public API redesign | IN PROGRESS (2026-10-10) | ☐ |
-| 6 | Core engine maturity | not started | ☐ |
+| 5 | Naming & public API redesign | DONE (2026-10-10) | ☑ |
+| 6 | Core engine maturity | IN PROGRESS (2026-10-10) | ☐ |
 | 7 | GPU acceleration redesign | not started | ☐ |
 | 8 | Build / packaging / test infra | not started | ☐ |
 | 9 | Documentation | not started | ☐ |
@@ -46,8 +46,11 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - [x] Batch 6: Python Chroma surface → green — renamed Python-exposed names (DeprecationWarning shims), added `Client()`/`PersistentClient(path=)`, Chroma Collection methods (`add/upsert/get/update/delete/query/count/peek/modify`) + kwargs (`ids/embeddings/documents/metadatas/n_results(+k,+limit)/where/include/offset`), wired typed exceptions (`NotTrainedError`/`CollectionNotFoundError`/`BackendUnavailableError`), retired dead `IndexSnapshot*` (Python), fixed docstring lies. Verified: build 0, test_bindings 34/34; Client(dimension=2)→get_or_create_collection→add→query→list_collections works end-to-end. Deferred to Phase 6: exposing FAISS Index API + index_factory, `where_document`, `delete_collection`/`modify`/`reset`.
   - **Two Chroma-parity gaps found during verification (→ Phase 6, recorded in 02):** (a) `Client()` is dimension-first (no zero-config dim inference — ELIPS default embedder is dimension-parameterized); now raises a clear actionable error instead of a cryptic ConfigError. (b) Chroma arbitrary string `ids` need an id-mapping layer (ELIPS `RecordID` is a 32-hex UUID); `add(embeddings=…)` with auto-generated ids works today.
 - [x] Batch 7: CMake options → both paths green — `ELIPS_GPU_METAL/CUDA/HIP`→`ELIPS_ENABLE_METAL/CUDA/ROCM`, `ELIPS_BUILD_PYTHON`→`ELIPS_ENABLE_PYTHON`, `ELIPS_BUILD_TESTS`→`BUILD_TESTING`, each with a `message(DEPRECATION)` back-compat alias; first-party callers (setup.py, example, CI workflows) moved to new names. Verified: new-flag fresh configure clean + ctest 257; old-flag configure emits deprecation + ctest 257. (C++ typed-exception raising + test/file-name cosmetics moved to Phase 6/8.)
-- [ ] Batch 8: consolidate deprecation shims → MIGRATION.md; final old-term grep empty (except shims+MIGRATION)
-- [ ] Full suite green; one commit
+- [x] Batch 8: `MIGRATION.md` (full old→new tables + deprecation timeline) + `CHANGELOG.md` Unreleased (BREAKING/Added/Removed/Deprecated). Final code-level grep: all renamed class/option tokens appear ONLY in shim/alias lines (verified). Docs-prose old-vocab cleanup = Phase 9.
+- [x] Full suite green; committed per batch
+
+## Phase 5 gate: MET
+Deep rename applied across C++ / Python / EQL / CMake in 8 verified batches; build + ctest 257 (256+1skip) + pytest 34/34 green at every commit; deprecation shims for all old public names; on-disk format untouched (persistence tests green). Deferred to Phase 6 (recorded in 02): expose FAISS Index API + `index_factory` in Python, IDMap for arbitrary string ids, `delete_collection`/`modify`/`reset`, `where_document`, C++ typed-exception raising.
 
 ## Open questions
 (see `04_architecture.md`)
