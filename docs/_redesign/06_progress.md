@@ -52,6 +52,15 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 ## Phase 5 gate: MET
 Deep rename applied across C++ / Python / EQL / CMake in 8 verified batches; build + ctest 257 (256+1skip) + pytest 34/34 green at every commit; deprecation shims for all old public names; on-disk format untouched (persistence tests green). Deferred to Phase 6 (recorded in 02): expose FAISS Index API + `index_factory` in Python, IDMap for arbitrary string ids, `delete_collection`/`modify`/`reset`, `where_document`, C++ typed-exception raising.
 
+## Phase 6 checklist (core maturity — fill gaps, don't rebuild)
+- [x] 6.1 CPU IVFFlat + `index_factory` + Index-contract extension (train/is_trained/reset defaults). ctest 268 (267+1skip); recall@10 vs Flat oracle: euclidean .999/cosine .985/dot .995 @nprobe8, →1.0 @nprobe=nlist.
+- [ ] 6.2 IVFPQ + IVF-SQ (CPU) over the same factory
+- [ ] 6.3 IDMap (arbitrary string ids ⇄ RecordID) — unblocks Chroma `add(ids=…)`
+- [ ] 6.4 IndexRefine (`refine_fraction`), batched search, true `range_search`
+- [ ] 6.5 metric squared/true option; k>ntotal pad policy; numpy float32/C-contig boundary; C++ typed-exception raising
+- [ ] 6.6 expose FAISS Index API in Python (IndexFlat/IVFFlat/HNSW, index_factory, read/write_index) — deferred from Phase 5
+- [ ] 6.7 documented concurrency/threading policy
+
 ## Open questions
 (see `04_architecture.md`)
 

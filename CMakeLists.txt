@@ -84,6 +84,7 @@ add_library(elips_core
     src/Metrics.cpp
     src/IndexFlat.cpp
     src/IndexHNSW.cpp
+    src/IndexIVFFlat.cpp
     src/IndexFactory.cpp
     src/quant_engine/KMeans.cpp
     src/quant_engine/Quantizer.cpp
@@ -180,6 +181,8 @@ if(BUILD_TESTING)
         tests/unit/config_test.cpp
         tests/unit/metadata_filter_index_test.cpp
         tests/unit/index_flat_edge_cases_test.cpp
+        tests/unit/index_ivfflat_test.cpp
+        tests/unit/index_factory_test.cpp
         tests/unit/hnsw_edge_cases_test.cpp
         tests/unit/filter_edge_test.cpp
         tests/unit/scan_test.cpp

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 
 #include "elips/Config.hpp"
 #include "elips/index_engine/Index.hpp"
@@ -23,6 +24,15 @@ class GpuBackend;
                                                     , gpu::GpuBackend* gpu_backend = nullptr
 #endif
 );
+
+// Builds an Index from a FAISS-style factory string. Supported specs:
+//   "Flat"          -> IndexFlat
+//   "IVF<nlist>,Flat"-> IndexIVFFlat(nlist)   e.g. "IVF4096,Flat"
+//   "HNSW<M>"        -> IndexHNSW(M)           e.g. "HNSW32"
+// Throws ConfigError on an unrecognized or malformed spec.
+[[nodiscard]] std::unique_ptr<Index> index_factory(std::uint16_t dimension,
+                                                   Metric metric,
+                                                   std::string_view spec);
 
 }  // namespace elips
 

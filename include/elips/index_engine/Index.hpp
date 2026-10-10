@@ -24,6 +24,18 @@ public:
     Index(Index&&) = delete;
     Index& operator=(Index&&) = delete;
 
+    // Train path (FAISS-aligned). Flat/graph indexes need no training and keep
+    // the no-op defaults; IVF-family indexes learn coarse centroids here before
+    // any add_with_ids. `training_vectors` holds n * dimension row-major floats.
+    virtual void train(std::span<const float> training_vectors, std::size_t n) {
+        (void)training_vectors;
+        (void)n;
+    }
+    [[nodiscard]] virtual bool is_trained() const noexcept { return true; }
+
+    // Drop all stored records (training/centroids may be retained; see override).
+    virtual void reset() {}
+
     // Write path. Vectors are pre-validated/normalized by the vector engine.
     virtual void add_with_ids(const RecordID& id, std::span<const float> vector) = 0;
     virtual void remove(const RecordID& id) = 0;

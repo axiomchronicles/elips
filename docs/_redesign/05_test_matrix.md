@@ -17,4 +17,8 @@ Hardware available for validation: **Apple M4 (Metal + CPU)**. CUDA/HIP: compile
 ## Per-index parity / recall (filled Phase 6–7)
 | Index | Backend | Hardware | recall@10 | p50 lat | status |
 |---|---|---|---|---|---|
-| _(pending)_ | | | | | |
+| IndexIVFFlat (euclidean) | CPU | Apple M4 | 0.999 @nprobe8, 1.000 @nprobe16, 1.000 @nprobe64 | — | PASS (nlist=64, d=32, n=5000 clustered; oracle=IndexFlat) |
+| IndexIVFFlat (cosine) | CPU | Apple M4 | 0.985 @nprobe8, 0.992 @nprobe16, 1.000 @nprobe64 | — | PASS (same config) |
+| IndexIVFFlat (dot_product) | CPU | Apple M4 | 0.995 @nprobe8, 0.996 @nprobe16, 1.000 @nprobe64 | — | PASS (same config) |
+
+Phase 6.1 (2026-10-10): added CPU `IndexIVFFlat` + FAISS-style `index_factory("Flat"/"IVF<nlist>,Flat"/"HNSW<M>")`. nprobe→nlist is exhaustive, so recall→1.0 matches the IndexFlat oracle exactly. Suite now 268 tests (257 prior + 11: 7 ivfflat, 4 factory), all green / 1 skipped (GpuMemoryPoolTest). Data is mildly clustered (50 centers, σ=0.15 jitter) — the regime IVF targets; pure i.i.d. noise is adversarial and needs nprobe≈nlist for the same recall.
