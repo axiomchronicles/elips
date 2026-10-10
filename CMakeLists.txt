@@ -233,6 +233,12 @@ if(ELIPS_GPU_ENABLED)
         find_library(FOUNDATION_FW Foundation)
         target_link_libraries(elips_tests PRIVATE ${METAL_FW} ${MPS_FW} ${FOUNDATION_FW})
     endif()
+    # CUDA parity test — compiled only with the CUDA backend; skips without a device.
+    if(ELIPS_ENABLE_CUDA)
+        target_sources(elips_tests PRIVATE tests/gpu/cuda/CudaBackendTest.cpp)
+        target_compile_definitions(elips_tests PRIVATE ELIPS_CUDA_ENABLED)
+        target_link_libraries(elips_tests PRIVATE elips_gpu_cuda)
+    endif()
 
     add_executable(elips_gpu_lifecycle_probe
         tests/integration/gpu/DatabaseGpuLifecycleProbe.cpp
