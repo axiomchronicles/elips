@@ -80,7 +80,7 @@ TEST_F(DurabilityTest, MultipleRecordsSurviveStandard) {
     EXPECT_EQ(db->vault("v").info().count, 100U);
 }
 
-TEST_F(DurabilityTest, MultipleVaultsSurviveCheckpoint) {
+TEST_F(DurabilityTest, MultipleCollectionsSurviveCheckpoint) {
     std::string p = path();
     {
         auto db = elips::open(p, elips::Config{}.dimension(2));

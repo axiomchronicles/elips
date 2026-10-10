@@ -75,7 +75,7 @@ public:
     }
     // Selects a compression codec for stored vectors. Configuring this does not
     // compress anything on its own: a codebook has to be trained on real data
-    // first, which is what Vault::quantize() does. Until then the vault stores
+    // first, which is what Collection::quantize() does. Until then the collection stores
     // full fp32 and behaves exactly as an unquantized one.
     Config& quantization(quant::QuantParams params) noexcept {
         quantization_ = params;
@@ -182,8 +182,8 @@ public:
     }
 
     // Runtime quantizer, attached by open() once a persisted codebook has been
-    // read and by Vault::quantize() once one has been trained. Held here rather
-    // than on the Vault because rebuild_index_locked() reconstructs the index
+    // read and by Collection::quantize() once one has been trained. Held here rather
+    // than on the Collection because rebuild_index_locked() reconstructs the index
     // from Config alone: a quantizer stored anywhere else would be silently
     // dropped by vacuum() and compact().
     void attach_quantizer(quant::QuantizerPtr quantizer) noexcept {

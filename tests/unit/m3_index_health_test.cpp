@@ -194,7 +194,7 @@ TEST(M3IndexHealth, RecallHoldsAsDeleteRatioGrows) {
 
 TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(8));
-    auto& vault = db->vault("v");
+    auto& collection = db->vault("v");
 
     std::mt19937 rng(4242);
     // 1 in 50 records matches the filter, so a fixed top*20 over-fetch would
@@ -202,11 +202,11 @@ TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
     for (int i = 0; i < 2000; ++i) {
         elips::Payload payload;
         payload.emplace("bucket", static_cast<std::int64_t>(i % 50));
-        vault.place(elips::Vector{random_vector(rng, 8)}, payload);
+        collection.place(elips::Vector{random_vector(rng, 8)}, payload);
     }
 
     const auto filter = elips::Filter{}.field("bucket").equals(std::int64_t{7});
-    const auto hits = vault.seek(elips::Vector{random_vector(rng, 8)}, 10, filter);
+    const auto hits = collection.seek(elips::Vector{random_vector(rng, 8)}, 10, filter);
     EXPECT_EQ(hits.size(), 10U);
     for (const auto& hit : hits) {
         EXPECT_EQ(std::get<std::int64_t>(hit.data.at("bucket")), 7);
@@ -215,24 +215,24 @@ TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
 
 TEST(M3IndexHealth, FilteredSearchReturnsAllMatchesWhenFewerThanTopK) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(4));
-    auto& vault = db->vault("v");
+    auto& collection = db->vault("v");
 
     std::mt19937 rng(11);
     for (int i = 0; i < 500; ++i) {
         elips::Payload payload;
         payload.emplace("rare", static_cast<std::int64_t>(i < 3 ? 1 : 0));
-        vault.place(elips::Vector{random_vector(rng, 4)}, payload);
+        collection.place(elips::Vector{random_vector(rng, 4)}, payload);
     }
 
     const auto filter = elips::Filter{}.field("rare").equals(std::int64_t{1});
-    const auto hits = vault.seek(elips::Vector{random_vector(rng, 4)}, 10, filter);
+    const auto hits = collection.seek(elips::Vector{random_vector(rng, 4)}, 10, filter);
     // Only 3 records can match; the loop must terminate rather than spin.
     EXPECT_EQ(hits.size(), 3U);
 }
 
-// ------------------------- vault / database vacuum ------------------------
+// ------------------------- collection / database vacuum ------------------------
 
-TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossVaults) {
+TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossCollections) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(4).graph_params(
                                           elips::HnswParams{
                                               .max_connections = 16,
@@ -242,15 +242,15 @@ TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossVaults) {
                                           }));
     std::mt19937 rng(5);
     for (const std::string name : {"a", "b"}) {
-        auto& vault = db->vault(name);
+        auto& collection = db->vault(name);
         std::vector<elips::RecordID> ids;
         for (int i = 0; i < 50; ++i) {
-            ids.push_back(vault.place(elips::Vector{random_vector(rng, 4)}));
+            ids.push_back(collection.place(elips::Vector{random_vector(rng, 4)}));
         }
         for (int i = 0; i < 30; ++i) {
-            vault.erase(ids[static_cast<std::size_t>(i)]);
+            collection.erase(ids[static_cast<std::size_t>(i)]);
         }
-        EXPECT_EQ(vault.pending_removals(), 30U);
+        EXPECT_EQ(collection.pending_removals(), 30U);
     }
 
     db->vacuum();

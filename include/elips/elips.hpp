@@ -83,8 +83,8 @@ using SharedMutex = std::shared_mutex;
 class WAL;
 class Transaction;
 
-// Summary statistics for a vault.
-struct VaultInfo {
+// Summary statistics for a collection.
+struct CollectionInfo {
     std::size_t count{0};
     std::uint16_t dimension{0};
     Metric metric{Metric::cosine};
@@ -119,9 +119,9 @@ struct QueryPlan {
 // threads on the same object. Readers share access; mutators are exclusive.
 // A cross-process `flock` (see LockManager) keeps other *processes* out; this
 // mutex is what keeps threads inside this process from racing.
-class Vault {
+class Collection {
 public:
-    Vault(std::string name, const Config& config
+    Collection(std::string name, const Config& config
 #ifdef ELIPS_GPU_ENABLED
           , gpu::GpuBackend* gpu_backend = nullptr
 #endif
@@ -169,11 +169,11 @@ public:
     [[nodiscard]] std::optional<Record> fetch(const RecordID& id) const;
     bool erase(const RecordID& id);
 
-    [[nodiscard]] VaultInfo info() const noexcept;
+    [[nodiscard]] CollectionInfo info() const noexcept;
     [[nodiscard]] const std::string& name() const noexcept { return name_; }
 
     // Snapshot of the record store. Returns a copy because the live map is
-    // guarded by the vault mutex and a reference could be mutated underneath a
+    // guarded by the collection mutex and a reference could be mutated underneath a
     // concurrent reader.
     [[nodiscard]] std::map<RecordID, Record> records() const;
 
@@ -189,22 +189,22 @@ public:
     // Records deleted from the index but not yet reclaimed.
     [[nodiscard]] std::size_t pending_removals() const noexcept;
 
-    // Trains a codebook over the resident vectors and compresses the vault in
+    // Trains a codebook over the resident vectors and compresses the collection in
     // place, freeing the fp32 copies. Requires a codec to have been selected in
-    // the config; throws ConfigError otherwise, or if the vault is empty or has
+    // the config; throws ConfigError otherwise, or if the collection is empty or has
     // already been quantized.
     //
     // Product quantization cannot encode the first record -- a codebook has to
     // be learned from real data first -- so compression is an explicit
     // transition rather than something the config alone turns on. Before it, a
-    // vault ingests and serves full fp32; after it, inserts encode on arrival.
+    // collection ingests and serves full fp32; after it, inserts encode on arrival.
     // Queries work correctly in both states.
     //
     // This is a maintenance operation in the same class as compact(): it holds
-    // the vault's writer lock for its whole duration, so concurrent writes block
+    // the collection's writer lock for its whole duration, so concurrent writes block
     // (reads too, briefly). Training samples at most quant::train_sample_cap
     // rows, so its cost tracks the dimension and codebook size rather than the
-    // vault size, but encoding is still linear in the record count.
+    // collection size, but encoding is still linear in the record count.
     void quantize();
     [[nodiscard]] bool quantized() const noexcept;
     [[nodiscard]] quant::CodecId codec() const noexcept;
@@ -281,12 +281,12 @@ private:
     mutable SharedMutex mutex_;
 };
 
-// Top-level database handle. One per directory. Owns all vaults and persistence.
+// Top-level database handle. One per directory. Owns all collections and persistence.
 // Checkpoints automatically on destruction for on-disk databases.
 //
 // Thread safety: safe to share across threads. The instance mutex guards the
-// vault registry and lifecycle state; each Vault carries its own reader/writer
-// lock, so concurrent searches on the same vault do not serialize.
+// collection registry and lifecycle state; each Collection carries its own reader/writer
+// lock, so concurrent searches on the same collection do not serialize.
 class Database {
 public:
     Database(std::string path, Config config, bool persistent,
@@ -298,7 +298,7 @@ public:
     Database(Database&&) = delete;
     Database& operator=(Database&&) = delete;
 
-    Vault& vault(const std::string& name);
+    Collection& vault(const std::string& name);
     [[nodiscard]] std::vector<std::string> list_vaults() const;
 
     [[nodiscard]] Transaction begin_transaction();
@@ -310,12 +310,12 @@ public:
     void checkpoint();
     void compact();
 
-    // Compresses a vault (or every vault) in place. See Vault::quantize().
+    // Compresses a vault (or every collection) in place. See Collection::quantize().
     // For a persistent database this checkpoints afterwards, publishing the
     // codebook and the encoded records durably before the WAL is truncated.
-    void quantize(const std::string& vault_name);
+    void quantize(const std::string& collection_name);
     void quantize_all();
-    // Reclaim tombstoned index space across every vault. Unlike compact(), this
+    // Reclaim tombstoned index space across every collection. Unlike compact(), this
     // does not rewrite the on-disk snapshot and works on in-memory databases.
     void vacuum();
     void close();
@@ -338,13 +338,13 @@ public:
     }
 #endif
 
-    Vault& adopt_vault(std::unique_ptr<Vault> vault);
+    Collection& adopt_vault(std::unique_ptr<Collection> collection);
     void attach_wal(std::unique_ptr<WAL> wal);
 
 private:
     friend class Transaction;
 
-    Vault& vault_locked(const std::string& name);
+    Collection& vault_locked(const std::string& name);
     void checkpoint_locked();
 
     std::string path_;
@@ -357,12 +357,12 @@ private:
     gpu::GpuDeviceInfo gpu_info_;
     gpu::GpuMetricsSnapshot gpu_stats_;
     bool gpu_available_{false};
-    // Vaults and GPU indexes only observe the backend, so the owner must
-    // outlive every vault teardown path.
+    // Collections and GPU indexes only observe the backend, so the owner must
+    // outlive every collection teardown path.
     std::unique_ptr<gpu::GpuBackend> gpu_backend_;
 #endif
-    std::map<std::string, std::unique_ptr<Vault>> vaults_;
-    // Guards the vault registry, the WAL handle, and lifecycle flags. Vault
+    std::map<std::string, std::unique_ptr<Collection>> collections_;
+    // Guards the collection registry, the WAL handle, and lifecycle flags. Collection
     // contents have their own finer-grained lock.
     mutable std::recursive_mutex mutex_;
 };
@@ -372,7 +372,7 @@ private:
 
 class Transaction;
 
-class TransactionVault {
+class TransactionCollection {
 public:
     RecordID place(const Vector& vector, Payload payload = {},
                    std::optional<RecordID> id = std::nullopt);
@@ -380,10 +380,10 @@ public:
 
 private:
     friend class Transaction;
-    TransactionVault(Transaction& txn, std::string vault)
-        : txn_(&txn), vault_(std::move(vault)) {}
+    TransactionCollection(Transaction& txn, std::string collection)
+        : txn_(&txn), collection_(std::move(collection)) {}
     Transaction* txn_;
-    std::string vault_;
+    std::string collection_;
 };
 
 class Transaction {
@@ -396,35 +396,35 @@ public:
     Transaction(Transaction&&) = delete;
     Transaction& operator=(Transaction&&) = delete;
 
-    [[nodiscard]] TransactionVault vault(const std::string& name) {
-        return TransactionVault{*this, name};
+    [[nodiscard]] TransactionCollection vault(const std::string& name) {
+        return TransactionCollection{*this, name};
     }
 
     // Applies every enqueued op or none: a failure partway through (read-only
-    // vault, disk-full WAL write) undoes the ops already applied and rethrows.
+    // collection, disk-full WAL write) undoes the ops already applied and rethrows.
     void commit();
     // Discards the batch. Safe to call after a failed commit(); the failed
     // commit has already restored the pre-batch state.
     void rollback() noexcept { ops_.clear(); done_ = true; }
 
 private:
-    friend class TransactionVault;
+    friend class TransactionCollection;
     struct PendingOp {
         bool is_erase{false};
-        std::string vault;
+        std::string collection;
         Vector vector;
         Payload payload;
         std::optional<RecordID> id;
     };
-    // What the vault held before an op was applied, so it can be restored.
+    // What the collection held before an op was applied, so it can be restored.
     struct UndoEntry {
-        std::string vault;
+        std::string collection;
         RecordID id;
         std::optional<Record> previous;  // nullopt = record did not exist
     };
-    void enqueue_place(std::string vault, const Vector& vector, Payload payload,
+    void enqueue_place(std::string collection, const Vector& vector, Payload payload,
                        std::optional<RecordID> id);
-    void enqueue_erase(std::string vault, const RecordID& id);
+    void enqueue_erase(std::string collection, const RecordID& id);
     void undo(const std::vector<UndoEntry>& entries) noexcept;
 
     Database* db_;
@@ -433,6 +433,10 @@ private:
 };
 
 using ElipsInstance [[deprecated("renamed to Database")]] = Database;
+using Vault [[deprecated("renamed to Collection")]] = Collection;
+using VaultInfo [[deprecated("renamed to CollectionInfo")]] = CollectionInfo;
+using TransactionVault [[deprecated("renamed to TransactionCollection")]] =
+    TransactionCollection;
 
 }  // namespace elips
 

@@ -8,7 +8,7 @@
 
 namespace {
 
-TEST(ScanTest, EmptyVaultScanReturnsEmpty) {
+TEST(ScanTest, EmptyCollectionScanReturnsEmpty) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     auto& v = db->vault("docs");
     auto rows = v.scan();

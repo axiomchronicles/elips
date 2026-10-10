@@ -11,7 +11,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Vector dimension does not match the database/vault configuration.
+// Vector dimension does not match the database/collection configuration.
 class DimensionMismatch : public ElipsError {
 public:
     using ElipsError::ElipsError;
@@ -29,7 +29,7 @@ public:
     using ElipsError::ElipsError;
 };
 
-// Requested record/vault does not exist.
+// Requested record/collection does not exist.
 class NotFound : public ElipsError {
 public:
     using ElipsError::ElipsError;

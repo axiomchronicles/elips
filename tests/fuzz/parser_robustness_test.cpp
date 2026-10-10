@@ -37,13 +37,13 @@ protected:
         const fs::path path = dir_ / "seed.wal";
         {
             elips::WAL wal(path, /*sync_each_write=*/false);
-            wal.append_insert("vault", elips::RecordID::generate(),
+            wal.append_insert("collection", elips::RecordID::generate(),
                               std::vector<float>{1.0F, 2.0F},
                               {{"k", std::string{"v"}},
                                {"n", std::int64_t{42}},
                                {"f", 1.5},
                                {"b", true}});
-            wal.append_erase("vault", elips::RecordID::generate());
+            wal.append_erase("collection", elips::RecordID::generate());
             elips::DocumentAttachment doc{
                 .text = "body", .uri = "u", .mime_type = "text/plain"};
             elips::ChunkInfo chunk{.document_key = "d",
@@ -55,7 +55,7 @@ protected:
                                             .revision = "r",
                                             .attributes = {}};
             wal.append_txn_begin();
-            wal.append_insert("vault", elips::RecordID::generate(),
+            wal.append_insert("collection", elips::RecordID::generate(),
                               std::vector<float>{3.0F, 4.0F}, {}, doc, chunk,
                               lineage);
             wal.append_txn_commit();
@@ -100,7 +100,7 @@ TEST_F(ParserFuzzTest, RandomMutationsNeverCrashOrHang) {
             << "replay took too long on mutated input at iteration " << iteration;
         // Whatever survives must be internally consistent.
         for (const auto& entry : entries) {
-            EXPECT_LE(entry.vault.size(), bytes.size());
+            EXPECT_LE(entry.collection.size(), bytes.size());
             EXPECT_LE(entry.vector.size(), bytes.size());
         }
     }

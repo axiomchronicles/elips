@@ -35,7 +35,7 @@ public:
 
     struct Entry {
         Op op{Op::insert};
-        std::string vault;
+        std::string collection;
         RecordID id;
         std::vector<float> vector;  // empty for erase and insert_q
         Payload payload;
@@ -54,19 +54,19 @@ public:
     WAL(WAL&&) = delete;
     WAL& operator=(WAL&&) = delete;
 
-    void append_insert(const std::string& vault, const RecordID& id,
+    void append_insert(const std::string& collection, const RecordID& id,
                        std::span<const float> vector, const Payload& payload,
                        const std::optional<DocumentAttachment>& document = std::nullopt,
                        const std::optional<ChunkInfo>& chunk = std::nullopt,
                        const std::optional<EmbeddingLineage>& lineage = std::nullopt);
     void append_insert_quantized(
-        const std::string& vault, const RecordID& id,
+        const std::string& collection, const RecordID& id,
         std::span<const std::uint8_t> codes, quant::CodecId codec,
         const Payload& payload,
         const std::optional<DocumentAttachment>& document = std::nullopt,
         const std::optional<ChunkInfo>& chunk = std::nullopt,
         const std::optional<EmbeddingLineage>& lineage = std::nullopt);
-    void append_erase(const std::string& vault, const RecordID& id);
+    void append_erase(const std::string& collection, const RecordID& id);
 
     // Transaction framing. Records between begin and commit are only applied on
     // replay if the matching commit marker is present, so a crash (or an I/O

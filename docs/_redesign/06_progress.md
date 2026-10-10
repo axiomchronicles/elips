@@ -42,6 +42,7 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - [x] Batch 2: core index/port classes → build+ctest+pytest green — `IndexPort`→`Index`, `ExactIndex`→`IndexFlat`, `HierarchicalGraphIndex`→`IndexHNSW`, `GpuPort`→`GpuBackend`, `GpuIndexPort`→`GpuIndex`, `GraphParams`→`HnswParams`, `ElipsInstance`→`Database` (7 classes + files + deprecated aliases; no collisions). Verified: ctest 256/256, pytest 34/34.
 - [ ] Batch 2b: file renames + include fixups  *(folded into batches 1–2)*
 - [ ] Batch 3: EQL verbs + AST
+- [x] Batch 2c: `Vault`→`Collection` (type + `VaultInfo`/`TransactionVault` compounds, lowercase identifiers, 13 user-facing strings; on-disk `vault_` prefix + manifest keys PRESERVED; pybind Python names + methods deferred). Verified: ctest 256/256 (persistence tests pass = format intact), pytest 34/34.
 - [ ] Batch 4: pybind + Python facades + kwargs → pytest green
 - [ ] Batch 5: CMake option aliases + target/test renames
 - [ ] Batch 6: error strings + typed exceptions

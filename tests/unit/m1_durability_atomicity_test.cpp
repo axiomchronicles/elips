@@ -115,7 +115,7 @@ TEST_F(M1Test, WalWithGarbageLengthPrefixFailsFastAndBounded) {
         wal.append_insert("v", elips::RecordID::generate(),
                           std::vector<float>{1.0F, 2.0F}, {});
     }
-    // Corrupt the vault-name length prefix (offset 5: magic 4 + op 1).
+    // Corrupt the collection-name length prefix (offset 5: magic 4 + op 1).
     {
         std::fstream out(wal_path,
                          std::ios::binary | std::ios::in | std::ios::out);
@@ -162,11 +162,11 @@ TEST_F(M1Test, ReplayScalesLinearlyInRecordCount) {
 
 // ------------------------ F4: atomic transactions -----------------------
 
-TEST_F(M1Test, CommitOnReadOnlyVaultAppliesNothing) {
+TEST_F(M1Test, CommitOnReadOnlyCollectionAppliesNothing) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
-    auto& vault = db->vault("ro");
-    const auto pre_existing = vault.place(elips::Vector{{9.0F, 9.0F}});
-    vault.set_read_only(true);
+    auto& collection = db->vault("ro");
+    const auto pre_existing = collection.place(elips::Vector{{9.0F, 9.0F}});
+    collection.set_read_only(true);
 
     auto txn = db->begin_transaction();
     auto tv = txn.vault("ro");
@@ -174,18 +174,18 @@ TEST_F(M1Test, CommitOnReadOnlyVaultAppliesNothing) {
     tv.place(elips::Vector{{0.0F, 1.0F}});
     EXPECT_THROW(txn.commit(), elips::StorageError);
 
-    vault.set_read_only(false);
-    EXPECT_EQ(vault.info().count, 1U);
-    EXPECT_TRUE(vault.fetch(pre_existing).has_value());
+    collection.set_read_only(false);
+    EXPECT_EQ(collection.info().count, 1U);
+    EXPECT_TRUE(collection.fetch(pre_existing).has_value());
     db->abandon();
 }
 
 TEST_F(M1Test, CommitFailureMidBatchUndoesEarlierOps) {
     auto db = elips::open(path(), elips::Config{}.dimension(2).durability(
                                       elips::Durability::paranoid));
-    auto& vault = db->vault("v");
-    vault.place(elips::Vector{{5.0F, 5.0F}});
-    ASSERT_EQ(vault.info().count, 1U);
+    auto& collection = db->vault("v");
+    collection.place(elips::Vector{{5.0F, 5.0F}});
+    ASSERT_EQ(collection.info().count, 1U);
 
     auto txn = db->begin_transaction();
     auto tv = txn.vault("v");
@@ -199,7 +199,7 @@ TEST_F(M1Test, CommitFailureMidBatchUndoesEarlierOps) {
     elips::detail::sync_probe().fail_after.store(0);
 
     // The pre-transaction record is intact and no batch record leaked in.
-    EXPECT_EQ(vault.info().count, 1U);
+    EXPECT_EQ(collection.info().count, 1U);
     db->abandon();
 }
 
@@ -237,9 +237,9 @@ TEST_F(M1Test, SuccessfulCommitStillAppliesEverything) {
 TEST_F(M1Test, TransactionEraseRollsBackOnFailure) {
     auto db = elips::open(path(), elips::Config{}.dimension(2).durability(
                                       elips::Durability::paranoid));
-    auto& vault = db->vault("v");
-    const auto keep = vault.place(elips::Vector{{1.0F, 1.0F}});
-    const auto also = vault.place(elips::Vector{{2.0F, 2.0F}});
+    auto& collection = db->vault("v");
+    const auto keep = collection.place(elips::Vector{{1.0F, 1.0F}});
+    const auto also = collection.place(elips::Vector{{2.0F, 2.0F}});
 
     auto txn = db->begin_transaction();
     auto tv = txn.vault("v");
@@ -248,9 +248,9 @@ TEST_F(M1Test, TransactionEraseRollsBackOnFailure) {
     elips::detail::sync_probe().fail_next.store(true);
     EXPECT_THROW(txn.commit(), elips::StorageError);
 
-    EXPECT_EQ(vault.info().count, 2U);
-    EXPECT_TRUE(vault.fetch(keep).has_value());
-    EXPECT_TRUE(vault.fetch(also).has_value());
+    EXPECT_EQ(collection.info().count, 2U);
+    EXPECT_TRUE(collection.fetch(keep).has_value());
+    EXPECT_TRUE(collection.fetch(also).has_value());
     db->abandon();
 }
 

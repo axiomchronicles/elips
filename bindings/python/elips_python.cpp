@@ -921,7 +921,7 @@ Examples:
     py::class_<elips::WAL::Entry>(m, "WalEntry",
                                   "One replayed write-ahead log record.")
         .def_readonly("op", &elips::WAL::Entry::op)
-        .def_readonly("vault", &elips::WAL::Entry::vault)
+        .def_readonly("vault", &elips::WAL::Entry::collection)
         .def_property_readonly(
             "id",
             [](const elips::WAL::Entry& e) { return e.id.to_string(); },
@@ -944,7 +944,7 @@ Examples:
         .def_readonly("chunk", &elips::WAL::Entry::chunk)
         .def_readonly("lineage", &elips::WAL::Entry::lineage)
         .def("__repr__", [](const elips::WAL::Entry& e) {
-            return "<WalEntry vault='" + e.vault + "' id='" + e.id.to_string() +
+            return "<WalEntry vault='" + e.collection + "' id='" + e.id.to_string() +
                    "'>";
         });
 
@@ -2005,24 +2005,24 @@ The returned handle owns the backend independently of any
 
     // =====================  VaultInfo  =====================
 
-    py::class_<elips::VaultInfo>(m, "VaultInfo")
+    py::class_<elips::CollectionInfo>(m, "VaultInfo")
         .def_property_readonly(
-            "count", [](const elips::VaultInfo& vi) { return vi.count; })
-        .def_property_readonly("dimension", [](const elips::VaultInfo& vi) {
+            "count", [](const elips::CollectionInfo& vi) { return vi.count; })
+        .def_property_readonly("dimension", [](const elips::CollectionInfo& vi) {
             return vi.dimension;
         })
-        .def_property_readonly("metric", [](const elips::VaultInfo& vi) {
+        .def_property_readonly("metric", [](const elips::CollectionInfo& vi) {
             return std::string(elips::to_string(vi.metric));
         })
-        .def_property_readonly("codec", [](const elips::VaultInfo& vi) {
+        .def_property_readonly("codec", [](const elips::CollectionInfo& vi) {
             return std::string(elips::quant::to_string(vi.codec));
         })
         .def_property_readonly(
-            "code_bytes", [](const elips::VaultInfo& vi) { return vi.code_bytes; },
+            "code_bytes", [](const elips::CollectionInfo& vi) { return vi.code_bytes; },
             "Bytes per stored vector, or 0 when uncompressed.")
         .def_property_readonly(
             "compression_ratio",
-            [](const elips::VaultInfo& vi) {
+            [](const elips::CollectionInfo& vi) {
                 if (vi.code_bytes == 0 || vi.dimension == 0) {
                     return 1.0;
                 }
@@ -2030,7 +2030,7 @@ The returned handle owns the backend independently of any
                        static_cast<double>(vi.code_bytes);
             },
             "Stored bytes saved per vector against fp32; 1.0 when uncompressed.")
-        .def("__repr__", [](const elips::VaultInfo& vi) {
+        .def("__repr__", [](const elips::CollectionInfo& vi) {
             return "<VaultInfo count=" + std::to_string(vi.count) +
                    " dimension=" + std::to_string(vi.dimension) +
                    " metric=" +
@@ -2240,9 +2240,9 @@ Returns:
 
     // =====================  TransactionVault  =====================
 
-    py::class_<elips::TransactionVault>(m, "TransactionVault")
+    py::class_<elips::TransactionCollection>(m, "TransactionVault")
         .def("place",
-             [](elips::TransactionVault& tv, const py::iterable& vector,
+             [](elips::TransactionCollection& tv, const py::iterable& vector,
                 const py::dict& data, const py::object& id) {
                  auto native_vector = to_vector(vector);
                  auto payload = to_payload(data);
@@ -2255,7 +2255,7 @@ Returns:
              py::arg("vector"), py::arg("data") = py::dict(),
              py::arg("id") = py::none())
         .def("erase",
-             [](elips::TransactionVault& tv, const std::string& id) {
+             [](elips::TransactionCollection& tv, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
                  tv.erase(record_id);
@@ -2294,7 +2294,7 @@ Returns:
 
     // =====================  Vault  =====================
 
-    py::class_<elips::Vault, std::unique_ptr<elips::Vault, py::nodelete>>(
+    py::class_<elips::Collection, std::unique_ptr<elips::Collection, py::nodelete>>(
         m, "Vault", R"doc(A named partition of records: the unit of search.
 
 A vault owns one index and one record store. Records in a vault share a
@@ -2349,7 +2349,7 @@ Example:
         db.close()
 )doc")
         .def("place",
-             [](elips::Vault& v, const py::iterable& vector,
+             [](elips::Collection& v, const py::iterable& vector,
                 const py::dict& data, const py::object& id,
                 const py::object& document, const py::object& chunk,
                 const py::object& lineage) {
@@ -2386,7 +2386,7 @@ Example:
              py::arg("chunk") = py::none(),
              py::arg("lineage") = py::none())
         .def("place_document",
-             [](elips::Vault& v, const std::string& text, const py::dict& data,
+             [](elips::Collection& v, const std::string& text, const py::dict& data,
                 const py::object& id, const py::object& chunk,
                 const py::object& lineage) {
                  std::optional<elips::ChunkInfo> chunk_info;
@@ -2415,7 +2415,7 @@ Example:
              py::arg("id") = py::none(), py::arg("chunk") = py::none(),
              py::arg("lineage") = py::none())
         .def("place_many",
-             [](elips::Vault& v, const py::iterable& records) {
+             [](elips::Collection& v, const py::iterable& records) {
                  std::vector<elips::Record> recs;
                  for (const auto& item : records) {
                      py::dict d = py::reinterpret_borrow<py::dict>(item);
@@ -2478,7 +2478,7 @@ Example:
              },
              py::arg("records"))
         .def("seek",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold) {
                  std::optional<float> th;
@@ -2492,7 +2492,7 @@ Example:
              py::arg("where") = elips::Filter{},
              py::arg("threshold") = py::none())
         .def("seek_text",
-             [](const elips::Vault& v, const std::string& text,
+             [](const elips::Collection& v, const std::string& text,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold) {
                  std::optional<float> th;
@@ -2508,7 +2508,7 @@ Example:
              py::arg("where") = elips::Filter{},
              py::arg("threshold") = py::none())
         .def("seek_hybrid",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 const std::string& text, std::size_t top,
                 const elips::Filter& where, const py::object& threshold,
                 float lexical_weight) {
@@ -2526,7 +2526,7 @@ Example:
              py::arg("threshold") = py::none(),
              py::arg("lexical_weight") = 0.25F)
         .def("explain_seek",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold, bool has_text_component) {
                  std::optional<float> th;
@@ -2543,7 +2543,7 @@ Example:
              py::arg("threshold") = py::none(),
              py::arg("has_text_component") = false)
         .def("fetch",
-             [](const elips::Vault& v,
+             [](const elips::Collection& v,
                 const std::string& id) -> py::object {
                  const auto record_id = elips::RecordID::from_string(id);
                  std::optional<elips::Record> rec;
@@ -2557,13 +2557,13 @@ Example:
                  return py::object(record_to_dict(*rec));
              })
         .def("erase",
-             [](elips::Vault& v, const std::string& id) {
+             [](elips::Collection& v, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
                  return v.erase(record_id);
              })
         .def("scan",
-             [](const elips::Vault& v, const elips::Filter& where,
+             [](const elips::Collection& v, const elips::Filter& where,
                 std::size_t offset, int limit) {
                  std::size_t lim =
                      limit < 0
@@ -2585,23 +2585,23 @@ Example:
              py::arg("where") = elips::Filter{},
              py::arg("offset") = 0, py::arg("limit") = -1)
         .def("info",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  py::gil_scoped_release unlocked;
                  return v.info();
              })
         .def("count",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  py::gil_scoped_release unlocked;
                  return v.info().count;
              })
-        .def("rebuild_index", &elips::Vault::rebuild_index,
+        .def("rebuild_index", &elips::Collection::rebuild_index,
              py::call_guard<py::gil_scoped_release>(),
              "Rebuild the index from the authoritative record store. Useful "
              "after bulk loads, or to recover index quality after heavy churn.")
-        .def("vacuum", &elips::Vault::vacuum,
+        .def("vacuum", &elips::Collection::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim index space held by deleted records.")
-        .def("quantize", &elips::Vault::quantize,
+        .def("quantize", &elips::Collection::quantize,
              py::call_guard<py::gil_scoped_release>(),
              R"doc(Train a codebook over this vault and compress it in place.
 
@@ -2624,17 +2624,17 @@ than the exact vectors written; each record dict carries ``approximate`` and
 ``codec`` so this is visible.
 )doc")
         .def_property_readonly(
-            "quantized", &elips::Vault::quantized,
+            "quantized", &elips::Collection::quantized,
             "True once :meth:`quantize` has trained a codebook and compressed "
             "this vault.")
         .def_property_readonly(
             "codec",
-            [](const elips::Vault& v) {
+            [](const elips::Collection& v) {
                 return std::string(elips::quant::to_string(v.codec()));
             },
             "Active codec name, or ``none`` while uncompressed.")
         .def("records",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  // records() copies the whole store under the vault lock; that
                  // copy is exactly the part worth doing off the GIL.
                  std::map<elips::RecordID, elips::Record> snapshot;
@@ -2654,23 +2654,23 @@ than the exact vectors written; each record dict carries ``approximate`` and
 Returns a list of record dicts. This copies the whole vault, so prefer
 :meth:`scan` with a filter or ``limit`` for large vaults.
 )doc")
-        .def("set_read_only", &elips::Vault::set_read_only,
+        .def("set_read_only", &elips::Collection::set_read_only,
              py::arg("read_only"),
              "Toggle runtime read-only mode. While read-only, any mutation "
              "raises :class:`StorageError`.")
-        .def_property_readonly("read_only", &elips::Vault::read_only,
+        .def_property_readonly("read_only", &elips::Collection::read_only,
                                "True when this vault refuses mutations.")
         .def_property_readonly(
-            "sealed", &elips::Vault::sealed,
+            "sealed", &elips::Collection::sealed,
             "True once the owning database has been closed. Writes to a "
             "sealed vault raise instead of silently failing to persist.")
         .def_property_readonly("pending_removals",
-                               &elips::Vault::pending_removals,
+                               &elips::Collection::pending_removals,
                                "Records deleted from the index but not yet "
                                "reclaimed. See :meth:`vacuum`.")
-        .def_property_readonly("name", &elips::Vault::name,
+        .def_property_readonly("name", &elips::Collection::name,
                                "This vault's name.")
-        .def("__repr__", [](const elips::Vault& v) {
+        .def("__repr__", [](const elips::Collection& v) {
             const auto vi = v.info();
             return "<Vault name='" + v.name() +
                    "' count=" + std::to_string(vi.count) +

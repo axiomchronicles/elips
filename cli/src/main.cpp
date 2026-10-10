@@ -103,9 +103,9 @@ void print_results(const std::vector<elips::SearchResult>& results) {
 
 int cmd_info(const Args& a) {
     auto db = open_db(a);
-    const auto vaults = db->list_vaults();
+    const auto collections = db->list_vaults();
     std::size_t total = 0;
-    for (const auto& name : vaults) total += db->vault(name).info().count;
+    for (const auto& name : collections) total += db->vault(name).info().count;
     std::cout << "path: " << a.path << "\n"
               << "dimension: " << db->config().dimension() << "\n"
               << "metric: " << elips::to_string(db->config().metric()) << "\n"
@@ -113,9 +113,9 @@ int cmd_info(const Args& a) {
               << (db->config().index() == elips::IndexType::graph ? "graph"
                                                                    : "exact")
               << "\n"
-              << "vaults: " << vaults.size() << "\n"
+              << "collections: " << collections.size() << "\n"
               << "records: " << total << "\n";
-    for (const auto& name : vaults) {
+    for (const auto& name : collections) {
         const auto info = db->vault(name).info();
         if (info.codec == elips::quant::CodecId::none) {
             continue;
@@ -164,22 +164,22 @@ int cmd_checkpoint(const Args& a) {
 }
 
 int cmd_export(const Args& a) {
-    const std::string vault = option(a, "vault");
+    const std::string collection = option(a, "collection");
     const std::string out_path = option(a, "output");
     auto db = open_db(a);
-    const auto info = db->vault(vault).info();
+    const auto info = db->vault(collection).info();
     if (info.codec != elips::quant::CodecId::none) {
-        // An export from a compressed vault is not a faithful backup: the
+        // An export from a compressed collection is not a faithful backup: the
         // vectors are reconstructions, so a re-import will not reproduce the
         // original values.
-        std::cerr << "warning: vault '" << vault << "' is compressed ("
+        std::cerr << "warning: collection '" << collection << "' is compressed ("
                   << elips::quant::to_string(info.codec)
                   << "); exported vectors are reconstructions, not the original "
                      "values\n";
     }
     std::ofstream out(out_path);
     std::size_t n = 0;
-    for (const auto& record : db->vault(vault).scan()) {
+    for (const auto& record : db->vault(collection).scan()) {
         out << elips::cli::json::dump_record(record) << "\n";
         ++n;
     }
@@ -188,7 +188,7 @@ int cmd_export(const Args& a) {
 }
 
 int cmd_quantize(const Args& a) {
-    const std::string vault_name = option(a, "vault");
+    const std::string collection_name = option(a, "collection");
     auto db = open_db(a);
 
     const auto report = [&](const std::string& name) {
@@ -204,34 +204,34 @@ int cmd_quantize(const Args& a) {
                   << info.count << " records\n";
     };
 
-    if (vault_name.empty()) {
+    if (collection_name.empty()) {
         db->quantize_all();
         for (const auto& name : db->list_vaults()) {
             report(name);
         }
     } else {
-        db->quantize(vault_name);
-        report(vault_name);
+        db->quantize(collection_name);
+        report(collection_name);
     }
     return 0;
 }
 
 int cmd_import(const Args& a) {
-    const std::string vault_name = option(a, "vault");
+    const std::string collection_name = option(a, "collection");
     const std::string in_path = option(a, "input");
     auto db = open_db(a);
-    auto& vault = db->vault(vault_name);
+    auto& collection = db->vault(collection_name);
     std::ifstream in(in_path);
     std::string line;
     std::size_t n = 0;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         const elips::Record r = elips::cli::json::parse_record(line);
-        vault.place(r.vector, r.payload, r.id);
+        collection.place(r.vector, r.payload, r.id);
         ++n;
     }
     db->checkpoint();
-    std::cout << "imported " << n << " records into " << vault_name << "\n";
+    std::cout << "imported " << n << " records into " << collection_name << "\n";
     return 0;
 }
 
@@ -242,7 +242,7 @@ int cmd_verify(const Args& a) {
         for (const auto& name : db->list_vaults()) {
             total += db->vault(name).info().count;
         }
-        std::cout << "OK: " << db->list_vaults().size() << " vaults, " << total
+        std::cout << "OK: " << db->list_vaults().size() << " collections, " << total
                   << " records\n";
         return 0;
     } catch (const std::exception& e) {
@@ -255,7 +255,7 @@ int cmd_stats(const Args& a) {
     auto db = open_db(a);
     for (const auto& name : db->list_vaults()) {
         const auto info = db->vault(name).info();
-        std::cout << "vault." << name << ".records: " << info.count << "\n";
+        std::cout << "collection." << name << ".records: " << info.count << "\n";
     }
     return 0;
 }
@@ -265,7 +265,7 @@ int cmd_bench(const Args& a) {
     const auto dim = static_cast<std::uint16_t>(std::stoul(option(a, "dim", "128")));
     auto db = elips::open(a.path, Config{}.dimension(dim).metric(
                                       elips::Metric::cosine));
-    auto& vault = db->vault("bench");
+    auto& collection = db->vault("bench");
 
     std::mt19937 rng(42);
     std::normal_distribution<float> dist(0.0F, 1.0F);
@@ -277,11 +277,11 @@ int cmd_bench(const Args& a) {
 
     using clock = std::chrono::steady_clock;
     const auto t0 = clock::now();
-    for (std::size_t i = 0; i < count; ++i) vault.place(random_vec());
+    for (std::size_t i = 0; i < count; ++i) collection.place(random_vec());
     const auto t1 = clock::now();
 
     constexpr int queries = 1000;
-    for (int q = 0; q < queries; ++q) (void)vault.seek(random_vec(), 10);
+    for (int q = 0; q < queries; ++q) (void)collection.seek(random_vec(), 10);
     const auto t2 = clock::now();
 
     const double insert_s = std::chrono::duration<double>(t1 - t0).count();
@@ -295,11 +295,11 @@ int cmd_bench(const Args& a) {
 
 void usage() {
     std::cerr << "usage: elips <command> <db_path> [options]\n"
-              << "commands: info vaults query checkpoint export import verify "
+              << "commands: info collections query checkpoint export import verify "
                  "stats bench quantize\n"
-              << "\nquantize [--vault NAME] [--quantize pq|opq|sq8] "
+              << "\nquantize [--collection NAME] [--quantize pq|opq|sq8] "
                  "[--pq-dim N] [--pq-bits N]\n"
-              << "  Compresses stored vectors. Omit --vault for every vault.\n"
+              << "  Compresses stored vectors. Omit --collection for every collection.\n"
               << "  Trains a codebook from the resident data, so run it after\n"
               << "  ingest. Lossy: searches stay correct but return estimated\n"
               << "  distances, and exports become reconstructions.\n";
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
     }
     try {
         if (args.command == "info") return cmd_info(args);
-        if (args.command == "vaults") return cmd_vaults(args);
+        if (args.command == "collections") return cmd_vaults(args);
         if (args.command == "query") return cmd_query(args);
         if (args.command == "checkpoint") return cmd_checkpoint(args);
         if (args.command == "export") return cmd_export(args);

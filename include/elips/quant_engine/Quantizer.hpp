@@ -18,7 +18,7 @@ namespace elips::quant {
 // A trained codec that compresses a fp32 vector into a fixed-width byte code.
 //
 // A quantizer is immutable once trained: every method is const and safe to call
-// concurrently from any number of threads. Vaults and indexes share one via
+// concurrently from any number of threads. Collections and indexes share one via
 // std::shared_ptr<const Quantizer> rather than each holding a copy of the
 // codebook, which for PQ at 8 bits is 256 * dimension floats.
 //

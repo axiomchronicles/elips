@@ -11,7 +11,7 @@ namespace elips::quant {
 
 class Quantizer;
 
-// A trained codec is immutable and shared: vaults and indexes observe the same
+// A trained codec is immutable and shared: collections and indexes observe the same
 // instance rather than each copying a codebook that, for 8-bit PQ, is 256
 // centroids per subspace.
 using QuantizerPtr = std::shared_ptr<const Quantizer>;

@@ -91,14 +91,14 @@ std::vector<std::vector<float>> sample_vectors(std::size_t n, unsigned seed = 5)
     return rows;
 }
 
-std::vector<RecordID> populate(elips::Vault& vault,
+std::vector<RecordID> populate(elips::Collection& collection,
                                const std::vector<std::vector<float>>& rows) {
     std::vector<RecordID> ids;
     ids.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         elips::Payload payload;
         payload.emplace("row", static_cast<std::int64_t>(i));
-        ids.push_back(vault.place(Vector{rows[i]}, payload));
+        ids.push_back(collection.place(Vector{rows[i]}, payload));
     }
     return ids;
 }
@@ -109,7 +109,7 @@ std::string read_file(const fs::path& file) {
                        std::istreambuf_iterator<char>());
 }
 
-// The snapshot lands either as one file or as per-vault segments depending on
+// The snapshot lands either as one file or as per-collection segments depending on
 // Config::segmented_storage(); collect whichever exists.
 std::string read_persisted_state(const fs::path& root) {
     std::string combined = read_file(root / "elips.snapshot");
@@ -147,9 +147,9 @@ TEST(M5QuantizationPersistence, RepeatedReopenLeavesTheStoredBytesIdentical) {
     std::string baseline;
     for (int cycle = 0; cycle < 5; ++cycle) {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& vault = db->vault("main");
-        EXPECT_TRUE(vault.quantized());
-        EXPECT_EQ(vault.info().count, kCount);
+        auto& collection = db->vault("main");
+        EXPECT_TRUE(collection.quantized());
+        EXPECT_EQ(collection.info().count, kCount);
         db->checkpoint();
         db->close();
 
@@ -180,13 +180,13 @@ TEST(M5QuantizationPersistence, SearchResultsAreStableAcrossReopen) {
     std::vector<std::vector<RecordID>> first_run;
     for (int cycle = 0; cycle < 3; ++cycle) {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& vault = db->vault("main");
+        auto& collection = db->vault("main");
         std::vector<std::vector<RecordID>> run;
         for (std::size_t q = 0; q < 10; ++q) {
             std::vector<RecordID> hits;
-            for (const auto& result : vault.seek(Vector{rows[q]}, 5)) {
+            for (const auto& result : collection.seek(Vector{rows[q]}, 5)) {
                 hits.push_back(result.id);
-                // Every hit from a quantized vault must be labelled approximate.
+                // Every hit from a quantized collection must be labelled approximate.
                 EXPECT_TRUE(result.approximate());
                 EXPECT_EQ(result.codec, CodecId::pq);
             }
@@ -222,12 +222,12 @@ TEST(M5QuantizationPersistence, UnquantizedDatabaseRoundTripsExactly) {
     Config config;
     config.dimension(kDim).metric(Metric::euclidean);
     auto db = elips::open(dir.string(), config);
-    auto& vault = db->vault("main");
-    EXPECT_FALSE(vault.quantized());
-    EXPECT_EQ(vault.codec(), CodecId::none);
+    auto& collection = db->vault("main");
+    EXPECT_FALSE(collection.quantized());
+    EXPECT_EQ(collection.codec(), CodecId::none);
 
     for (std::size_t i = 0; i < ids.size(); ++i) {
-        const auto record = vault.fetch(ids[i]);
+        const auto record = collection.fetch(ids[i]);
         ASSERT_TRUE(record.has_value());
         EXPECT_FALSE(record->approximate());
         const auto stored = record->vector.values();
@@ -256,7 +256,7 @@ TEST(M5QuantizationPersistence, ExistingV2DatabaseOpensUnderTheV3Reader) {
         db->close();
     }
 
-    // Rewrite the v3 snapshot as a v2 one: drop the per-vault codebook byte and
+    // Rewrite the v3 snapshot as a v2 one: drop the per-collection codebook byte and
     // the per-record codec byte, and stamp version 2.
     const fs::path snapshot = dir.path() / "elips.snapshot";
     ASSERT_TRUE(fs::exists(snapshot));
@@ -268,16 +268,16 @@ TEST(M5QuantizationPersistence, ExistingV2DatabaseOpensUnderTheV3Reader) {
     const std::uint32_t two = 2U;
     v2.append(reinterpret_cast<const char*>(&two), 4);
     std::size_t pos = 8;
-    v2.append(v3, pos, 2 + 1 + 4);  // dimension, metric, vault count
+    v2.append(v3, pos, 2 + 1 + 4);  // dimension, metric, collection count
     pos += 2 + 1 + 4;
 
-    // One vault: name string, then the codebook byte to drop.
+    // One collection: name string, then the codebook byte to drop.
     std::uint32_t name_len = 0;
     std::memcpy(&name_len, v3.data() + pos, 4);
     v2.append(v3, pos, 4 + name_len);
     pos += 4 + name_len;
     ASSERT_EQ(static_cast<unsigned char>(v3[pos]), 0U)  // codec none
-        << "expected an absent codebook for an unquantized vault";
+        << "expected an absent codebook for an unquantized collection";
     pos += 1;  // drop the codebook section
 
     std::uint32_t record_count = 0;
@@ -326,12 +326,12 @@ TEST(M5QuantizationPersistence, ExistingV2DatabaseOpensUnderTheV3Reader) {
     Config config;
     config.dimension(kDim).metric(Metric::euclidean).segmented_storage(false);
     auto db = elips::open(dir.string(), config);
-    auto& vault = db->vault("main");
-    EXPECT_EQ(vault.info().count, ids.size());
-    EXPECT_FALSE(vault.quantized());
+    auto& collection = db->vault("main");
+    EXPECT_EQ(collection.info().count, ids.size());
+    EXPECT_FALSE(collection.quantized());
 
     for (std::size_t i = 0; i < ids.size(); ++i) {
-        const auto record = vault.fetch(ids[i]);
+        const auto record = collection.fetch(ids[i]);
         ASSERT_TRUE(record.has_value()) << "record " << i << " lost";
         // The payload proves the extras were not misparsed: a wrong `with_extras`
         // would desynchronize the stream and corrupt everything after it.
@@ -420,15 +420,15 @@ TEST(M5QuantizationPersistence, CorruptCodecTagIsRejected) {
     }
 
     // Find the first per-record codec byte and set it to an unknown tag. It sits
-    // after the header, the vault name, the codebook byte, the record count, and
+    // after the header, the collection name, the codebook byte, the record count, and
     // the 16-byte id.
     const fs::path snapshot = dir.path() / "elips.snapshot";
     std::string bytes = read_file(snapshot);
     std::size_t pos = 8 + 2 + 1 + 4;
     std::uint32_t name_len = 0;
     std::memcpy(&name_len, bytes.data() + pos, 4);
-    pos += 4 + name_len;  // vault name
-    pos += 1;             // vault codebook byte
+    pos += 4 + name_len;  // collection name
+    pos += 1;             // collection codebook byte
     pos += 4;             // record count
     pos += 16;            // record id
     bytes[pos] = static_cast<char>(0x7F);
@@ -448,7 +448,7 @@ TEST(M5QuantizationPersistence, QuantizeRejectsInvalidStates) {
     const TempDir dir("states");
     auto db = elips::open(dir.string(), quantized_config());
 
-    // Empty vault: nothing to learn a codebook from.
+    // Empty collection: nothing to learn a codebook from.
     EXPECT_THROW(db->quantize("main"), elips::ConfigError);
 
     populate(db->vault("main"), sample_vectors(50));
@@ -477,12 +477,12 @@ TEST(M5QuantizationPersistence, InsertsAfterQuantizationAreEncodedOnArrival) {
 
     {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& vault = db->vault("main");
-        populate(vault, rows);
+        auto& collection = db->vault("main");
+        populate(collection, rows);
         db->quantize("main");
 
-        late = vault.place(Vector{rows[0]});
-        const auto record = vault.fetch(late);
+        late = collection.place(Vector{rows[0]});
+        const auto record = collection.fetch(late);
         ASSERT_TRUE(record.has_value());
         EXPECT_TRUE(record->approximate());
         EXPECT_EQ(record->codec, CodecId::pq);
@@ -498,7 +498,7 @@ TEST(M5QuantizationPersistence, InsertsAfterQuantizationAreEncodedOnArrival) {
     EXPECT_EQ(db->vault("main").info().count, kCount + 1);
 }
 
-TEST(M5QuantizationPersistence, VaultInfoReportsTheCompressionRatio) {
+TEST(M5QuantizationPersistence, CollectionInfoReportsTheCompressionRatio) {
     const TempDir dir("info");
     auto db = elips::open(dir.string(), quantized_config());
     populate(db->vault("main"), sample_vectors(kCount));
@@ -518,28 +518,28 @@ TEST(M5QuantizationPersistence, VaultInfoReportsTheCompressionRatio) {
 TEST(M5QuantizationPersistence, VacuumAndCompactPreserveCompression) {
     // rebuild_index_locked() reconstructs the index from Config alone, so a
     // quantizer that was not reachable from Config would be silently dropped
-    // here and the vault would revert to fp32 storage.
+    // here and the collection would revert to fp32 storage.
     const TempDir dir("vacuum");
     const auto rows = sample_vectors(kCount);
     std::vector<RecordID> ids;
 
     auto db = elips::open(dir.string(), quantized_config());
-    auto& vault = db->vault("main");
-    ids = populate(vault, rows);
+    auto& collection = db->vault("main");
+    ids = populate(collection, rows);
     db->quantize("main");
 
     for (std::size_t i = 0; i < 100; ++i) {
-        vault.erase(ids[i]);
+        collection.erase(ids[i]);
     }
     db->vacuum();
-    EXPECT_TRUE(vault.quantized());
-    EXPECT_EQ(vault.info().codec, CodecId::pq);
+    EXPECT_TRUE(collection.quantized());
+    EXPECT_EQ(collection.info().codec, CodecId::pq);
 
     db->compact();
-    EXPECT_TRUE(vault.quantized());
-    EXPECT_EQ(vault.info().count, kCount - 100);
+    EXPECT_TRUE(collection.quantized());
+    EXPECT_EQ(collection.info().count, kCount - 100);
 
-    const auto record = vault.fetch(ids[200]);
+    const auto record = collection.fetch(ids[200]);
     ASSERT_TRUE(record.has_value());
     EXPECT_TRUE(record->approximate());
     db->close();
@@ -563,13 +563,13 @@ TEST(M5QuantizationPersistence, EveryCodecSurvivesARoundTrip) {
         }
 
         auto db = elips::open(dir.string(), quantized_config(params));
-        auto& vault = db->vault("main");
-        EXPECT_EQ(vault.codec(), codec)
+        auto& collection = db->vault("main");
+        EXPECT_EQ(collection.codec(), codec)
             << "codec " << elips::quant::to_string(codec);
-        EXPECT_EQ(vault.info().count, ids.size());
+        EXPECT_EQ(collection.info().count, ids.size());
 
         // Self-retrieval: the nearest neighbor of a stored vector is itself.
-        const auto hits = vault.seek(Vector{rows[3]}, 1);
+        const auto hits = collection.seek(Vector{rows[3]}, 1);
         ASSERT_FALSE(hits.empty());
         EXPECT_EQ(hits[0].id, ids[3]) << "codec " << elips::quant::to_string(codec);
         db->close();
@@ -586,11 +586,11 @@ TEST(M5QuantizationPersistence, RollbackLeavesUntouchedCodesBitIdentical) {
     const auto rows = sample_vectors(kCount);
 
     auto db = elips::open(dir.string(), quantized_config());
-    auto& vault = db->vault("main");
-    const auto ids = populate(vault, rows);
+    auto& collection = db->vault("main");
+    const auto ids = populate(collection, rows);
     db->quantize("main");
 
-    const auto before = vault.fetch(ids[7]);
+    const auto before = collection.fetch(ids[7]);
     ASSERT_TRUE(before.has_value());
     ASSERT_FALSE(before->codes.empty());
 
@@ -602,7 +602,7 @@ TEST(M5QuantizationPersistence, RollbackLeavesUntouchedCodesBitIdentical) {
         txn.rollback();
     }
 
-    const auto after = vault.fetch(ids[7]);
+    const auto after = collection.fetch(ids[7]);
     ASSERT_TRUE(after.has_value());
     EXPECT_EQ(after->codes, before->codes)
         << "rollback re-encoded the record instead of restoring its code";

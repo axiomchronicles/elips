@@ -29,9 +29,9 @@ TEST_F(RecoveryTest, WalReplayRecoversUncheckpointedWrites) {
     {
         auto db = elips::open(path(), elips::Config{}.dimension(3).durability(
                                           elips::Durability::paranoid));
-        auto& vault = db->vault("v");
-        vault.place(elips::Vector{{1.0F, 0.0F, 0.0F}}, {{"n", std::int64_t{1}}});
-        vault.place(elips::Vector{{0.0F, 1.0F, 0.0F}}, {{"n", std::int64_t{2}}});
+        auto& collection = db->vault("v");
+        collection.place(elips::Vector{{1.0F, 0.0F, 0.0F}}, {{"n", std::int64_t{1}}});
+        collection.place(elips::Vector{{0.0F, 1.0F, 0.0F}}, {{"n", std::int64_t{2}}});
         db->abandon();  // simulate crash: no checkpoint, WAL persists
     }
     auto db = elips::open(path());
@@ -44,7 +44,7 @@ TEST_F(RecoveryTest, WalReplayRecoversExtendedRecordState) {
     {
         auto db = elips::open(path(), elips::Config{}.dimension(2).durability(
                                           elips::Durability::paranoid));
-        auto& vault = db->vault("docs");
+        auto& collection = db->vault("docs");
 
         elips::DocumentAttachment document;
         document.text = "alpha note";
@@ -63,7 +63,7 @@ TEST_F(RecoveryTest, WalReplayRecoversExtendedRecordState) {
         lineage.revision = "v2";
         lineage.attributes = {{"stage", std::string{"recovery"}}};
 
-        kept_id = vault.place(elips::Vector{{1.0F, 0.0F}},
+        kept_id = collection.place(elips::Vector{{1.0F, 0.0F}},
                               {{"kind", std::string{"alpha"}}},
                               std::nullopt,
                               document,
@@ -118,7 +118,7 @@ TEST_F(RecoveryTest, WalAppendAndReplayRoundTrip) {
     ASSERT_EQ(entries.size(), 2U);
     EXPECT_EQ(entries[0].op, elips::WAL::Op::insert);
     EXPECT_EQ(entries[0].id, id);
-    EXPECT_EQ(entries[0].vault, "vault_a");
+    EXPECT_EQ(entries[0].collection, "vault_a");
     EXPECT_EQ(entries[1].op, elips::WAL::Op::erase);
 }
 

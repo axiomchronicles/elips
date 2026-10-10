@@ -111,9 +111,9 @@ void bench_recovery(std::size_t count, std::uint16_t dim) {
         auto db = elips::open(dir.string(),
                               elips::Config{}.dimension(dim).durability(
                                   elips::Durability::standard));
-        auto& vault = db->vault("bench");
+        auto& collection = db->vault("bench");
         for (const auto& row : data) {
-            vault.place(elips::Vector{row});
+            collection.place(elips::Vector{row});
         }
         db->abandon();  // crash before checkpoint -> recovery replays WAL
     }
