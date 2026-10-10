@@ -91,6 +91,11 @@ Metal: real GPU Flat distance+topk, GPU IVF scan, bf_knn — all with real-M4 pa
 - [x] 7.6 CUDA: real `CudaBackend` (cuBLAS sgemm distance + L2 reconstruction, on-device k-select adapted from FAISS block/warp-select MIT, cudaMalloc/Memcpy/StreamSync, cudaError→GpuError), CMake `enable_language(CUDA)` archs 70;80;90 gated `ELIPS_ENABLE_CUDA`=OFF, GpuDeviceManager #if-cuda blocks, gated `tests/gpu/cuda/CudaBackendTest.cpp`. **EXPERIMENTAL** labelled (maturity const, device name suffix, headers/CMake notes). `scripts/ci/compile_cuda.sh`+`Dockerfile.cuda` pull `nvidia/cuda:12.6.2-devel` and RAN — but **nvcc `cicc` segfaults under QEMU amd64-on-arm64 emulation** (toolchain limitation, not code; crashes before our sources), so container compile is **not locally passable**; exact x86_64 CI command recorded. Default CPU+Metal build (CUDA OFF) green: ctest 307. Merged to redesign.
 - [x] 7.4 device selection + no-silent-fallback (rule #9): device `cpu|auto|metal|cuda[:N]|hip[:N]` + `ELIPS_DEVICE`; absent GPU → **BackendUnavailableError** (added as real C++ type; was Python-only); CPU fallback only with `fallback=True`, logged (stderr + UserWarning). ctest 306 (+4), pytest 259 (+8), test_bindings 34/34. Verified: metal opens / cuda:0 raises / fallback demotes+warns.
 
+## Phase 8 checklist (build / packaging / test infra)
+- [x] 8B CI + test infra: `.github/workflows` jobs (docs-snippets, cuda-compile + hip-compile EXPERIMENTAL/continue-on-error calling the compile scripts; macOS CPU+Metal & Linux CPU & ASan/TSan already present); `scripts/run_doc_snippets.py` (extracts+runs python doc fences, honors `no-exec`, `--selftest`); `benchmarks/datasets.py` (fixed-seed random + optional SIFT1M); new python tests `test_gpu_memory_cycles.py` (Metal create/destroy, RSS plateau) + `test_bf_knn_large.py`. ctest 307, pytest 263 (+4). Merged.
+- [ ] 8A build + packaging (ELIPS_OPT_LEVEL / C_API / install-export / latent CMake fixes / pyproject numpy+version) — agent running.
+- NOTE (cleanup, Phase 9/10): repo-wide `ruff` is **pre-existing red** at HEAD (17 check errors + format on bench/others) — track + fix in a lint pass.
+
 ## Open questions
 (see `04_architecture.md`)
 
