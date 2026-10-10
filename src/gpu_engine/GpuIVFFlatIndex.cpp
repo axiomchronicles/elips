@@ -81,6 +81,52 @@ std::vector<Index::Hit> GpuIVFFlatIndex::rank_candidates(
     return hits;
 }
 
+std::vector<Index::Hit> GpuIVFFlatIndex::rank_candidates_ivf(
+    std::span<const float> query, std::size_t k,
+    const std::vector<RecordID>& candidate_ids,
+    const std::vector<float>& candidate_vectors,
+    const std::vector<std::uint32_t>& source_lists) const {
+    if (candidate_ids.empty() || k == 0) {
+        return {};
+    }
+
+    // Per-list boundaries: gather_candidates lays out candidates grouped by
+    // probed list contiguously, so each run of equal source_lists is one list.
+    std::vector<std::uint32_t> offsets;
+    offsets.reserve(source_lists.size() + 1);
+    offsets.push_back(0);
+    for (std::size_t i = 1; i < source_lists.size(); ++i) {
+        if (source_lists[i] != source_lists[i - 1]) {
+            offsets.push_back(static_cast<std::uint32_t>(i));
+        }
+    }
+    offsets.push_back(static_cast<std::uint32_t>(candidate_ids.size()));
+    const std::size_t nlists = offsets.size() - 1;
+
+    const auto take = std::min(k, candidate_ids.size());
+    std::vector<std::uint32_t> indices(take);
+    std::vector<float> values(take);
+    auto scan = backend_.ivf_scan(
+        query,
+        std::span<const float>{candidate_vectors.data(), candidate_vectors.size()},
+        std::span<const std::uint32_t>{offsets.data(), offsets.size()},
+        indices, values, nlists, candidate_ids.size(), dimension_, take, metric_);
+    if (!scan.has_value()) {
+        // Backend without an IVF-scan kernel: generic gather + flat top-k.
+        return rank_candidates(query, k, candidate_ids, candidate_vectors);
+    }
+
+    std::vector<Hit> hits;
+    hits.reserve(take);
+    for (std::size_t i = 0; i < take; ++i) {
+        if (indices[i] >= candidate_ids.size()) {
+            continue;
+        }
+        hits.emplace_back(candidate_ids[indices[i]], values[i]);
+    }
+    return hits;
+}
+
 std::vector<Index::Hit> GpuIVFFlatIndex::search(std::span<const float> query,
                                                      std::size_t k) const {
     validate_dimension(query, dimension_, "query");
@@ -99,7 +145,8 @@ std::vector<Index::Hit> GpuIVFFlatIndex::search(std::span<const float> query,
         candidates = state_->gather_candidates(*probed);
     }
 
-    return rank_candidates(query, k, candidates.ids, candidates.vectors);
+    return rank_candidates_ivf(query, k, candidates.ids, candidates.vectors,
+                               candidates.source_lists);
 }
 
 std::size_t GpuIVFFlatIndex::ntotal() const noexcept { return state_->size(); }
@@ -151,7 +198,9 @@ GpuIVFFlatIndex::search_batch(std::span<const float> queries, size_t k,
         auto candidates = state_->trained()
                 ? state_->gather_candidates(probed_lists[q])
                 : state_->all_candidates();
-        const auto hits = rank_candidates(query, k, candidates.ids, candidates.vectors);
+        const auto hits = rank_candidates_ivf(query, k, candidates.ids,
+                                              candidates.vectors,
+                                              candidates.source_lists);
 
         auto& row = results[q];
         row.reserve(hits.size());

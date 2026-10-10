@@ -185,3 +185,136 @@ kernel void topk_select(
         else       { outDistances[qi * k + i] = 1e38f;    outIndices[qi * k + i] = -1; }
     }
 }
+
+// ============================================================
+//  IVF two-pass scan + merge (single query).
+//  Adapted from FAISS faiss/gpu_metal (ivf_scan_list / ivf_merge_lists),
+//  MIT (c) Meta Platforms. Pass 1 scans each probed list independently and
+//  keeps that list's top-k; pass 2 merges the per-list top-k into the final
+//  per-query top-k. fp32 math, ELIPS distance conventions, smaller-index
+//  tiebreak -- so GPU IVF labels match the CPU IndexIVFFlat selection.
+//  metric mode: 0 = euclidean (sqrt L2), 1 = cosine (1 - dot), 2 = dot (-dot).
+//  Candidate layout is the host-gathered [list0 rows | list1 rows | ...]
+//  contiguous array; `offsets[p]..offsets[p+1]` bounds list p, and the index
+//  written out is the GLOBAL candidate row so the host maps it back to an id.
+// ============================================================
+
+inline float elips_row_distance(device const float* q, device const float* v,
+                                uint d, uint metric) {
+    float acc = 0.0f;
+    if (metric == 0u) {                       // euclidean: sqrt(sum (q-v)^2)
+        for (uint i = 0; i < d; ++i) { float t = q[i] - v[i]; acc += t * t; }
+        return sqrt(acc);
+    }
+    for (uint i = 0; i < d; ++i) acc += q[i] * v[i];
+    return (metric == 1u ? 1.0f : 0.0f) - acc;  // cosine 1-dot, dot_product -dot
+}
+
+// Compare-exchange a 2P-wide bitonic span in threadgroup memory, keeping the
+// smallest P in [0,P). Ties break on smaller index -- identical ordering to
+// topk_select above. (Shared by both IVF passes.)
+#define ELIPS_IVF_BITONIC(mDist, mIdx, twoP)                                   \
+    for (uint k2 = 2; k2 <= (twoP); k2 <<= 1) {                                \
+        for (uint j = k2 >> 1; j > 0; j >>= 1) {                               \
+            for (uint i = tid; i < (twoP); i += nthreads) {                    \
+                uint partner = i ^ j;                                          \
+                if (partner > i && partner < (twoP)) {                         \
+                    bool up = ((i & k2) == 0);                                 \
+                    bool iGreater = (mDist[i] > mDist[partner]) ||             \
+                        (mDist[i] == mDist[partner] && mIdx[i] > mIdx[partner]);\
+                    bool iLess = (mDist[i] < mDist[partner]) ||                \
+                        (mDist[i] == mDist[partner] && mIdx[i] < mIdx[partner]);\
+                    if (up ? iGreater : iLess) {                               \
+                        float td = mDist[i]; mDist[i] = mDist[partner]; mDist[partner] = td; \
+                        int ti = mIdx[i]; mIdx[i] = mIdx[partner]; mIdx[partner] = ti;        \
+                    }                                                          \
+                }                                                              \
+            }                                                                  \
+            threadgroup_barrier(mem_flags::mem_threadgroup);                   \
+        }                                                                      \
+    }
+
+// Pass 1: one threadgroup per probed list. params = [nlists, dim, k, P, metric].
+kernel void elips_ivf_scan_list(
+    device const float* query    [[buffer(0)]],
+    device const float* vectors  [[buffer(1)]],
+    device const uint*  offsets  [[buffer(2)]],  // nlists + 1
+    device       float* outDist  [[buffer(3)]],  // nlists * k
+    device       int*   outIdx   [[buffer(4)]],  // nlists * k
+    device const uint*  params   [[buffer(5)]],
+    uint lp       [[threadgroup_position_in_grid]],
+    uint tid      [[thread_position_in_threadgroup]],
+    uint nthreads [[threads_per_threadgroup]]
+) {
+    constexpr uint MAXP = 1024;
+    constexpr uint M = 2 * MAXP;
+    threadgroup float mDist[M];
+    threadgroup int   mIdx[M];
+    uint nlists = params[0], dim = params[1], k = params[2], P = params[3], metric = params[4];
+    if (lp >= nlists || k == 0) return;
+    uint segBegin = offsets[lp], segEnd = offsets[lp + 1];
+    uint len = segEnd - segBegin;
+    uint twoP = 2 * P;
+
+    for (uint i = tid; i < P; i += nthreads) { mDist[i] = 1e38f; mIdx[i] = -1; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint nchunks = (len + P - 1) / P;
+    for (uint c = 0; c < nchunks; ++c) {
+        uint base = c * P;
+        for (uint i = tid; i < P; i += nthreads) {
+            if (base + i < len) {
+                uint gi = segBegin + base + i;
+                mDist[P + i] = elips_row_distance(query, vectors + (ulong)gi * dim, dim, metric);
+                mIdx[P + i] = (int)gi;
+            } else { mDist[P + i] = 1e38f; mIdx[P + i] = -1; }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        ELIPS_IVF_BITONIC(mDist, mIdx, twoP)
+    }
+
+    for (uint i = tid; i < k; i += nthreads) {
+        if (i < P) { outDist[lp * k + i] = mDist[i]; outIdx[lp * k + i] = mIdx[i]; }
+        else       { outDist[lp * k + i] = 1e38f;   outIdx[lp * k + i] = -1; }
+    }
+}
+
+// Pass 2: one threadgroup merges all nlists*k per-list candidates into the
+// final top-k. params = [total (= nlists*k), k, P].
+kernel void elips_ivf_merge_lists(
+    device const float* inDist  [[buffer(0)]],  // nlists * k
+    device const int*   inIdx   [[buffer(1)]],
+    device       float* outDist [[buffer(2)]],  // k
+    device       int*   outIdx  [[buffer(3)]],
+    device const uint*  params  [[buffer(4)]],
+    uint tid      [[thread_position_in_threadgroup]],
+    uint nthreads [[threads_per_threadgroup]]
+) {
+    constexpr uint MAXP = 1024;
+    constexpr uint M = 2 * MAXP;
+    threadgroup float mDist[M];
+    threadgroup int   mIdx[M];
+    uint total = params[0], k = params[1], P = params[2];
+    if (k == 0) return;
+    uint twoP = 2 * P;
+
+    for (uint i = tid; i < P; i += nthreads) { mDist[i] = 1e38f; mIdx[i] = -1; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint nchunks = (total + P - 1) / P;
+    for (uint c = 0; c < nchunks; ++c) {
+        uint base = c * P;
+        for (uint i = tid; i < P; i += nthreads) {
+            uint gi = base + i;
+            if (gi < total) { mDist[P + i] = inDist[gi]; mIdx[P + i] = inIdx[gi]; }
+            else            { mDist[P + i] = 1e38f;      mIdx[P + i] = -1; }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        ELIPS_IVF_BITONIC(mDist, mIdx, twoP)
+    }
+
+    for (uint i = tid; i < k; i += nthreads) {
+        if (i < P) { outDist[i] = mDist[i]; outIdx[i] = mIdx[i]; }
+        else       { outDist[i] = 1e38f;    outIdx[i] = -1; }
+    }
+}

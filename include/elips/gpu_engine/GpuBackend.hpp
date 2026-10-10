@@ -81,6 +81,31 @@ public:
         size_t nb,
         size_t k) = 0;
 
+    // GPU IVF list-scan + top-k (two-pass: per-list scan then merge). The
+    // candidate vectors are the host-gathered probed lists laid out
+    // contiguously; list_offsets (size nlists+1) bound each list's rows. The
+    // index written into indices_out is the GLOBAL candidate row (0..ncand), so
+    // the caller maps it back to a record id. Defaulted to "unsupported" so a
+    // backend without an IVF-scan kernel (CUDA/HIP/Vulkan/SYCL today) is left
+    // untouched and the IVF index falls back to its generic scan path.
+    [[nodiscard]] virtual std::expected<void, GpuError>
+    ivf_scan(
+        std::span<const float> query,
+        std::span<const float> candidate_vectors,
+        std::span<const uint32_t> list_offsets,
+        std::span<uint32_t> indices_out,
+        std::span<float> values_out,
+        size_t nlists,
+        size_t ncand,
+        size_t dim,
+        size_t k,
+        elips::Metric metric) {
+        (void)query; (void)candidate_vectors; (void)list_offsets;
+        (void)indices_out; (void)values_out; (void)nlists; (void)ncand;
+        (void)dim; (void)k; (void)metric;
+        return std::unexpected(GpuError::BackendUnavailable);
+    }
+
     virtual void synchronize() = 0;
     [[nodiscard]] virtual bool is_idle() const noexcept = 0;
 };

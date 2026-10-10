@@ -47,6 +47,12 @@ public:
     top_k(std::span<const float> distances, std::span<uint32_t> indices_out,
           std::span<float> values_out, size_t nq, size_t nb, size_t k) override;
 
+    [[nodiscard]] std::expected<void, GpuError>
+    ivf_scan(std::span<const float> query, std::span<const float> candidate_vectors,
+             std::span<const uint32_t> list_offsets, std::span<uint32_t> indices_out,
+             std::span<float> values_out, size_t nlists, size_t ncand, size_t dim,
+             size_t k, elips::Metric metric) override;
+
     void synchronize() override;
     [[nodiscard]] bool is_idle() const noexcept override;
 

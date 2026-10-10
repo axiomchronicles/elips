@@ -2,6 +2,7 @@
 #define ELIPS_GPU_ENGINE_GPU_IVF_FLAT_INDEX_HPP
 
 #include <memory>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>
@@ -57,6 +58,15 @@ private:
         std::span<const float> query, std::size_t k,
         const std::vector<RecordID>& candidate_ids,
         const std::vector<float>& candidate_vectors) const;
+
+    // Two-pass GPU IVF scan+merge path. Uses source_lists to recover per-list
+    // boundaries and drives the backend ivf_scan kernel; falls back to
+    // rank_candidates() when the backend has no IVF-scan capability.
+    [[nodiscard]] std::vector<Hit> rank_candidates_ivf(
+        std::span<const float> query, std::size_t k,
+        const std::vector<RecordID>& candidate_ids,
+        const std::vector<float>& candidate_vectors,
+        const std::vector<std::uint32_t>& source_lists) const;
 
     GpuBackend& backend_;
     elips::Metric metric_;

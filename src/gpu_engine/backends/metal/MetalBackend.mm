@@ -295,6 +295,83 @@ MetalBackend::top_k(std::span<const float> distances, std::span<uint32_t> indice
     }
 }
 
+std::expected<void, GpuError>
+MetalBackend::ivf_scan(std::span<const float> query, std::span<const float> candidate_vectors,
+                       std::span<const uint32_t> list_offsets, std::span<uint32_t> indices_out,
+                       std::span<float> values_out, size_t nlists, size_t ncand, size_t dim,
+                       size_t k, elips::Metric metric) {
+    if (k == 0 || nlists == 0 || ncand == 0) return {};
+    @autoreleasepool {
+        id<MTLComputePipelineState> scanPso = impl_->pipeline("elips_ivf_scan_list");
+        id<MTLComputePipelineState> mergePso = impl_->pipeline("elips_ivf_merge_lists");
+        if (!scanPso || !mergePso) return std::unexpected(GpuError::KernelLaunchFailed);
+
+        uint32_t mode = 0;  // 0 euclidean (sqrt L2), 1 cosine (1-dot), 2 dot (-dot)
+        switch (metric) {
+            case elips::Metric::euclidean:   mode = 0; break;
+            case elips::Metric::cosine:      mode = 1; break;
+            case elips::Metric::dot_product: mode = 2; break;
+        }
+        const NSUInteger P = topk_width(k);
+
+        id<MTLBuffer> qBuf = [impl_->device newBufferWithBytes:query.data()
+                                                        length:query.size_bytes()
+                                                       options:MTLResourceStorageModeShared];
+        id<MTLBuffer> vBuf = [impl_->device newBufferWithBytes:candidate_vectors.data()
+                                                        length:candidate_vectors.size_bytes()
+                                                       options:MTLResourceStorageModeShared];
+        id<MTLBuffer> offBuf = [impl_->device newBufferWithBytes:list_offsets.data()
+                                                          length:list_offsets.size_bytes()
+                                                         options:MTLResourceStorageModeShared];
+        id<MTLBuffer> perDist = [impl_->device newBufferWithLength:nlists * k * sizeof(float)
+                                                           options:MTLResourceStorageModeShared];
+        id<MTLBuffer> perIdx = [impl_->device newBufferWithLength:nlists * k * sizeof(int32_t)
+                                                          options:MTLResourceStorageModeShared];
+        id<MTLBuffer> outDist = [impl_->device newBufferWithLength:k * sizeof(float)
+                                                           options:MTLResourceStorageModeShared];
+        id<MTLBuffer> outIdx = [impl_->device newBufferWithLength:k * sizeof(int32_t)
+                                                          options:MTLResourceStorageModeShared];
+
+        uint32_t scanParams[5] = {static_cast<uint32_t>(nlists), static_cast<uint32_t>(dim),
+                                  static_cast<uint32_t>(k), static_cast<uint32_t>(P), mode};
+        uint32_t mergeParams[3] = {static_cast<uint32_t>(nlists * k),
+                                   static_cast<uint32_t>(k), static_cast<uint32_t>(P)};
+
+        id<MTLCommandBuffer> cmd = [impl_->queue commandBuffer];
+        // Pass 1: one threadgroup per probed list -> per-list top-k.
+        id<MTLComputeCommandEncoder> scan = [cmd computeCommandEncoder];
+        [scan setComputePipelineState:scanPso];
+        [scan setBuffer:qBuf offset:0 atIndex:0];
+        [scan setBuffer:vBuf offset:0 atIndex:1];
+        [scan setBuffer:offBuf offset:0 atIndex:2];
+        [scan setBuffer:perDist offset:0 atIndex:3];
+        [scan setBuffer:perIdx offset:0 atIndex:4];
+        [scan setBytes:scanParams length:sizeof(scanParams) atIndex:5];
+        [scan dispatchThreadgroups:MTLSizeMake(nlists, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(P, 1, 1)];
+        [scan endEncoding];
+
+        // Pass 2: merge nlists*k per-list candidates -> final top-k.
+        id<MTLComputeCommandEncoder> merge = [cmd computeCommandEncoder];
+        [merge setComputePipelineState:mergePso];
+        [merge setBuffer:perDist offset:0 atIndex:0];
+        [merge setBuffer:perIdx offset:0 atIndex:1];
+        [merge setBuffer:outDist offset:0 atIndex:2];
+        [merge setBuffer:outIdx offset:0 atIndex:3];
+        [merge setBytes:mergeParams length:sizeof(mergeParams) atIndex:4];
+        [merge dispatchThreadgroups:MTLSizeMake(1, 1, 1)
+             threadsPerThreadgroup:MTLSizeMake(P, 1, 1)];
+        [merge endEncoding];
+
+        [cmd commit];
+        [cmd waitUntilCompleted];
+
+        std::memcpy(values_out.data(), outDist.contents, k * sizeof(float));
+        std::memcpy(indices_out.data(), outIdx.contents, k * sizeof(int32_t));
+        return {};
+    }
+}
+
 void MetalBackend::synchronize() {
     @autoreleasepool {
         id<MTLCommandBuffer> cmd = [impl_->queue commandBuffer];
