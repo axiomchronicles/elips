@@ -4,7 +4,7 @@
 #include "elips/gpu_engine/GpuMemoryPool.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 
 namespace elips::gpu {
 namespace {
@@ -14,7 +14,7 @@ protected:
     void SetUp() override {
         GpuDeviceManager manager;
         auto devices = manager.probe_all_devices();
-        GpuSelector selector;
+        BackendSelector selector;
         GpuConfig config;
         config.policy = GpuPolicy::Auto;
         config.device_memory_pool_bytes = 64UL * 1024 * 1024;
@@ -25,7 +25,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
     std::unique_ptr<GpuMemoryManager> memory_;
 };
 
@@ -96,7 +96,7 @@ protected:
     void SetUp() override {
         GpuDeviceManager manager;
         auto devices = manager.probe_all_devices();
-        GpuSelector selector;
+        BackendSelector selector;
         GpuConfig config;
         config.policy = GpuPolicy::Auto;
         auto sel = selector.select(config, devices);
@@ -106,7 +106,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
     std::unique_ptr<GpuMemoryPool> pool_;
 };
 

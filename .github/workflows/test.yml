@@ -61,7 +61,7 @@ jobs:
       - name: Configure (export compile commands)
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DELIPS_BUILD_TESTS=OFF
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTING=OFF
       - name: Analyze core sources
         run: |
           clang-tidy -p build $(git ls-files 'src/*.cpp')
@@ -75,7 +75,7 @@ jobs:
       - name: Configure (libFuzzer)
         run: >
           cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DELIPS_BUILD_FUZZERS=ON -DELIPS_BUILD_TESTS=OFF
+          -DELIPS_BUILD_FUZZERS=ON -DBUILD_TESTING=OFF
           -DELIPS_BUILD_BENCH=OFF -DELIPS_BUILD_CLI=OFF
           -DCMAKE_CXX_COMPILER=clang++
       - run: cmake --build build-fuzz --target elips_fuzz_wal -j
@@ -99,7 +99,7 @@ jobs:
       - name: Build module
         shell: bash
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
           cmake --build build --config Release --target elips_pymodule -j
       - name: Import + smoke test
         shell: bash

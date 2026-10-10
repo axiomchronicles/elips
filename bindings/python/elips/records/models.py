@@ -447,7 +447,7 @@ class WalRecord:
 
 @dataclass(frozen=True, slots=True)
 class CollectionHealth:
-    r"""CollectionHealth(*, name, live, pending_removals, dimension, metric, read_only, sealed) -> ArenaHealth
+    r"""CollectionHealth(*, name, live, pending_removals, dimension, metric, read_only, sealed) -> CollectionHealth
 
     A point-in-time health snapshot of one collection, from
     :meth:`elips.Collection.health`.

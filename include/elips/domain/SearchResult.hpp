@@ -9,7 +9,7 @@ namespace elips {
 // One hit from a seek(): the record identity, its distance to the query
 // (smaller = closer, ordering-normalized across metrics), and its payload.
 //
-// In a quantized vault both `vector`-derived data and `distance` are
+// In a quantized collection both `vector`-derived data and `distance` are
 // approximate; `codec` names the quantizer responsible so a caller can tell an
 // exact score from an estimated one.
 struct SearchResult {

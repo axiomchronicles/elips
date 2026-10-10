@@ -9,6 +9,7 @@ runtime and guarded by ``_has_gpu``, which is the documented contract.
 
 from ._core import (
     AccessMode as AccessMode,
+    BackendUnavailableError as BackendUnavailableError,
     BatchStats as BatchStats,
     ChunkInfo as ChunkInfo,
     Codec as Codec,

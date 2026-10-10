@@ -41,7 +41,7 @@ struct EmbeddingLineage {
 
 // A vector with identity and payload.
 //
-// In a quantized vault the compressed code is what the record actually owns:
+// In a quantized collection the compressed code is what the record actually owns:
 // `codes` holds it, `codec` says which quantizer produced it, and `vector`
 // carries a reconstruction for callers that asked for one. Keeping the code
 // inside the record rather than in a side table is what lets checkpointing and

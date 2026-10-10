@@ -2,18 +2,18 @@
 
 #include <random>
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
 namespace {
 
-float compute_recall(const std::vector<IndexPort::Hit>& ground,
-                     const std::vector<IndexPort::Hit>& actual,
+float compute_recall(const std::vector<Index::Hit>& ground,
+                     const std::vector<Index::Hit>& actual,
                      size_t k) {
     size_t matches = 0;
     for (size_t i = 0; i < std::min(k, actual.size()); ++i) {
@@ -32,7 +32,7 @@ protected:
     void SetUp() override {
         GpuDeviceManager manager;
         auto devices = manager.probe_all_devices();
-        GpuSelector selector;
+        BackendSelector selector;
         GpuConfig config;
         config.policy = GpuPolicy::Auto;
         auto sel = selector.select(config, devices);
@@ -41,7 +41,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
 };
 
 TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
@@ -60,9 +60,9 @@ TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
     std::vector<RecordID> ids;
     for (size_t i = 0; i < n; ++i) ids.push_back(RecordID::generate());
 
-    ExactIndex cpu_index(Metric::cosine, static_cast<uint16_t>(dim));
+    IndexFlat cpu_index(Metric::cosine, static_cast<uint16_t>(dim));
     for (size_t i = 0; i < n; ++i) {
-        cpu_index.insert(ids[i], {vectors.data() + i * dim, dim});
+        cpu_index.add_with_ids(ids[i], {vectors.data() + i * dim, dim});
     }
 
     GpuConfig gconfig;

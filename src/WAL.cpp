@@ -36,7 +36,7 @@ std::string encode_body(const WAL::Entry& entry) {
                         ? WAL::Op::insert_ex
                         : entry.op;
     detail::put<std::uint8_t>(body, static_cast<std::uint8_t>(op));
-    detail::put_string(body, entry.vault);
+    detail::put_string(body, entry.collection);
     body.write(reinterpret_cast<const char*>(entry.id.bytes().data()),
                static_cast<std::streamsize>(entry.id.bytes().size()));
     if (op == WAL::Op::insert_q) {
@@ -128,28 +128,28 @@ void WAL::sync() {
     }
 }
 
-void WAL::append_insert(const std::string& vault, const RecordID& id,
+void WAL::append_insert(const std::string& collection, const RecordID& id,
                         std::span<const float> vector, const Payload& payload,
                         const std::optional<DocumentAttachment>& document,
                         const std::optional<ChunkInfo>& chunk,
                         const std::optional<EmbeddingLineage>& lineage) {
-    append(Entry{Op::insert, vault, id,
+    append(Entry{Op::insert, collection, id,
                  std::vector<float>(vector.begin(), vector.end()), payload,
                  document, chunk, lineage, {}, quant::CodecId::none});
 }
 
 void WAL::append_insert_quantized(
-    const std::string& vault, const RecordID& id,
+    const std::string& collection, const RecordID& id,
     std::span<const std::uint8_t> codes, quant::CodecId codec,
     const Payload& payload, const std::optional<DocumentAttachment>& document,
     const std::optional<ChunkInfo>& chunk,
     const std::optional<EmbeddingLineage>& lineage) {
-    append(Entry{Op::insert_q, vault, id, {}, payload, document, chunk, lineage,
+    append(Entry{Op::insert_q, collection, id, {}, payload, document, chunk, lineage,
                  std::vector<std::uint8_t>(codes.begin(), codes.end()), codec});
 }
 
-void WAL::append_erase(const std::string& vault, const RecordID& id) {
-    append(Entry{Op::erase, vault, id, {}, {}, std::nullopt, std::nullopt,
+void WAL::append_erase(const std::string& collection, const RecordID& id) {
+    append(Entry{Op::erase, collection, id, {}, {}, std::nullopt, std::nullopt,
                  std::nullopt, {}, quant::CodecId::none});
 }
 
@@ -257,7 +257,7 @@ std::vector<WAL::Entry> WAL::replay(const std::filesystem::path& path) {
         try {
             const auto op = static_cast<Op>(detail::get<std::uint8_t>(body));
             entry.op = op;
-            entry.vault = detail::get_string(body);
+            entry.collection = detail::get_string(body);
             RecordID::Bytes id_bytes{};
             body.read(reinterpret_cast<char*>(id_bytes.data()),
                       static_cast<std::streamsize>(id_bytes.size()));

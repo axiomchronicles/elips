@@ -3,7 +3,7 @@
 # EXPERIMENTAL — NOT HARDWARE VALIDATED. Build from source against a ROCm
 # install; there is no prebuilt package and no AMD GPU in CI (compile-checked
 # only, mirroring FAISS's build-from-source ROCm posture). Enabled via
-# -DELIPS_GPU_HIP=ON (alias: -DELIPS_ENABLE_ROCM=ON), OFF by default.
+# -DELIPS_ENABLE_ROCM=ON (deprecated alias: -DELIPS_GPU_HIP=ON), OFF by default.
 
 find_package(hip QUIET)
 if(NOT hip_FOUND)

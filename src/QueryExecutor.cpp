@@ -72,7 +72,7 @@ SearchResult make_result(const Record& record, float distance) {
 }
 
 struct Executor {
-    ElipsInstance& db;
+    Database& db;
     const std::map<std::string, Vector>& bindings;
 
     std::vector<SearchResult> operator()(const SearchStatement& s) const {
@@ -84,7 +84,7 @@ struct Executor {
             s.top ? static_cast<std::size_t>(*s.top)
                   : (s.threshold ? unbounded_top
                                  : static_cast<std::size_t>(default_top));
-        auto results = db.vault(s.vault).seek(query, top, s.where, threshold);
+        auto results = db.collection(s.collection).search(query, top, s.where, threshold);
 
         if (s.rank_by) {
             const std::string& field = *s.rank_by;
@@ -101,8 +101,8 @@ struct Executor {
         return results;
     }
 
-    std::vector<SearchResult> operator()(const FetchStatement& s) const {
-        const auto record = db.vault(s.vault).fetch(RecordID::from_string(s.id));
+    std::vector<SearchResult> operator()(const GetStatement& s) const {
+        const auto record = db.collection(s.collection).get(RecordID::from_string(s.id));
         if (!record) {
             return {};
         }
@@ -115,7 +115,7 @@ struct Executor {
         const std::size_t limit =
             s.limit ? static_cast<std::size_t>(*s.limit)
                     : std::numeric_limits<std::size_t>::max();
-        const auto records = db.vault(s.vault).scan(s.where, offset, limit);
+        const auto records = db.collection(s.collection).scan(s.where, offset, limit);
         std::vector<SearchResult> results;
         results.reserve(records.size());
         for (const auto& record : records) {
@@ -124,22 +124,22 @@ struct Executor {
         return results;
     }
 
-    std::vector<SearchResult> operator()(const InsertStatement& s) const {
+    std::vector<SearchResult> operator()(const AddStatement& s) const {
         const RecordID id =
-            db.vault(s.vault).place(Vector{s.vector}, s.data);
+            db.collection(s.collection).add(Vector{s.vector}, s.data);
         return {SearchResult{id, 0.0F, {}, std::nullopt, std::nullopt,
                              std::nullopt}};
     }
 
     std::vector<SearchResult> operator()(const DeleteStatement& s) const {
-        db.vault(s.vault).erase(RecordID::from_string(s.id));
+        db.collection(s.collection).remove(RecordID::from_string(s.id));
         return {};
     }
 };
 
 }  // namespace
 
-std::vector<SearchResult> execute(const Statement& statement, ElipsInstance& db,
+std::vector<SearchResult> execute(const Statement& statement, Database& db,
                                   const std::map<std::string, Vector>& bindings) {
     return std::visit(Executor{db, bindings}, statement);
 }
@@ -148,7 +148,7 @@ std::vector<SearchResult> execute(const Statement& statement, ElipsInstance& db,
 
 namespace elips {
 
-std::vector<SearchResult> ElipsInstance::query(
+std::vector<SearchResult> Database::query(
     const std::string& eql, const std::map<std::string, Vector>& bindings) {
     return eql::execute(eql::parse(eql), *this, bindings);
 }

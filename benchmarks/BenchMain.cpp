@@ -1,5 +1,5 @@
 // ELIPS benchmark suite. Measures insert throughput, search latency
-// percentiles, recall@10 vs the ExactIndex ground truth, and crash-recovery
+// percentiles, recall@10 vs the IndexFlat ground truth, and crash-recovery
 // time. Self-contained (no dependency beyond the ELIPS library).
 //
 //   elips_bench [--count N] [--dim D] [--queries Q]
@@ -15,13 +15,13 @@
 #include <vector>
 
 #include "elips/elips.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace {
 
 using clock_type = std::chrono::steady_clock;
-using elips::GraphParams;
+using elips::HnswParams;
 using elips::Metric;
 using elips::RecordID;
 
@@ -48,18 +48,18 @@ void bench_insert_and_search(std::size_t count, std::uint16_t dim,
     const auto data = random_dataset(count, dim, rng);
     const auto probes = random_dataset(queries, dim, rng);
 
-    elips::HierarchicalGraphIndex graph(Metric::euclidean, dim, GraphParams{});
-    elips::ExactIndex exact(Metric::euclidean, dim);
+    elips::IndexHNSW graph(Metric::euclidean, dim, HnswParams{});
+    elips::IndexFlat exact(Metric::euclidean, dim);
     std::vector<RecordID> ids(count);
 
     const auto t_insert = clock_type::now();
     for (std::size_t i = 0; i < count; ++i) {
         ids[i] = RecordID::generate();
-        graph.insert(ids[i], data[i]);
+        graph.add_with_ids(ids[i], data[i]);
     }
     const double insert_s = seconds_since(t_insert);
     for (std::size_t i = 0; i < count; ++i) {
-        exact.insert(ids[i], data[i]);
+        exact.add_with_ids(ids[i], data[i]);
     }
 
     constexpr std::size_t k = 10;
@@ -111,16 +111,16 @@ void bench_recovery(std::size_t count, std::uint16_t dim) {
         auto db = elips::open(dir.string(),
                               elips::Config{}.dimension(dim).durability(
                                   elips::Durability::standard));
-        auto& vault = db->vault("bench");
+        auto& collection = db->collection("bench");
         for (const auto& row : data) {
-            vault.place(elips::Vector{row});
+            collection.add(elips::Vector{row});
         }
         db->abandon();  // crash before checkpoint -> recovery replays WAL
     }
     const auto t_recover = clock_type::now();
     auto db = elips::open(dir.string());
     const double recover_s = seconds_since(t_recover);
-    std::cout << "[recovery] replayed " << db->vault("bench").info().count
+    std::cout << "[recovery] replayed " << db->collection("bench").info().count
               << " records in " << recover_s << "s\n";
     db->close();
     fs::remove_all(dir);

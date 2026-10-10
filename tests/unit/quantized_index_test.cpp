@@ -3,7 +3,7 @@
 // The quantizer unit tests prove a codec reconstructs vectors; these prove the
 // indexes still find the right neighbors once their storage is codes and every
 // distance goes through asymmetric lookup. Recall is measured against an
-// unquantized ExactIndex over the same data, which is the ground truth.
+// unquantized IndexFlat over the same data, which is the ground truth.
 #include <cstdint>
 #include <random>
 #include <unordered_set>
@@ -11,13 +11,13 @@
 
 #include <gtest/gtest.h>
 
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 #include "elips/quant_engine/Quantizer.hpp"
 
 namespace {
 
-using elips::GraphParams;
+using elips::HnswParams;
 using elips::Metric;
 using elips::RecordID;
 using elips::quant::CodecId;
@@ -55,7 +55,7 @@ elips::quant::QuantizerPtr make_quantizer(CodecId codec, Metric metric,
 }
 
 // Fraction of the exact top-k that the index under test also returned.
-double recall_at_k(const elips::IndexPort& index, const elips::ExactIndex& truth,
+double recall_at_k(const elips::Index& index, const elips::IndexFlat& truth,
                    const std::vector<float>& queries, std::size_t query_count) {
     std::size_t hits = 0;
     std::size_t total = 0;
@@ -79,7 +79,7 @@ struct Fixture {
     std::vector<float> rows;
     std::vector<float> queries;
     std::vector<RecordID> ids;
-    elips::ExactIndex truth;
+    elips::IndexFlat truth;
 
     Fixture()
         : rows(random_rows(kCount, kDim, 21)),
@@ -88,7 +88,7 @@ struct Fixture {
           truth(Metric::euclidean, kDim) {
         for (std::size_t i = 0; i < kCount; ++i) {
             ids[i] = RecordID::generate();
-            truth.insert(ids[i], row_at(rows, i));
+            truth.add_with_ids(ids[i], row_at(rows, i));
         }
     }
 };
@@ -117,7 +117,7 @@ struct Fixture {
 // recall; SQ beats PQ at 4x the size). A regression that broke encoding or the
 // ADC path would collapse both, well below these bounds.
 
-TEST(QuantizedIndexTest, QuantizedExactIndexKeepsUsefulRecall) {
+TEST(QuantizedIndexTest, QuantizedIndexFlatKeepsUsefulRecall) {
     const Fixture fixture;
 
     // An exhaustive scan over codes loses only what the codec's reconstruction
@@ -127,9 +127,9 @@ TEST(QuantizedIndexTest, QuantizedExactIndexKeepsUsefulRecall) {
                                       std::pair{CodecId::sq8, 0.95}}) {
         auto quantizer =
             make_quantizer(codec, Metric::euclidean, fixture.rows, kCount);
-        elips::ExactIndex index(Metric::euclidean, kDim, quantizer);
+        elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
 
         const double recall =
@@ -155,9 +155,9 @@ TEST(QuantizedIndexTest, WiderCodesBuyBetterRecall) {
                                              fixture.rows, kCount);
         ASSERT_EQ(quantizer->code_bytes(), pq_dim);
 
-        elips::ExactIndex index(Metric::euclidean, kDim, quantizer);
+        elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
         const double recall =
             recall_at_k(index, fixture.truth, fixture.queries, kQueries);
@@ -170,9 +170,9 @@ TEST(QuantizedIndexTest, WiderCodesBuyBetterRecall) {
     // which is why SQ is the right default when memory is a concern rather than
     // the binding constraint.
     auto sq = make_quantizer(CodecId::sq8, Metric::euclidean, fixture.rows, kCount);
-    elips::ExactIndex sq_index(Metric::euclidean, kDim, sq);
+    elips::IndexFlat sq_index(Metric::euclidean, kDim, sq);
     for (std::size_t i = 0; i < kCount; ++i) {
-        sq_index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        sq_index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
     EXPECT_GT(recall_at_k(sq_index, fixture.truth, fixture.queries, kQueries),
               previous);
@@ -189,10 +189,10 @@ TEST(QuantizedIndexTest, QuantizedGraphIndexKeepsUsefulRecall) {
                                       std::pair{CodecId::sq8, 0.85}}) {
         auto quantizer =
             make_quantizer(codec, Metric::euclidean, fixture.rows, kCount);
-        elips::HierarchicalGraphIndex index(Metric::euclidean, kDim,
-                                            GraphParams{}, quantizer);
+        elips::IndexHNSW index(Metric::euclidean, kDim,
+                                            HnswParams{}, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
 
         const double recall =
@@ -221,16 +221,16 @@ TEST(QuantizedIndexTest, RemoveAndSizeTrackCorrectlyUnderCompression) {
     const Fixture fixture;
     auto quantizer =
         make_quantizer(CodecId::pq, Metric::euclidean, fixture.rows, kCount);
-    elips::ExactIndex index(Metric::euclidean, kDim, quantizer);
+    elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
     for (std::size_t i = 0; i < 100; ++i) {
-        index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
-    ASSERT_EQ(index.size(), 100U);
+    ASSERT_EQ(index.ntotal(), 100U);
 
     // Removing from the middle must keep the remaining codes aligned with their
     // ids; a stride bug here silently returns the wrong record's distance.
     index.remove(fixture.ids[50]);
-    EXPECT_EQ(index.size(), 99U);
+    EXPECT_EQ(index.ntotal(), 99U);
 
     const auto hits = index.search(row_at(fixture.rows, 51), 1);
     ASSERT_EQ(hits.size(), 1U);
@@ -242,12 +242,12 @@ TEST(QuantizedIndexTest, GraphVacuumPreservesCodesWithoutRecompressing) {
     auto quantizer =
         make_quantizer(CodecId::pq, Metric::euclidean, fixture.rows, kCount);
 
-    GraphParams params;
+    HnswParams params;
     params.compaction_ratio = 0.0F;  // vacuum only when asked
-    elips::HierarchicalGraphIndex index(Metric::euclidean, kDim, params,
+    elips::IndexHNSW index(Metric::euclidean, kDim, params,
                                         quantizer);
     for (std::size_t i = 0; i < 500; ++i) {
-        index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto before = index.export_snapshot();
@@ -259,7 +259,7 @@ TEST(QuantizedIndexTest, GraphVacuumPreservesCodesWithoutRecompressing) {
     ASSERT_EQ(index.pending_removals(), 100U);
     index.vacuum();
     EXPECT_EQ(index.pending_removals(), 0U);
-    EXPECT_EQ(index.size(), 400U);
+    EXPECT_EQ(index.ntotal(), 400U);
 
     // The surviving rows must carry the *same* codes they had before the
     // rebuild. A vacuum that decoded and re-encoded would drift a generation
@@ -291,9 +291,9 @@ TEST(QuantizedIndexTest, SnapshotRoundTripPreservesRanking) {
     auto quantizer =
         make_quantizer(CodecId::pq, Metric::euclidean, fixture.rows, kCount);
 
-    elips::ExactIndex source(Metric::euclidean, kDim, quantizer);
+    elips::IndexFlat source(Metric::euclidean, kDim, quantizer);
     for (std::size_t i = 0; i < 500; ++i) {
-        source.insert(fixture.ids[i], row_at(fixture.rows, i));
+        source.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto snapshot = source.export_snapshot();
@@ -304,9 +304,9 @@ TEST(QuantizedIndexTest, SnapshotRoundTripPreservesRanking) {
     // index.
     EXPECT_EQ(snapshot->vectors.size(), 500U * kDim);
 
-    elips::ExactIndex restored(Metric::euclidean, kDim, quantizer);
+    elips::IndexFlat restored(Metric::euclidean, kDim, quantizer);
     ASSERT_TRUE(restored.import_snapshot(*snapshot).has_value());
-    EXPECT_EQ(restored.size(), source.size());
+    EXPECT_EQ(restored.ntotal(), source.ntotal());
 
     for (std::size_t q = 0; q < 20; ++q) {
         const auto query = row_at(fixture.queries, q);
@@ -325,19 +325,19 @@ TEST(QuantizedIndexTest, GraphSnapshotRoundTripPreservesMembership) {
     auto quantizer =
         make_quantizer(CodecId::sq8, Metric::cosine, fixture.rows, kCount);
 
-    elips::HierarchicalGraphIndex source(Metric::cosine, kDim, GraphParams{},
+    elips::IndexHNSW source(Metric::cosine, kDim, HnswParams{},
                                          quantizer);
     for (std::size_t i = 0; i < 300; ++i) {
-        source.insert(fixture.ids[i], row_at(fixture.rows, i));
+        source.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto snapshot = source.export_snapshot();
     ASSERT_TRUE(snapshot.has_value());
 
-    elips::HierarchicalGraphIndex restored(Metric::cosine, kDim, GraphParams{},
+    elips::IndexHNSW restored(Metric::cosine, kDim, HnswParams{},
                                            quantizer);
     ASSERT_TRUE(restored.import_snapshot(*snapshot).has_value());
-    EXPECT_EQ(restored.size(), 300U);
+    EXPECT_EQ(restored.ntotal(), 300U);
 
     // The graph is rebuilt with fresh random levels, so edge-for-edge identity
     // is not expected; membership and self-retrieval are.
@@ -353,11 +353,11 @@ TEST(QuantizedIndexTest, GraphSnapshotRoundTripPreservesMembership) {
 TEST(QuantizedIndexTest, NoQuantizerLeavesBehaviorAndTypeNameUnchanged) {
     // The default construction path must be untouched by all of the above.
     const Fixture fixture;
-    elips::ExactIndex plain(Metric::euclidean, kDim);
-    elips::HierarchicalGraphIndex graph(Metric::euclidean, kDim, GraphParams{});
+    elips::IndexFlat plain(Metric::euclidean, kDim);
+    elips::IndexHNSW graph(Metric::euclidean, kDim, HnswParams{});
     for (std::size_t i = 0; i < 200; ++i) {
-        plain.insert(fixture.ids[i], row_at(fixture.rows, i));
-        graph.insert(fixture.ids[i], row_at(fixture.rows, i));
+        plain.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
+        graph.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     EXPECT_EQ(plain.type_name(), "exact");
@@ -374,9 +374,9 @@ TEST(QuantizedIndexTest, QuantizedIndexesReportADistinctTypeName) {
     const Fixture fixture;
     auto quantizer =
         make_quantizer(CodecId::pq, Metric::euclidean, fixture.rows, kCount);
-    const elips::ExactIndex exact(Metric::euclidean, kDim, quantizer);
-    const elips::HierarchicalGraphIndex graph(Metric::euclidean, kDim,
-                                              GraphParams{}, quantizer);
+    const elips::IndexFlat exact(Metric::euclidean, kDim, quantizer);
+    const elips::IndexHNSW graph(Metric::euclidean, kDim,
+                                              HnswParams{}, quantizer);
     EXPECT_EQ(exact.type_name(), "exact_quantized");
     EXPECT_EQ(graph.type_name(), "graph_quantized");
 }

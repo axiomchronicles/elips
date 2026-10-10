@@ -31,8 +31,6 @@ This flag is not runtime device detection.
    - Metal
    - CUDA
    - HIP
-   - SYCL
-   - Vulkan
 5. `GpuSelector::select()` chooses the preferred runtime backend
 6. Returns `GpuPort::device_info()` when a backend initializes
 7. Returns `GpuDeviceManager::cpu_fallback_info()` when no GPU backend is selected
@@ -132,8 +130,6 @@ reporting path.
 | Metal backend | Working | Verified on Apple M4 outside sandbox |
 | CUDA backend | Stubbed/incomplete | Source exists but backend is not production-ready |
 | HIP backend | Stubbed/incomplete | Source exists but backend is not production-ready |
-| SYCL backend | Stubbed/incomplete | Source exists but backend is not production-ready |
-| Vulkan backend | Stubbed/incomplete | Source exists but backend is not production-ready |
 
 ## Validation Summary
 

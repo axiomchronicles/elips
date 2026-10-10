@@ -4,7 +4,7 @@
 
 #include "elips/elips.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 
 namespace elips::gpu {
@@ -66,7 +66,7 @@ TEST(GpuDeviceManagerTest, probe_returns_results_on_supported_system) {
 TEST(GpuDeviceManagerTest, selector_chooses_best_available) {
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
-    GpuSelector selector;
+    BackendSelector selector;
 
     GpuConfig config;
     config.policy = GpuPolicy::Auto;
@@ -80,7 +80,7 @@ TEST(GpuDeviceManagerTest, selector_chooses_best_available) {
 TEST(GpuDeviceManagerTest, policy_cpu_only_returns_no_backend) {
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
-    GpuSelector selector;
+    BackendSelector selector;
 
     GpuConfig config;
     config.policy = GpuPolicy::CpuOnly;
@@ -103,8 +103,8 @@ TEST(GpuDeviceManagerTest, can_fit_index_estimation) {
     EXPECT_TRUE(manager.can_fit_index(info, 10000, 1536, config));
 }
 
-TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_vulkan) {
-    GpuSelector selector;
+TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_hip) {
+    BackendSelector selector;
     std::vector<GpuDeviceInfo> devices;
 
     GpuDeviceInfo cuda_dev;
@@ -114,10 +114,10 @@ TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_vulkan) {
     cuda_dev.total_device_memory_bytes = 1024ULL * 1024 * 1024;
     devices.push_back(cuda_dev);
 
-    GpuDeviceInfo vulkan_dev;
-    vulkan_dev.backend = "vulkan";
-    vulkan_dev.name = "Test Vulkan";
-    devices.push_back(vulkan_dev);
+    GpuDeviceInfo hip_dev;
+    hip_dev.backend = "hip";
+    hip_dev.name = "Test AMD";
+    devices.push_back(hip_dev);
 
     GpuConfig config;
     config.policy = GpuPolicy::Auto;
@@ -160,6 +160,69 @@ TEST(GpuDeviceManagerTest, cpu_only_policy_reports_cpu_fallback_metadata) {
     EXPECT_EQ(info.backend, "cpu");
     EXPECT_EQ(info.vendor, "CPU");
     EXPECT_FALSE(info.name.empty());
+}
+
+// Phase 7.4: a GPU explicitly requested for a backend that is not present must
+// surface a typed BackendUnavailableError, not silently demote to CPU. We
+// simulate "no matching device" by naming a backend absent from this build
+// (no CUDA on the Metal/CPU hosts the suite runs on).
+TEST(GpuDeviceManagerTest, specific_absent_backend_throws_backend_unavailable) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Specific;
+    gpu_config.preferred_backend = "cuda";
+    gpu_config.allow_cpu_fallback = false;
+    config.gpu(gpu_config);
+
+    EXPECT_THROW(
+        { auto db = elips::open(":memory:", config); (void)db; },
+        elips::BackendUnavailableError);
+}
+
+TEST(GpuDeviceManagerTest, require_gpu_absent_backend_throws_backend_unavailable) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::RequireGpu;
+    gpu_config.preferred_backend = "cuda";  // force "no device" on this host
+    gpu_config.allow_cpu_fallback = false;
+    config.gpu(gpu_config);
+
+    EXPECT_THROW(
+        { auto db = elips::open(":memory:", config); (void)db; },
+        elips::BackendUnavailableError);
+}
+
+TEST(GpuDeviceManagerTest, specific_absent_backend_with_fallback_demotes_to_cpu) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Specific;
+    gpu_config.preferred_backend = "cuda";
+    gpu_config.allow_cpu_fallback = true;  // opt into logged CPU fallback
+    config.gpu(gpu_config);
+
+    auto db = elips::open(":memory:", config);
+    ASSERT_NE(db, nullptr);
+    EXPECT_EQ(db->gpu_info().backend, "cpu");
+}
+
+TEST(GpuDeviceManagerTest, auto_policy_opens_without_throwing) {
+    // Auto never throws: GPU when present, else a logged CPU fallback.
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Auto;
+    config.gpu(gpu_config);
+
+    auto db = elips::open(":memory:", config);
+    ASSERT_NE(db, nullptr);
+    EXPECT_FALSE(db->gpu_info().backend.empty());
 }
 
 }  // namespace

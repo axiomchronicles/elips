@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <sstream>
 #include <string_view>
@@ -26,7 +27,7 @@
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #endif
 
 namespace elips {
@@ -47,7 +48,7 @@ constexpr std::uint32_t snapshot_magic = 0xE1105E01U;
 //
 //   1 -> records without document/chunk/lineage extras
 //   2 -> extras added
-//   3 -> per-record codec byte and per-vault codebook section (quantization)
+//   3 -> per-record codec byte and per-collection codebook section (quantization)
 //
 // Readers accept anything at or below this and reject only what is newer, so a
 // v2 database opens unchanged under a v3 binary. Version comparisons in readers
@@ -77,7 +78,7 @@ struct Identity {
 };
 
 struct SegmentManifestEntry {
-    std::string vault_name;
+    std::string collection_name;
     std::string file_name;
 };
 
@@ -510,9 +511,9 @@ Record get_record(std::istream& in, bool with_extras, bool with_codec) {
                   std::move(codes),   codec};
 }
 
-// Per-vault codebook section, written after the vault name in both the
+// Per-collection codebook section, written after the collection name in both the
 // monolithic snapshot and each segment. Absent (a zero byte) for an unquantized
-// vault.
+// collection.
 void put_codebook(std::ostream& out, const quant::QuantizerPtr& quantizer) {
     if (quantizer == nullptr) {
         put<std::uint8_t>(out, static_cast<std::uint8_t>(quant::CodecId::none));
@@ -576,7 +577,7 @@ Identity read_identity(const fs::path& file) {
 
 void write_snapshot_file(
     const fs::path& path, const Config& config,
-    const std::map<std::string, std::unique_ptr<Vault>>& vaults) {
+    const std::map<std::string, std::unique_ptr<Collection>>& collections) {
     const fs::path tmp = path / (std::string(snapshot_file) + ".tmp");
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
@@ -587,13 +588,13 @@ void write_snapshot_file(
         put<std::uint32_t>(out, snapshot_version);
         put<std::uint16_t>(out, config.dimension());
         put<std::uint8_t>(out, static_cast<std::uint8_t>(config.metric()));
-        put<std::uint32_t>(out, static_cast<std::uint32_t>(vaults.size()));
-        for (const auto& [name, vault] : vaults) {
+        put<std::uint32_t>(out, static_cast<std::uint32_t>(collections.size()));
+        for (const auto& [name, collection] : collections) {
             put_string(out, name);
             // Codebook precedes the records: a reader has to install it before
             // it can interpret the codes that follow.
-            put_codebook(out, vault->config().quantizer());
-            const auto& records = vault->records();
+            put_codebook(out, collection->config().quantizer());
+            const auto& records = collection->records();
             put<std::uint32_t>(out, static_cast<std::uint32_t>(records.size()));
             for (const auto& [id, record] : records) {
                 (void)id;
@@ -608,24 +609,24 @@ void write_snapshot_file(
     detail::durable_rename(tmp, path / snapshot_file);
 }
 
-void write_segment_file(const fs::path& file, const std::string& vault_name,
-                        const Vault& vault) {
+void write_segment_file(const fs::path& file, const std::string& collection_name,
+                        const Collection& collection) {
     std::ofstream out(file, std::ios::binary | std::ios::trunc);
     if (!out) {
-        throw StorageError{"cannot write vault segment"};
+        throw StorageError{"cannot write collection segment"};
     }
     put<std::uint32_t>(out, segment_magic);
     put<std::uint32_t>(out, snapshot_version);
-    put_string(out, vault_name);
-    put_codebook(out, vault.config().quantizer());
-    const auto& records = vault.records();
+    put_string(out, collection_name);
+    put_codebook(out, collection.config().quantizer());
+    const auto& records = collection.records();
     put<std::uint32_t>(out, static_cast<std::uint32_t>(records.size()));
     for (const auto& [id, record] : records) {
         (void)id;
         put_record(out, record);
     }
     if (!out) {
-        throw StorageError{"error while writing vault segment"};
+        throw StorageError{"error while writing collection segment"};
     }
 }
 
@@ -643,7 +644,7 @@ void write_manifest_file(const fs::path& path, const Config& config,
         put<std::uint8_t>(out, static_cast<std::uint8_t>(config.metric()));
         put<std::uint32_t>(out, static_cast<std::uint32_t>(entries.size()));
         for (const auto& entry : entries) {
-            put_string(out, entry.vault_name);
+            put_string(out, entry.collection_name);
             put_string(out, entry.file_name);
         }
         if (!out) {
@@ -679,7 +680,7 @@ std::vector<SegmentManifestEntry> read_manifest_file(const fs::path& file) {
     return entries;
 }
 
-void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
+void load_snapshot_file(const fs::path& file, Database& instance) {
     std::ifstream in(file, std::ios::binary);
     if (!in) {
         throw StorageError{"cannot open snapshot for reading"};
@@ -694,14 +695,14 @@ void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
     (void)get<std::uint16_t>(in);
     (void)get<std::uint8_t>(in);
 
-    const auto vault_count = get<std::uint32_t>(in);
-    for (std::uint32_t vault_index = 0; vault_index < vault_count;
-         ++vault_index) {
+    const auto collection_count = get<std::uint32_t>(in);
+    for (std::uint32_t collection_index = 0; collection_index < collection_count;
+         ++collection_index) {
         const std::string name = get_string(in);
-        Vault& vault = instance.vault(name);
-        vault.set_read_only(false);
+        Collection& collection = instance.collection(name);
+        collection.set_read_only(false);
         if (version >= version_with_codecs) {
-            vault.install_quantizer(get_codebook(in));
+            collection.install_quantizer(get_codebook(in));
         }
         const auto record_count = get<std::uint32_t>(in);
         for (std::uint32_t record_index = 0; record_index < record_count;
@@ -711,18 +712,18 @@ void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
             // silently mis-parse every older record.
             const Record record = get_record(in, version >= version_with_extras,
                                              version >= version_with_codecs);
-            vault.place_record(record);
+            collection.place_record(record);
         }
     }
 }
 
-void load_segmented_state(const fs::path& root, ElipsInstance& instance) {
+void load_segmented_state(const fs::path& root, Database& instance) {
     const auto entries = read_manifest_file(root / manifest_file);
     for (const auto& entry : entries) {
         const fs::path segment_path = root / segment_dir / entry.file_name;
         std::ifstream in(segment_path, std::ios::binary);
         if (!in) {
-            throw StorageError{"missing vault segment: " + entry.file_name};
+            throw StorageError{"missing collection segment: " + entry.file_name};
         }
         if (get<std::uint32_t>(in) != segment_magic) {
             throw StorageError{"segment magic mismatch"};
@@ -732,25 +733,25 @@ void load_segmented_state(const fs::path& root, ElipsInstance& instance) {
             throw StorageError{"unsupported segment version"};
         }
         const std::string stored_name = get_string(in);
-        if (stored_name != entry.vault_name) {
-            throw StorageError{"segment vault mismatch for " + entry.file_name};
+        if (stored_name != entry.collection_name) {
+            throw StorageError{"segment collection mismatch for " + entry.file_name};
         }
-        Vault& vault = instance.vault(entry.vault_name);
-        vault.set_read_only(false);
+        Collection& collection = instance.collection(entry.collection_name);
+        collection.set_read_only(false);
         if (version >= version_with_codecs) {
-            vault.install_quantizer(get_codebook(in));
+            collection.install_quantizer(get_codebook(in));
         }
         const auto record_count = get<std::uint32_t>(in);
         for (std::uint32_t record_index = 0; record_index < record_count;
              ++record_index) {
             const Record record =
                 get_record(in, true, version >= version_with_codecs);
-            vault.place_record(record);
+            collection.place_record(record);
         }
     }
 }
 
-void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
+void configure_gpu_backend(Database& instance, const Config& config) {
 #ifdef ELIPS_GPU_ENABLED
     gpu::GpuDeviceManager manager;
     instance.set_gpu_info(manager.cpu_fallback_info());
@@ -759,24 +760,42 @@ void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
         return;
     }
 
+    const auto& gpu_cfg = config.gpu();
+    const bool explicit_request = gpu_cfg.policy == gpu::GpuPolicy::RequireGpu ||
+                                  gpu_cfg.policy == gpu::GpuPolicy::Specific;
+
+    // Auto always permits CPU fallback (CPU is always available); explicit
+    // GPU requests only fall back when the caller opted in.
+    const bool fallback_ok = !explicit_request || gpu_cfg.allow_cpu_fallback;
+
+    auto requested = [&]() -> std::string {
+        if (!gpu_cfg.preferred_backend.empty()) return gpu_cfg.preferred_backend;
+        return "gpu";
+    };
+
+    auto demote_or_throw = [&](const char* reason) {
+        if (fallback_ok) {
+            // ground rule #9: never fall back silently.
+            std::cerr << "[elips] warning: GPU backend '" << requested()
+                      << "' requested but " << reason
+                      << "; falling back to CPU\n";
+            return;  // leave the CPU fallback info already set.
+        }
+        throw BackendUnavailableError{
+            "GPU backend '" + requested() + "' requested but " + reason +
+            "; pass fallback=true (or device fallback) to allow CPU"};
+    };
+
     const auto devices = manager.probe_all_devices();
     if (devices.empty()) {
-        if (config.gpu().policy == gpu::GpuPolicy::RequireGpu ||
-            config.gpu().policy == gpu::GpuPolicy::Specific) {
-            throw ConfigError{"GPU acceleration was requested, but no compatible "
-                              "device was found"};
-        }
+        demote_or_throw("no compatible device was found");
         return;
     }
 
-    gpu::GpuSelector selector;
-    auto selected = selector.select(config.gpu(), devices);
+    gpu::BackendSelector selector;
+    auto selected = selector.select(gpu_cfg, devices);
     if (!selected.has_value() || *selected == nullptr) {
-        if (config.gpu().policy == gpu::GpuPolicy::RequireGpu ||
-            config.gpu().policy == gpu::GpuPolicy::Specific) {
-            throw ConfigError{"GPU acceleration was requested, but the backend "
-                              "could not be initialized"};
-        }
+        demote_or_throw("the backend could not be initialized");
         return;
     }
 
@@ -789,20 +808,20 @@ void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
 #endif
 }
 
-void apply_read_only_mode(ElipsInstance& instance) {
-    for (const auto& name : instance.list_vaults()) {
-        instance.vault(name).set_read_only(true);
+void apply_read_only_mode(Database& instance) {
+    for (const auto& name : instance.list_collections()) {
+        instance.collection(name).set_read_only(true);
     }
 }
 
 }  // namespace
 
-// --------------------------------- Vault ---------------------------------
+// --------------------------------- Collection ---------------------------------
 
-Vault::Vault(std::string name, const Config& config
+Collection::Collection(std::string name, const Config& config
 #ifdef ELIPS_GPU_ENABLED
              ,
-             gpu::GpuPort* gpu_backend
+             gpu::GpuBackend* gpu_backend
 #endif
              )
     : name_(std::move(name)),
@@ -820,9 +839,12 @@ Vault::Vault(std::string name, const Config& config
 {
 }
 
-Vector Vault::prepare(const Vector& vector) const {
+Vector Collection::prepare(const Vector& vector) const {
     if (vector.dimension() != config_.dimension()) {
-        throw DimensionMismatch{"vector dimension does not match vault"};
+        throw DimensionMismatch{"vector dimension does not match collection: "
+                                "expected d=" +
+                                std::to_string(config_.dimension()) + ", got " +
+                                std::to_string(vector.dimension())};
     }
     if (!all_finite(vector.values())) {
         throw InvalidVector{"vector contains NaN or Inf"};
@@ -831,42 +853,42 @@ Vector Vault::prepare(const Vector& vector) const {
                                                     : vector;
 }
 
-void Vault::ensure_writable() const {
+void Collection::ensure_writable() const {
     if (sealed_) {
         throw StorageError{
             "database is closed: this write would never be persisted"};
     }
     if (read_only_) {
-        throw StorageError{"vault is opened in read-only mode"};
+        throw StorageError{"collection is opened in read-only mode"};
     }
 }
 
-void Vault::set_read_only(bool read_only) noexcept {
+void Collection::set_read_only(bool read_only) noexcept {
     const std::unique_lock lock(mutex_);
     read_only_ = read_only;
 }
 
-bool Vault::read_only() const noexcept {
+bool Collection::read_only() const noexcept {
     const std::shared_lock lock(mutex_);
     return read_only_;
 }
 
-void Vault::seal() noexcept {
+void Collection::seal() noexcept {
     const std::unique_lock lock(mutex_);
     sealed_ = true;
 }
 
-bool Vault::sealed() const noexcept {
+bool Collection::sealed() const noexcept {
     const std::shared_lock lock(mutex_);
     return sealed_;
 }
 
-std::map<RecordID, Record> Vault::records() const {
+std::map<RecordID, Record> Collection::records() const {
     const std::shared_lock lock(mutex_);
     return records_;
 }
 
-RecordID Vault::place(const Vector& vector, Payload payload,
+RecordID Collection::add(const Vector& vector, Payload payload,
                       std::optional<RecordID> id,
                       std::optional<DocumentAttachment> document,
                       std::optional<ChunkInfo> chunk,
@@ -877,7 +899,7 @@ RecordID Vault::place(const Vector& vector, Payload payload,
                         std::move(lineage));
 }
 
-RecordID Vault::place_locked(const Vector& vector, Payload payload,
+RecordID Collection::place_locked(const Vector& vector, Payload payload,
                              std::optional<RecordID> id,
                              std::optional<DocumentAttachment> document,
                              std::optional<ChunkInfo> chunk,
@@ -900,7 +922,7 @@ RecordID Vault::place_locked(const Vector& vector, Payload payload,
         index_->remove(record_id);
     }
 
-    index_->insert(record_id, prepared.values());
+    index_->add_with_ids(record_id, prepared.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(record_id, payload);
     }
@@ -914,7 +936,7 @@ RecordID Vault::place_locked(const Vector& vector, Payload payload,
                   {},
                   quant::CodecId::none};
 
-    // Once a codebook exists, the code is what the vault keeps: the fp32 vector
+    // Once a codebook exists, the code is what the collection keeps: the fp32 vector
     // is dropped rather than stored alongside, which is where the memory saving
     // comes from.
     if (const auto& codec = quantizer(); codec != nullptr) {
@@ -927,7 +949,7 @@ RecordID Vault::place_locked(const Vector& vector, Payload payload,
     return record_id;
 }
 
-Vector Vault::reconstruct(const Record& record) const {
+Vector Collection::reconstruct(const Record& record) const {
     if (record.codes.empty()) {
         return record.vector;
     }
@@ -936,12 +958,12 @@ Vector Vault::reconstruct(const Record& record) const {
         // A code with no quantizer to read it means the codebook failed to load.
         // Returning an empty vector would look like a legitimately empty record.
         throw StorageError{
-            "record is quantized but the vault has no matching codebook"};
+            "record is quantized but the collection has no matching codebook"};
     }
     return Vector{codec->decode(record.codes)};
 }
 
-Record Vault::hydrate(const Record& record) const {
+Record Collection::hydrate(const Record& record) const {
     if (record.codes.empty()) {
         return record;
     }
@@ -950,12 +972,12 @@ Record Vault::hydrate(const Record& record) const {
     return out;
 }
 
-void Vault::place_record(const Record& record) {
+void Collection::place_record(const Record& record) {
     const std::unique_lock lock(mutex_);
     place_record_locked(record);
 }
 
-void Vault::place_record_locked(const Record& record) {
+void Collection::place_record_locked(const Record& record) {
     if (record.codes.empty()) {
         place_locked(record.vector, record.payload, record.id, record.document,
                      record.chunk, record.lineage);
@@ -970,7 +992,7 @@ void Vault::place_record_locked(const Record& record) {
     // times it runs.
     const auto& codec = quantizer();
     if (codec == nullptr || record.codes.size() != codec->code_bytes()) {
-        throw StorageError{"quantized record does not match the vault codebook"};
+        throw StorageError{"quantized record does not match the collection codebook"};
     }
 
     if (wal_ != nullptr) {
@@ -992,7 +1014,7 @@ void Vault::place_record_locked(const Record& record) {
     // re-encoded internally to the identical code, since encoding is
     // deterministic against a fixed codebook.
     const Vector decoded = reconstruct(record);
-    index_->insert(record.id, decoded.values());
+    index_->add_with_ids(record.id, decoded.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(record.id, record.payload);
     }
@@ -1002,7 +1024,7 @@ void Vault::place_record_locked(const Record& record) {
     records_[record.id] = std::move(stored);
 }
 
-RecordID Vault::place_document(std::string text, Payload payload,
+RecordID Collection::add_document(std::string text, Payload payload,
                                std::optional<RecordID> id,
                                std::optional<ChunkInfo> chunk,
                                std::optional<EmbeddingLineage> lineage) {
@@ -1034,7 +1056,7 @@ RecordID Vault::place_document(std::string text, Payload payload,
         };
     }
 
-    // Embed outside the vault lock: it is a pure function of the text and can
+    // Embed outside the collection lock: it is a pure function of the text and can
     // be slow, so holding the exclusive lock across it would serialize readers
     // for no reason.
     const Vector embedded = config_.text_embedder()->embed(text);
@@ -1043,13 +1065,13 @@ RecordID Vault::place_document(std::string text, Payload payload,
         .uri = {},
         .mime_type = "text/plain",
     };
-    return place(embedded, std::move(payload), record_id, std::move(document),
+    return add(embedded, std::move(payload), record_id, std::move(document),
                  std::move(chunk), std::move(lineage));
 }
 
-void Vault::place_many(const std::vector<Record>& records) {
+void Collection::add_many(const std::vector<Record>& records) {
     const std::unique_lock lock(mutex_);
-    // Check up front so an empty batch against a sealed or read-only vault
+    // Check up front so an empty batch against a sealed or read-only collection
     // still reports the problem, rather than silently succeeding.
     ensure_writable();
     for (const auto& record : records) {
@@ -1061,7 +1083,7 @@ void Vault::place_many(const std::vector<Record>& records) {
     }
 }
 
-std::vector<SearchResult> Vault::search_records(
+std::vector<SearchResult> Collection::search_records(
     const Vector& prepared, std::size_t top, const Filter& filter,
     std::optional<float> threshold,
     const std::vector<const Record*>* subset) const {
@@ -1074,7 +1096,7 @@ std::vector<SearchResult> Vault::search_records(
         subset != nullptr ? subset->size() : static_cast<std::size_t>(records_.size());
     results.reserve(std::min(reserve, top > 0 ? top * 4 : reserve));
 
-    // Compressed vaults score by asymmetric lookup: one table built here, then
+    // Compressed collections score by asymmetric lookup: one table built here, then
     // a gather per record. Cheaper than the fp32 scan it replaces, and it avoids
     // decoding every candidate just to measure it.
     const auto& codec = quantizer();
@@ -1125,7 +1147,7 @@ std::vector<SearchResult> Vault::search_records(
     return results;
 }
 
-QueryPlan Vault::plan_seek(const Vector& prepared, std::size_t top,
+QueryPlan Collection::plan_seek(const Vector& prepared, std::size_t top,
                            const Filter& filter,
                            std::optional<float> threshold,
                            bool has_text_component) const {
@@ -1175,14 +1197,14 @@ QueryPlan Vault::plan_seek(const Vector& prepared, std::size_t top,
     return plan;
 }
 
-std::vector<SearchResult> Vault::seek(const Vector& query, std::size_t top,
+std::vector<SearchResult> Collection::search(const Vector& query, std::size_t top,
                                       const Filter& filter,
                                       std::optional<float> threshold) const {
     const std::shared_lock lock(mutex_);
     return seek_locked(query, top, filter, threshold);
 }
 
-std::vector<SearchResult> Vault::seek_locked(
+std::vector<SearchResult> Collection::seek_locked(
     const Vector& query, std::size_t top, const Filter& filter,
     std::optional<float> threshold) const {
     if (top == 0 || records_.empty()) {
@@ -1222,7 +1244,7 @@ std::vector<SearchResult> Vault::seek_locked(
 
     // Post-filtering discards hits, so a fixed over-fetch can return fewer than
     // `top`. Re-probe with a wider beam until the filter is satisfied or the
-    // whole vault has been swept. Bounded by records_.size(), so worst case
+    // whole collection has been swept. Bounded by records_.size(), so worst case
     // degenerates to a full scan rather than an unbounded loop.
     std::vector<SearchResult> results;
     while (true) {
@@ -1254,7 +1276,7 @@ std::vector<SearchResult> Vault::seek_locked(
     }
 }
 
-std::vector<SearchResult> Vault::seek_text(std::string_view text, std::size_t top,
+std::vector<SearchResult> Collection::search_text(std::string_view text, std::size_t top,
                                            const Filter& filter,
                                            std::optional<float> threshold) const {
     if (!config_.has_text_embedder()) {
@@ -1263,13 +1285,13 @@ std::vector<SearchResult> Vault::seek_text(std::string_view text, std::size_t to
     if (top == 0) {
         return {};
     }
-    // Embed before taking the lock; embedding does not touch vault state.
+    // Embed before taking the lock; embedding does not touch collection state.
     const Vector embedded = config_.text_embedder()->embed(text);
     const std::shared_lock lock(mutex_);
     return seek_locked(embedded, top, filter, threshold);
 }
 
-std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
+std::vector<SearchResult> Collection::hybrid_search(const Vector& query,
                                              std::string_view text,
                                              std::size_t top,
                                              const Filter& filter,
@@ -1313,7 +1335,7 @@ std::vector<SearchResult> Vault::seek_hybrid(const Vector& query,
     return candidates;
 }
 
-QueryPlan Vault::explain_seek(const Vector& query, std::size_t top,
+QueryPlan Collection::explain_query(const Vector& query, std::size_t top,
                               const Filter& filter,
                               std::optional<float> threshold,
                               bool has_text_component) const {
@@ -1321,7 +1343,7 @@ QueryPlan Vault::explain_seek(const Vector& query, std::size_t top,
     return plan_seek(prepare(query), top, filter, threshold, has_text_component);
 }
 
-std::vector<Record> Vault::scan(const Filter& filter, std::size_t offset,
+std::vector<Record> Collection::scan(const Filter& filter, std::size_t offset,
                                 std::size_t limit) const {
     const std::shared_lock lock(mutex_);
     std::vector<Record> out;
@@ -1343,7 +1365,7 @@ std::vector<Record> Vault::scan(const Filter& filter, std::size_t offset,
     return out;
 }
 
-std::optional<Record> Vault::fetch(const RecordID& id) const {
+std::optional<Record> Collection::get(const RecordID& id) const {
     const std::shared_lock lock(mutex_);
     const auto it = records_.find(id);
     if (it == records_.end()) {
@@ -1352,12 +1374,12 @@ std::optional<Record> Vault::fetch(const RecordID& id) const {
     return hydrate(it->second);
 }
 
-bool Vault::erase(const RecordID& id) {
+bool Collection::remove(const RecordID& id) {
     const std::unique_lock lock(mutex_);
     return erase_locked(id);
 }
 
-bool Vault::erase_locked(const RecordID& id) {
+bool Collection::erase_locked(const RecordID& id) {
     ensure_writable();
 
     const auto it = records_.find(id);
@@ -1375,7 +1397,7 @@ bool Vault::erase_locked(const RecordID& id) {
     return true;
 }
 
-void Vault::restore_for_undo(const RecordID& id,
+void Collection::restore_for_undo(const RecordID& id,
                              const std::optional<Record>& previous) {
     const std::unique_lock lock(mutex_);
     const auto existing = records_.find(id);
@@ -1395,7 +1417,7 @@ void Vault::restore_for_undo(const RecordID& id,
     // record a generation of accuracy it never asked for, on a transaction that
     // may not even have modified it.
     const Vector vector = reconstruct(*previous);
-    index_->insert(id, vector.values());
+    index_->add_with_ids(id, vector.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(id, previous->payload);
     }
@@ -1406,12 +1428,12 @@ void Vault::restore_for_undo(const RecordID& id,
     records_[id] = std::move(restored);
 }
 
-void Vault::rebuild_index() {
+void Collection::rebuild_index() {
     const std::unique_lock lock(mutex_);
     rebuild_index_locked();
 }
 
-void Vault::rebuild_index_locked() {
+void Collection::rebuild_index_locked() {
     ensure_writable();
 
     auto rebuilt = make_index(config_, config_.dimension()
@@ -1421,12 +1443,12 @@ void Vault::rebuild_index_locked() {
 #endif
     );
 
-    metadata_index_ = MetadataIndex{};
+    metadata_index_ = MetadataFilterIndex{};
     for (const auto& [id, record] : records_) {
         // Compressed records decode once here; the index re-encodes internally
         // to the same code, so a rebuild does not degrade what is stored.
         const Vector vector = reconstruct(record);
-        rebuilt->insert(id, vector.values());
+        rebuilt->add_with_ids(id, vector.values());
         if (config_.metadata_acceleration()) {
             metadata_index_.insert(id, record.payload);
         }
@@ -1434,21 +1456,21 @@ void Vault::rebuild_index_locked() {
     index_ = std::move(rebuilt);
 }
 
-bool Vault::quantized() const noexcept {
+bool Collection::is_trained() const noexcept {
     const std::shared_lock lock(mutex_);
     return quantizer() != nullptr;
 }
 
-quant::CodecId Vault::codec() const noexcept {
+quant::CodecId Collection::codec() const noexcept {
     const std::shared_lock lock(mutex_);
     const auto& codec = quantizer();
     return codec != nullptr ? codec->codec() : quant::CodecId::none;
 }
 
-void Vault::install_quantizer(quant::QuantizerPtr quantizer) {
+void Collection::install_quantizer(quant::QuantizerPtr quantizer) {
     const std::unique_lock lock(mutex_);
     if (quantizer != nullptr && quantizer->dimension() != config_.dimension()) {
-        throw StorageError{"persisted codebook dimension does not match the vault"};
+        throw StorageError{"persisted codebook dimension does not match the collection"};
     }
     config_.attach_quantizer(std::move(quantizer));
     // The index was built by the constructor without a codebook, so it is
@@ -1467,21 +1489,21 @@ void Vault::install_quantizer(quant::QuantizerPtr quantizer) {
     }
 }
 
-void Vault::quantize() {
+void Collection::train() {
     const std::unique_lock lock(mutex_);
     ensure_writable();
 
     if (!config_.has_quantization()) {
         throw ConfigError{
-            "vault has no quantization codec configured; set one via "
+            "collection has no quantization codec configured; set one via "
             "Config::quantization() before calling quantize()"};
     }
     if (quantizer() != nullptr) {
-        throw ConfigError{"vault is already quantized"};
+        throw ConfigError{"collection is already quantized"};
     }
     if (records_.empty()) {
         throw ConfigError{
-            "cannot train a codebook on an empty vault: quantization needs "
+            "cannot train a codebook on an empty collection: quantization needs "
             "representative data"};
     }
 
@@ -1490,7 +1512,7 @@ void Vault::quantize() {
 
     // Train on a bounded sample. Codebook quality is a function of how well the
     // sample covers the distribution, not of its size, so this keeps training
-    // cost tied to the dimension and codebook width rather than to the vault.
+    // cost tied to the dimension and codebook width rather than to the collection.
     const std::size_t sample_size =
         std::min(records_.size(), quant::train_sample_cap);
     const std::size_t stride = std::max<std::size_t>(1, records_.size() / sample_size);
@@ -1526,12 +1548,12 @@ void Vault::quantize() {
     rebuild_index_locked();
 }
 
-void ElipsInstance::quantize(const std::string& vault_name) {
+void Database::train(const std::string& collection_name) {
     const std::lock_guard lock(mutex_);
     if (closed_) {
         throw StorageError{"database is closed"};
     }
-    vault_locked(vault_name).quantize();
+    collection_locked(collection_name).train();
 
     // Order matters and is the reason no partial-quantize state can exist on
     // disk: the checkpoint durably publishes both the codebook and the encoded
@@ -1544,41 +1566,41 @@ void ElipsInstance::quantize(const std::string& vault_name) {
     }
 }
 
-void ElipsInstance::quantize_all() {
-    for (const auto& name : list_vaults()) {
-        quantize(name);
+void Database::quantize_all() {
+    for (const auto& name : list_collections()) {
+        train(name);
     }
 }
 
-void Vault::vacuum() {
+void Collection::vacuum() {
     const std::unique_lock lock(mutex_);
     ensure_writable();
     index_->vacuum();
 }
 
-std::size_t Vault::pending_removals() const noexcept {
+std::size_t Collection::pending_removals() const noexcept {
     const std::shared_lock lock(mutex_);
     return index_->pending_removals();
 }
 
-VaultInfo Vault::info() const noexcept {
+CollectionInfo Collection::info() const noexcept {
     const std::shared_lock lock(mutex_);
     const auto& codec = quantizer();
-    return VaultInfo{records_.size(), config_.dimension(), config_.metric(),
+    return CollectionInfo{records_.size(), config_.dimension(), config_.metric(),
                      codec != nullptr ? codec->codec() : quant::CodecId::none,
                      codec != nullptr ? codec->code_bytes() : 0};
 }
 
-// ----------------------------- ElipsInstance -----------------------------
+// ----------------------------- Database -----------------------------
 
-ElipsInstance::ElipsInstance(std::string path, Config config, bool persistent,
+Database::Database(std::string path, Config config, bool persistent,
                              std::optional<LockManager> lock)
     : path_(std::move(path)),
       config_(std::move(config)),
       persistent_(persistent),
       lock_(std::move(lock)) {}
 
-ElipsInstance::~ElipsInstance() {
+Database::~Database() {
     const std::lock_guard lock(mutex_);
     if (persistent_ && !closed_ && config_.access_mode() != AccessMode::read_only) {
         try {
@@ -1589,31 +1611,31 @@ ElipsInstance::~ElipsInstance() {
         }
     }
 
-    // Vault-owned GPU indexes hold non-owning backend references, so release
-    // every vault before member destruction reaches gpu_backend_.
-    vaults_.clear();
+    // Collection-owned GPU indexes hold non-owning backend references, so release
+    // every collection before member destruction reaches gpu_backend_.
+    collections_.clear();
 }
 
-void ElipsInstance::abandon() noexcept {
+void Database::abandon() noexcept {
     const std::lock_guard lock(mutex_);
     closed_ = true;
 }
 
-Vault& ElipsInstance::vault(const std::string& name) {
+Collection& Database::collection(const std::string& name) {
     const std::lock_guard lock(mutex_);
-    return vault_locked(name);
+    return collection_locked(name);
 }
 
-Vault& ElipsInstance::vault_locked(const std::string& name) {
-    const auto it = vaults_.find(name);
-    if (it != vaults_.end()) {
+Collection& Database::collection_locked(const std::string& name) {
+    const auto it = collections_.find(name);
+    if (it != collections_.end()) {
         return *it->second;
     }
 
 #ifdef ELIPS_GPU_ENABLED
-    auto created = std::make_unique<Vault>(name, config_, gpu_backend_.get());
+    auto created = std::make_unique<Collection>(name, config_, gpu_backend_.get());
 #else
-    auto created = std::make_unique<Vault>(name, config_);
+    auto created = std::make_unique<Collection>(name, config_);
 #endif
     created->set_wal(wal_.get());
     if (config_.access_mode() == AccessMode::read_only) {
@@ -1623,48 +1645,48 @@ Vault& ElipsInstance::vault_locked(const std::string& name) {
         created->seal();
     }
 
-    Vault& ref = *created;
-    vaults_.emplace(name, std::move(created));
+    Collection& ref = *created;
+    collections_.emplace(name, std::move(created));
     return ref;
 }
 
-Vault& ElipsInstance::adopt_vault(std::unique_ptr<Vault> vault) {
+Collection& Database::adopt_collection(std::unique_ptr<Collection> collection) {
     const std::lock_guard lock(mutex_);
-    vault->set_wal(wal_.get());
+    collection->set_wal(wal_.get());
     if (config_.access_mode() == AccessMode::read_only) {
-        vault->set_read_only(true);
+        collection->set_read_only(true);
     }
-    Vault& ref = *vault;
-    vaults_[vault->name()] = std::move(vault);
+    Collection& ref = *collection;
+    collections_[collection->name()] = std::move(collection);
     return ref;
 }
 
-void ElipsInstance::attach_wal(std::unique_ptr<WAL> wal) {
+void Database::attach_wal(std::unique_ptr<WAL> wal) {
     const std::lock_guard lock(mutex_);
     wal_ = std::move(wal);
-    for (auto& [name, vault] : vaults_) {
+    for (auto& [name, collection] : collections_) {
         (void)name;
-        vault->set_wal(wal_.get());
+        collection->set_wal(wal_.get());
     }
 }
 
-std::vector<std::string> ElipsInstance::list_vaults() const {
+std::vector<std::string> Database::list_collections() const {
     const std::lock_guard lock(mutex_);
     std::vector<std::string> names;
-    names.reserve(vaults_.size());
-    for (const auto& [name, vault] : vaults_) {
-        (void)vault;
+    names.reserve(collections_.size());
+    for (const auto& [name, collection] : collections_) {
+        (void)collection;
         names.push_back(name);
     }
     return names;
 }
 
-void ElipsInstance::checkpoint() {
+void Database::checkpoint() {
     const std::lock_guard lock(mutex_);
     checkpoint_locked();
 }
 
-void ElipsInstance::checkpoint_locked() {
+void Database::checkpoint_locked() {
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
     }
@@ -1679,16 +1701,16 @@ void ElipsInstance::checkpoint_locked() {
         const auto epoch = static_cast<std::uint64_t>(
             std::chrono::steady_clock::now().time_since_epoch().count());
         std::vector<SegmentManifestEntry> entries;
-        entries.reserve(vaults_.size());
+        entries.reserve(collections_.size());
 
         std::size_t ordinal = 0;
-        for (const auto& [name, vault] : vaults_) {
+        for (const auto& [name, collection] : collections_) {
             const std::string file_name =
                 "vault_" + std::to_string(ordinal++) + "_" +
                 std::to_string(epoch) + ".segment";
             const fs::path tmp_path = segments_root / (file_name + ".tmp");
             const fs::path final_path = segments_root / file_name;
-            write_segment_file(tmp_path, name, *vault);
+            write_segment_file(tmp_path, name, *collection);
             detail::durable_rename(tmp_path, final_path);
             entries.push_back(SegmentManifestEntry{name, file_name});
         }
@@ -1717,7 +1739,7 @@ void ElipsInstance::checkpoint_locked() {
         }
         fs::remove(root / snapshot_file, ec);
     } else {
-        write_snapshot_file(root, config_, vaults_);
+        write_snapshot_file(root, config_, collections_);
         std::error_code ec;
         fs::remove(root / manifest_file, ec);
         fs::remove_all(root / segment_dir, ec);
@@ -1728,42 +1750,42 @@ void ElipsInstance::checkpoint_locked() {
     }
 }
 
-void ElipsInstance::compact() {
+void Database::compact() {
     const std::lock_guard lock(mutex_);
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
     }
-    for (auto& [name, vault] : vaults_) {
+    for (auto& [name, collection] : collections_) {
         (void)name;
-        vault->rebuild_index();
+        collection->rebuild_index();
     }
     checkpoint_locked();
 }
 
-void ElipsInstance::vacuum() {
+void Database::vacuum() {
     const std::lock_guard lock(mutex_);
     if (config_.access_mode() == AccessMode::read_only) {
         return;
     }
-    for (auto& [name, vault] : vaults_) {
+    for (auto& [name, collection] : collections_) {
         (void)name;
-        vault->vacuum();
+        collection->vacuum();
     }
 }
 
-void ElipsInstance::close() {
+void Database::close() {
     const std::lock_guard lock(mutex_);
     if (closed_) {
         return;
     }
 
     checkpoint_locked();
-    for (auto& [name, vault] : vaults_) {
+    for (auto& [name, collection] : collections_) {
         (void)name;
-        vault->set_wal(nullptr);
+        collection->set_wal(nullptr);
         // A write after close() would never be WAL-logged and never
         // checkpointed: it would return success and then vanish. Refuse it.
-        vault->seal();
+        collection->seal();
     }
     wal_.reset();
     lock_.reset();
@@ -1772,7 +1794,7 @@ void ElipsInstance::close() {
 
 // --------------------------------- open ----------------------------------
 
-std::unique_ptr<ElipsInstance> open(const std::string& path,
+std::unique_ptr<Database> open(const std::string& path,
                                     const Config& config) {
     if (path == ":memory:") {
         if (config.dimension() == 0) {
@@ -1783,7 +1805,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
         (void)resolve_text_embedder_for_open(fs::path{}, /*persistent=*/false,
                                              /*new_database=*/true, effective);
         auto instance =
-            std::make_unique<ElipsInstance>(path, effective, /*persistent=*/false);
+            std::make_unique<Database>(path, effective, /*persistent=*/false);
         configure_gpu_backend(*instance, effective);
         if (effective.access_mode() == AccessMode::read_only) {
             apply_read_only_mode(*instance);
@@ -1825,7 +1847,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
         write_text_embedder_manifest(fs::path(path), *embedder_manifest);
     }
 
-    auto instance = std::make_unique<ElipsInstance>(path, effective,
+    auto instance = std::make_unique<Database>(path, effective,
                                                     /*persistent=*/true,
                                                     std::move(lock));
     configure_gpu_backend(*instance, effective);
@@ -1840,20 +1862,20 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
 
     const fs::path walpath = fs::path(path) / wal_file;
     for (const auto& entry : WAL::replay(walpath)) {
-        Vault& vault = instance->vault(entry.vault);
-        vault.set_read_only(false);
+        Collection& collection = instance->collection(entry.collection);
+        collection.set_read_only(false);
         if (entry.op == WAL::Op::insert_q) {
             // The codebook came from the snapshot that was loaded above.
             // quantize() checkpoints before resetting the log, so an insert_q
             // record can never predate the codebook that decodes it.
-            vault.place_record(Record{entry.id, Vector{}, entry.payload,
+            collection.place_record(Record{entry.id, Vector{}, entry.payload,
                                       entry.document, entry.chunk, entry.lineage,
                                       entry.codes, entry.codec});
         } else if (entry.op == WAL::Op::insert || entry.op == WAL::Op::insert_ex) {
-            vault.place(Vector{entry.vector}, entry.payload, entry.id, entry.document,
+            collection.add(Vector{entry.vector}, entry.payload, entry.id, entry.document,
                         entry.chunk, entry.lineage);
         } else {
-            vault.erase(entry.id);
+            collection.remove(entry.id);
         }
     }
 
@@ -1872,7 +1894,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
 
 // ------------------------------ Transaction ------------------------------
 
-Transaction ElipsInstance::begin_transaction() { return Transaction{*this}; }
+Transaction Database::begin_transaction() { return Transaction{*this}; }
 
 Transaction::~Transaction() {
     if (!done_) {
@@ -1880,28 +1902,31 @@ Transaction::~Transaction() {
     }
 }
 
-void Transaction::enqueue_place(std::string vault, const Vector& vector,
+void Transaction::enqueue_place(std::string collection, const Vector& vector,
                                 Payload payload,
                                 std::optional<RecordID> id) {
     if (vector.dimension() != db_->config().dimension()) {
-        throw DimensionMismatch{"vector dimension does not match database"};
+        throw DimensionMismatch{"vector dimension does not match database: "
+                                "expected d=" +
+                                std::to_string(db_->config().dimension()) +
+                                ", got " + std::to_string(vector.dimension())};
     }
     if (!all_finite(vector.values())) {
         throw InvalidVector{"vector contains NaN or Inf"};
     }
-    ops_.push_back(PendingOp{false, std::move(vault), vector, std::move(payload),
+    ops_.push_back(PendingOp{false, std::move(collection), vector, std::move(payload),
                              id});
 }
 
-void Transaction::enqueue_erase(std::string vault, const RecordID& id) {
-    ops_.push_back(PendingOp{true, std::move(vault), Vector{}, Payload{}, id});
+void Transaction::enqueue_erase(std::string collection, const RecordID& id) {
+    ops_.push_back(PendingOp{true, std::move(collection), Vector{}, Payload{}, id});
 }
 
 void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
     // Reverse order so repeated writes to the same id land on the oldest state.
     for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
         try {
-            db_->vault_locked(it->vault).restore_for_undo(it->id, it->previous);
+            db_->collection_locked(it->collection).restore_for_undo(it->id, it->previous);
         } catch (...) {
             // Undo is a best-effort in-memory operation on structures that were
             // just successfully mutated; nothing here can be usefully retried.
@@ -1917,15 +1942,15 @@ void Transaction::commit() {
     const std::lock_guard db_lock(db_->mutex_);
 
     // Eager checks that cover every failure mode we can see before mutating:
-    // vault existence and writability. Runtime I/O failure is still possible,
+    // collection existence and writability. Runtime I/O failure is still possible,
     // which is what the undo log below is for.
     for (const auto& op : ops_) {
-        const Vault& vault = db_->vault_locked(op.vault);
-        if (vault.read_only() || vault.sealed()) {
-            throw StorageError{vault.sealed()
+        const Collection& collection = db_->collection_locked(op.collection);
+        if (collection.read_only() || collection.sealed()) {
+            throw StorageError{collection.sealed()
                                    ? "database is closed: this write would "
                                      "never be persisted"
-                                   : "vault is opened in read-only mode"};
+                                   : "collection is opened in read-only mode"};
         }
     }
 
@@ -1938,15 +1963,15 @@ void Transaction::commit() {
     undo_log.reserve(ops_.size());
     try {
         for (auto& op : ops_) {
-            Vault& vault = db_->vault_locked(op.vault);
+            Collection& collection = db_->collection_locked(op.collection);
             const RecordID target =
                 op.id.value_or(op.is_erase ? RecordID{} : RecordID::generate());
             undo_log.push_back(
-                UndoEntry{op.vault, target, vault.fetch(target)});
+                UndoEntry{op.collection, target, collection.get(target)});
             if (op.is_erase) {
-                vault.erase(target);
+                collection.remove(target);
             } else {
-                vault.place(op.vector, op.payload, target);
+                collection.add(op.vector, op.payload, target);
             }
         }
     } catch (...) {
@@ -1963,21 +1988,21 @@ void Transaction::commit() {
     done_ = true;
 }
 
-RecordID TransactionVault::place(const Vector& vector, Payload payload,
+RecordID TransactionCollection::add(const Vector& vector, Payload payload,
                                  std::optional<RecordID> id) {
     const RecordID assigned = id.value_or(RecordID::generate());
-    txn_->enqueue_place(vault_, vector, std::move(payload), assigned);
+    txn_->enqueue_place(collection_, vector, std::move(payload), assigned);
     return assigned;
 }
 
-void TransactionVault::erase(const RecordID& id) {
-    txn_->enqueue_erase(vault_, id);
+void TransactionCollection::remove(const RecordID& id) {
+    txn_->enqueue_erase(collection_, id);
 }
 
 #ifdef ELIPS_GPU_ENABLED
-gpu::GpuDeviceInfo ElipsInstance::gpu_info() const { return gpu_info_; }
+gpu::GpuDeviceInfo Database::gpu_info() const { return gpu_info_; }
 
-gpu::GpuMetricsSnapshot ElipsInstance::gpu_stats() const { return gpu_stats_; }
+gpu::GpuMetricsSnapshot Database::gpu_stats() const { return gpu_stats_; }
 #endif
 
 }  // namespace elips

@@ -7,7 +7,7 @@
 
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
@@ -20,7 +20,7 @@ public:
 
     [[nodiscard]] std::vector<GpuDeviceInfo> probe_all_devices() const;
 
-    [[nodiscard]] std::optional<std::unique_ptr<GpuPort>>
+    [[nodiscard]] std::optional<std::unique_ptr<GpuBackend>>
     select(const GpuConfig& config, const std::vector<GpuDeviceInfo>& devices) const;
 
     [[nodiscard]] bool can_fit_index(

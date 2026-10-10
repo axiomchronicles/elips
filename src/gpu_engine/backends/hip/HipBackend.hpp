@@ -18,12 +18,12 @@
 // the regular C++ compiler that builds GpuDeviceManager.cpp. All HIP state
 // lives behind the pimpl, defined in HipBackend.hip (compiled by hipcc).
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include <memory>
 
 namespace elips::gpu::hip {
 
-class HipBackend final : public GpuPort {
+class HipBackend final : public GpuBackend {
 public:
     HipBackend();
     ~HipBackend() override;
@@ -51,6 +51,10 @@ public:
     [[nodiscard]] std::expected<void, GpuError>
     top_k(std::span<const float> distances, std::span<uint32_t> indices_out,
           std::span<float> values_out, size_t nq, size_t nb, size_t k) override;
+
+    // ivf_scan is intentionally NOT overridden: HIP has no IVF-scan kernel yet,
+    // so it inherits GpuBackend's default (returns BackendUnavailable), exactly
+    // as the base interface documents for CUDA/HIP today.
 
     void synchronize() override;
     [[nodiscard]] bool is_idle() const noexcept override;

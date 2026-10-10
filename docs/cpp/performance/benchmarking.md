@@ -157,8 +157,8 @@ GpuBruteForceIndex gpu_idx(**backend, metric, dim, config);
 gpu_idx.build_from_batch(db_vecs, ids, GpuIndexBuildParams{});
 ```
 
-`GpuSelector::select()` chooses the best available backend (CUDA, Metal,
-Vulkan) based on the device probes and `GpuConfig::policy`.
+`GpuSelector::select()` chooses the best available backend (CUDA, HIP,
+Metal) based on the device probes and `GpuConfig::policy`.
 
 ### Interpreting GPU Results
 
@@ -309,3 +309,38 @@ GPU benchmarks measure brute-force (ExactIndex) search only — HNSW on GPU
 parallelism: thousands of distance computations in parallel vs CPU SIMD
 lanes (4 for NEON, 8 for AVX). For smaller datasets (< 10K vectors), CPU
 search may be faster due to lower overhead (GPU kernel launch latency).
+
+---
+
+## Python ANN Benchmarks — `bench_ann.py` (Phase 7.5 / 8)
+
+**Location:** `benchmarks/bench_ann.py`
+
+A fixed-seed Python harness that compares ELIPS against **faiss** on identical
+data through the FAISS-style Index API (`elips.IndexFlat`, `elips.IndexIVFFlat`,
+`elips.bf_knn`), following the recall@k + QPS methodology in
+`docs/_redesign/_faiss_3H.md` §4 (exact-Flat `R@1==1.0` sanity gate, warmup
+before timing, seeded data). It is the reference harness Phase 8/9 should cite.
+
+Configurations, all on the same vectors (metric L2):
+
+- **ELIPS CPU** `IndexFlat` (exact) and `IndexIVFFlat` (nprobe sweep)
+- **ELIPS Metal GPU** `bf_knn(device="metal")` — exact brute force, single-query
+  and batched
+- **faiss-cpu** `IndexFlatL2` + `IndexIVFFlat` (nprobe sweep), when importable
+
+```bash
+# smoke (CI-sized): dim=64 nb=10k nq=200
+PYTHONPATH=bindings/python python benchmarks/bench_ann.py --smoke
+# full: dim=128 nb=100k nq=1k
+PYTHONPATH=bindings/python python benchmarks/bench_ann.py --full
+```
+
+Metrics per config: recall@10 vs the exact numpy oracle, QPS, p50/p99 latency,
+and build/train time. The run prints a table and writes it to
+**`docs/_redesign/_benchmarks.md`** with exact hardware/OS/versions.
+
+**faiss availability:** faiss-cpu ships **no wheel for Python 3.14**; run the
+harness under Python 3.13 to include faiss. With faiss absent the harness
+compares ELIPS CPU vs ELIPS Metal only and labels faiss `UNAVAILABLE` (it never
+fabricates faiss numbers — ground rule #1).
