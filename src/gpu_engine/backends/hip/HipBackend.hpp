@@ -3,8 +3,23 @@
 
 #ifdef ELIPS_HIP_ENABLED
 
+// ELIPS HIP/ROCm GPU backend.
+//
+// EXPERIMENTAL — NOT HARDWARE VALIDATED. This backend is compile-checked only
+// (no AMD GPU in CI). It mirrors the CUDA backend using the HIP portability
+// APIs (hipMalloc / hipMemcpy / hipStream*) plus hipBLAS SGEMM for batched
+// distance computation and a device k-selection kernel. Like FAISS's ROCm
+// support (whose GPU code is hipified from the CUDA sources and ships
+// build-from-source rather than as a prebuilt conda package), this must be
+// built from source against a ROCm SDK and validated on real AMD hardware
+// before any production use.
+//
+// This header is deliberately free of any HIP types so it can be included by
+// the regular C++ compiler that builds GpuDeviceManager.cpp. All HIP state
+// lives behind the pimpl, defined in HipBackend.hip (compiled by hipcc).
+
 #include "elips/gpu_engine/GpuPort.hpp"
-#include <vector>
+#include <memory>
 
 namespace elips::gpu::hip {
 
@@ -41,9 +56,8 @@ public:
     [[nodiscard]] bool is_idle() const noexcept override;
 
 private:
-    int device_index_{-1};
-    bool initialized_{false};
-    GpuDeviceInfo info_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace elips::gpu::hip

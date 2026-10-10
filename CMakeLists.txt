@@ -49,6 +49,12 @@ option(ELIPS_GPU_HIP "Enable AMD ROCm/HIP GPU backend" OFF)
 option(ELIPS_GPU_SYCL "Enable Intel oneAPI/SYCL GPU backend" OFF)
 option(ELIPS_GPU_VULKAN "Enable Vulkan compute GPU backend" OFF)
 
+# ELIPS_ENABLE_ROCM is an accepted alias for ELIPS_GPU_HIP (Phase 7.6 naming);
+# passing -DELIPS_ENABLE_ROCM=ON turns on the HIP backend.
+if(ELIPS_ENABLE_ROCM)
+    set(ELIPS_GPU_HIP ON CACHE BOOL "Enable AMD ROCm/HIP GPU backend" FORCE)
+endif()
+
 if(ELIPS_GPU_METAL AND NOT APPLE)
     message(WARNING
         "ELIPS_GPU_METAL is ON but this is not an Apple platform; "
@@ -202,6 +208,13 @@ if(ELIPS_GPU_ENABLED)
         find_library(MPS_FW MetalPerformanceShaders)
         find_library(FOUNDATION_FW Foundation)
         target_link_libraries(elips_tests PRIVATE ${METAL_FW} ${MPS_FW} ${FOUNDATION_FW})
+    endif()
+
+    # HIP/ROCm parity test — compiled only when the HIP backend is enabled,
+    # skipped at runtime unless an AMD GPU is present (EXPERIMENTAL).
+    if(ELIPS_GPU_HIP)
+        target_sources(elips_tests PRIVATE tests/gpu/hip/HipBackendTest.cpp)
+        target_link_libraries(elips_tests PRIVATE elips_gpu_hip)
     endif()
 
     add_executable(elips_gpu_lifecycle_probe
