@@ -49,9 +49,9 @@ GpuHybridIndex::GpuHybridIndex(GpuBackend& backend,
     , gpu_index_(make_gpu_index(backend, metric, dimension, config))
 {}
 
-void GpuHybridIndex::insert(const RecordID& id, std::span<const float> vector) {
-    cpu_index_->insert(id, vector);
-    gpu_index_->insert(id, vector);
+void GpuHybridIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
+    cpu_index_->add_with_ids(id, vector);
+    gpu_index_->add_with_ids(id, vector);
 }
 
 void GpuHybridIndex::remove(const RecordID& id) {
@@ -62,13 +62,13 @@ void GpuHybridIndex::remove(const RecordID& id) {
 std::vector<Index::Hit> GpuHybridIndex::search(std::span<const float> query,
                                                     std::size_t k) const {
     auto gpu_hits = gpu_index_->search(query, k);
-    if (!gpu_hits.empty() || gpu_index_->size() == 0 || k == 0) {
+    if (!gpu_hits.empty() || gpu_index_->ntotal() == 0 || k == 0) {
         return gpu_hits;
     }
     return cpu_index_->search(query, k);
 }
 
-std::size_t GpuHybridIndex::size() const noexcept { return cpu_index_->size(); }
+std::size_t GpuHybridIndex::ntotal() const noexcept { return cpu_index_->ntotal(); }
 std::string_view GpuHybridIndex::type_name() const noexcept { return "gpu_hybrid"; }
 
 void GpuHybridIndex::vacuum() { cpu_index_->vacuum(); }

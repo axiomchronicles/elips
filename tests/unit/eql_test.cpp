@@ -54,7 +54,7 @@ TEST(EqlTest, FetchAndEraseViaEql) {
     ASSERT_EQ(fetched.size(), 1U);
 
     (void)db->query("erase from v id \"" + id + "\"");
-    EXPECT_EQ(db->vault("v").info().count, 0U);
+    EXPECT_EQ(db->collection("v").info().count, 0U);
 }
 
 TEST(EqlTest, InClauseAndBoolean) {

@@ -37,7 +37,7 @@ BenchResult bench_search(size_t n_vectors, size_t dim, Metric metric, size_t n_q
 
     auto cpu_idx = std::make_unique<IndexFlat>(metric, static_cast<uint16_t>(dim));
     for (size_t i = 0; i < n_vectors; ++i) {
-        cpu_idx->insert(ids[i], {db_vecs.data() + i * dim, dim});
+        cpu_idx->add_with_ids(ids[i], {db_vecs.data() + i * dim, dim});
     }
 
     auto cpu_start = Clock::now();

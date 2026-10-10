@@ -21,7 +21,7 @@ void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
 
 }  // namespace
 
-void IndexFlat::insert(const RecordID& id, std::span<const float> vector) {
+void IndexFlat::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     ids_.push_back(id);
     if (compressed()) {

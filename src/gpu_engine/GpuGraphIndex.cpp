@@ -68,13 +68,13 @@ void GpuGraphIndex::sync_device_data_best_effort() noexcept {
     }
 }
 
-void GpuGraphIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuGraphIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     if (id_to_slot_.contains(id)) {
         remove(id);
     }
 
-    cpu_graph_->insert(id, vector);
+    cpu_graph_->add_with_ids(id, vector);
     ids_.push_back(id);
     host_vectors_.insert(host_vectors_.end(), vector.begin(), vector.end());
     id_to_slot_[id] = ids_.size() - 1;
@@ -118,7 +118,7 @@ std::vector<Index::Hit> GpuGraphIndex::search(std::span<const float> query,
     return cpu_graph_->search(query, k);
 }
 
-std::size_t GpuGraphIndex::size() const noexcept { return count_; }
+std::size_t GpuGraphIndex::ntotal() const noexcept { return count_; }
 std::string_view GpuGraphIndex::type_name() const noexcept { return "gpu_graph"; }
 
 std::expected<void, GpuError>

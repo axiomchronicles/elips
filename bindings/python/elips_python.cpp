@@ -2248,7 +2248,7 @@ Returns:
                  auto payload = to_payload(data);
                  auto record_id = to_optional_id(id);
                  py::gil_scoped_release unlocked;
-                 return tv.place(native_vector, std::move(payload),
+                 return tv.add(native_vector, std::move(payload),
                                  std::move(record_id))
                      .to_string();
              },
@@ -2258,7 +2258,7 @@ Returns:
              [](elips::TransactionCollection& tv, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
-                 tv.erase(record_id);
+                 tv.remove(record_id);
              });
 
     // =====================  Transaction  =====================
@@ -2266,7 +2266,7 @@ Returns:
     py::class_<TransactionHolder>(m, "Transaction")
         .def("vault",
              [](TransactionHolder& h, const std::string& name) {
-                 return h.txn.vault(name);
+                 return h.txn.collection(name);
              },
              py::keep_alive<0, 1>())
         // commit applies the whole batch: index inserts plus one WAL fsync.
@@ -2375,7 +2375,7 @@ Example:
                  auto payload = to_payload(data);
                  auto record_id = to_optional_id(id);
                  py::gil_scoped_release unlocked;
-                 return v.place(native_vector, std::move(payload),
+                 return v.add(native_vector, std::move(payload),
                                 std::move(record_id), std::move(doc),
                                 std::move(chunk_info),
                                 std::move(embedding_lineage))
@@ -2405,7 +2405,7 @@ Example:
                  // re-acquires the GIL itself. Releasing here is what lets a
                  // native embedder run off the GIL at all.
                  py::gil_scoped_release unlocked;
-                 return v.place_document(text, std::move(payload),
+                 return v.add_document(text, std::move(payload),
                                          std::move(record_id),
                                          std::move(chunk_info),
                                          std::move(embedding_lineage))
@@ -2446,7 +2446,7 @@ Example:
                              embedding_lineage =
                                  lineage.cast<elips::EmbeddingLineage>();
                          }
-                         v.place_document(d["text"].cast<std::string>(),
+                         v.add_document(d["text"].cast<std::string>(),
                                           to_payload(payload),
                                           to_optional_id(id), chunk_info,
                                           embedding_lineage);
@@ -2474,7 +2474,7 @@ Example:
                      recs.push_back(std::move(rec));
                  }
                  py::gil_scoped_release unlocked;
-                 v.place_many(recs);
+                 v.add_many(recs);
              },
              py::arg("records"))
         .def("seek",
@@ -2486,7 +2486,7 @@ Example:
                      th = threshold.cast<float>();
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.seek(query, top, where, th);
+                 return v.search(query, top, where, th);
              },
              py::arg("vector"), py::arg("top") = 10,
              py::arg("where") = elips::Filter{},
@@ -2502,7 +2502,7 @@ Example:
                  // seek_text embeds the query before taking the reader lock,
                  // and PythonTextEmbedder re-acquires the GIL for itself.
                  py::gil_scoped_release unlocked;
-                 return v.seek_text(text, top, where, th);
+                 return v.search_text(text, top, where, th);
              },
              py::arg("text"), py::arg("top") = 10,
              py::arg("where") = elips::Filter{},
@@ -2518,7 +2518,7 @@ Example:
                  }
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.seek_hybrid(query, text, top, where, th,
+                 return v.hybrid_search(query, text, top, where, th,
                                       lexical_weight);
              },
              py::arg("vector"), py::arg("text"), py::arg("top") = 10,
@@ -2535,7 +2535,7 @@ Example:
                  }
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.explain_seek(query, top, where, th,
+                 return v.explain_query(query, top, where, th,
                                        has_text_component);
              },
              py::arg("vector"), py::arg("top") = 10,
@@ -2549,7 +2549,7 @@ Example:
                  std::optional<elips::Record> rec;
                  {
                      py::gil_scoped_release unlocked;
-                     rec = v.fetch(record_id);
+                     rec = v.get(record_id);
                  }
                  if (!rec) {
                      return py::none();
@@ -2560,7 +2560,7 @@ Example:
              [](elips::Collection& v, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
-                 return v.erase(record_id);
+                 return v.remove(record_id);
              })
         .def("scan",
              [](const elips::Collection& v, const elips::Filter& where,
@@ -2601,7 +2601,7 @@ Example:
         .def("vacuum", &elips::Collection::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim index space held by deleted records.")
-        .def("quantize", &elips::Collection::quantize,
+        .def("quantize", &elips::Collection::train,
              py::call_guard<py::gil_scoped_release>(),
              R"doc(Train a codebook over this vault and compress it in place.
 
@@ -2624,7 +2624,7 @@ than the exact vectors written; each record dict carries ``approximate`` and
 ``codec`` so this is visible.
 )doc")
         .def_property_readonly(
-            "quantized", &elips::Collection::quantized,
+            "quantized", &elips::Collection::is_trained,
             "True once :meth:`quantize` has trained a codebook and compressed "
             "this vault.")
         .def_property_readonly(
@@ -2729,9 +2729,9 @@ Example:
         db = elips.open("/data/catalog")
         print(db.vault("products").count())
 )doc")
-        .def("vault", &elips::Database::vault,
+        .def("vault", &elips::Database::collection,
              py::return_value_policy::reference_internal)
-        .def("list_vaults", &elips::Database::list_vaults)
+        .def("list_vaults", &elips::Database::list_collections)
         .def("begin_transaction",
              [](py::object db_ref) {
                  auto& db = db_ref.cast<elips::Database&>();
@@ -2745,7 +2745,7 @@ Example:
         .def("vacuum", &elips::Database::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim tombstoned index space across every vault.")
-        .def("quantize", &elips::Database::quantize, py::arg("vault"),
+        .def("quantize", &elips::Database::train, py::arg("vault"),
              py::call_guard<py::gil_scoped_release>(),
              "Compress one vault (see :meth:`Vault.quantize`), then checkpoint "
              "so the codebook and encoded records are durable before the WAL is "
@@ -2791,7 +2791,7 @@ Example:
              [](elips::Database& db, const py::object&,
                 const py::object&, const py::object&) { db.close(); })
         .def("__repr__", [](const elips::Database& db) {
-            auto vaults = db.list_vaults();
+            auto vaults = db.list_collections();
             return "<Database vaults=" +
                    std::to_string(vaults.size()) + ">";
         });

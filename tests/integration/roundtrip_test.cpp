@@ -55,11 +55,11 @@ private:
 TEST_F(DatabaseTest, InMemoryPlaceAndSeek) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(3).metric(
                                            elips::Metric::cosine));
-    auto& collection = db->vault("docs");
-    const auto a = collection.place(elips::Vector{{1.0F, 0.0F, 0.0F}}, {{"k", std::string{"a"}}});
-    collection.place(elips::Vector{{0.0F, 1.0F, 0.0F}}, {{"k", std::string{"b"}}});
+    auto& collection = db->collection("docs");
+    const auto a = collection.add(elips::Vector{{1.0F, 0.0F, 0.0F}}, {{"k", std::string{"a"}}});
+    collection.add(elips::Vector{{0.0F, 1.0F, 0.0F}}, {{"k", std::string{"b"}}});
 
-    const auto results = collection.seek(elips::Vector{{0.9F, 0.1F, 0.0F}}, 1);
+    const auto results = collection.search(elips::Vector{{0.9F, 0.1F, 0.0F}}, 1);
     ASSERT_EQ(results.size(), 1U);
     EXPECT_EQ(results[0].id, a);
     EXPECT_EQ(std::get<std::string>(results[0].data.at("k")), "a");
@@ -70,11 +70,11 @@ TEST_F(DatabaseTest, PersistenceRoundtripAcrossReopen) {
     {
         auto db = elips::open(path(), elips::Config{}.dimension(4).metric(
                                           elips::Metric::euclidean));
-        auto& collection = db->vault("corpus");
-        kept_id = collection.place(elips::Vector{{1.0F, 2.0F, 3.0F, 4.0F}},
+        auto& collection = db->collection("corpus");
+        kept_id = collection.add(elips::Vector{{1.0F, 2.0F, 3.0F, 4.0F}},
                               {{"title", std::string{"hello"}},
                                {"year", std::int64_t{2024}}});
-        collection.place(elips::Vector{{5.0F, 6.0F, 7.0F, 8.0F}});
+        collection.add(elips::Vector{{5.0F, 6.0F, 7.0F, 8.0F}});
         db->checkpoint();
     }  // destructor would checkpoint too, but we already did
 
@@ -82,30 +82,30 @@ TEST_F(DatabaseTest, PersistenceRoundtripAcrossReopen) {
     EXPECT_EQ(db->config().dimension(), 4);
     EXPECT_EQ(db->config().metric(), elips::Metric::euclidean);
 
-    auto& collection = db->vault("corpus");
+    auto& collection = db->collection("corpus");
     EXPECT_EQ(collection.info().count, 2U);
 
-    const auto record = collection.fetch(kept_id);
+    const auto record = collection.get(kept_id);
     ASSERT_TRUE(record.has_value());
     EXPECT_EQ(std::get<std::string>(record->payload.at("title")), "hello");
     EXPECT_EQ(std::get<std::int64_t>(record->payload.at("year")), 2024);
 
-    const auto hits = collection.seek(elips::Vector{{1.0F, 2.0F, 3.0F, 4.0F}}, 1);
+    const auto hits = collection.search(elips::Vector{{1.0F, 2.0F, 3.0F, 4.0F}}, 1);
     ASSERT_EQ(hits.size(), 1U);
     EXPECT_EQ(hits[0].id, kept_id);
 }
 
 TEST_F(DatabaseTest, DimensionMismatchThrows) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(3));
-    auto& collection = db->vault("v");
-    EXPECT_THROW(collection.place(elips::Vector{{1.0F, 2.0F}}), elips::DimensionMismatch);
+    auto& collection = db->collection("v");
+    EXPECT_THROW(collection.add(elips::Vector{{1.0F, 2.0F}}), elips::DimensionMismatch);
 }
 
 TEST_F(DatabaseTest, NonFiniteVectorRejected) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    auto& collection = db->vault("v");
+    auto& collection = db->collection("v");
     const float inf = std::numeric_limits<float>::infinity();
-    EXPECT_THROW(collection.place(elips::Vector{{inf, 0.0F}}), elips::InvalidVector);
+    EXPECT_THROW(collection.add(elips::Vector{{inf, 0.0F}}), elips::InvalidVector);
 }
 
 TEST_F(DatabaseTest, ReopenWithConflictingDimensionThrows) {
@@ -124,30 +124,30 @@ TEST_F(DatabaseTest, ReadOnlyOpenRequiresExistingDatabase) {
 
 TEST_F(DatabaseTest, EraseRemovesRecord) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    auto& collection = db->vault("v");
-    const auto id = collection.place(elips::Vector{{1.0F, 1.0F}});
+    auto& collection = db->collection("v");
+    const auto id = collection.add(elips::Vector{{1.0F, 1.0F}});
     EXPECT_TRUE(collection.erase(id));
-    EXPECT_FALSE(collection.fetch(id).has_value());
-    EXPECT_EQ(collection.seek(elips::Vector{{1.0F, 1.0F}}, 5).size(), 0U);
+    EXPECT_FALSE(collection.get(id).has_value());
+    EXPECT_EQ(collection.search(elips::Vector{{1.0F, 1.0F}}, 5).size(), 0U);
 }
 
 TEST_F(DatabaseTest, ReplacingAnExistingIdKeepsSingleLogicalRecord) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2).index(
                                            elips::IndexType::exact));
-    auto& collection = db->vault("v");
+    auto& collection = db->collection("v");
     const auto id = elips::RecordID::generate();
 
-    collection.place(elips::Vector{{1.0F, 0.0F}},
+    collection.add(elips::Vector{{1.0F, 0.0F}},
                 {{"title", std::string{"old"}}}, id);
-    collection.place(elips::Vector{{0.0F, 1.0F}},
+    collection.add(elips::Vector{{0.0F, 1.0F}},
                 {{"title", std::string{"new"}}}, id);
 
     EXPECT_EQ(collection.info().count, 1U);
-    const auto fetched = collection.fetch(id);
+    const auto fetched = collection.get(id);
     ASSERT_TRUE(fetched.has_value());
     EXPECT_EQ(std::get<std::string>(fetched->payload.at("title")), "new");
 
-    const auto hits = collection.seek(elips::Vector{{0.0F, 1.0F}}, 5);
+    const auto hits = collection.search(elips::Vector{{0.0F, 1.0F}}, 5);
     ASSERT_EQ(hits.size(), 1U);
     EXPECT_EQ(hits[0].id, id);
     EXPECT_EQ(std::get<std::string>(hits[0].data.at("title")), "new");
@@ -156,10 +156,10 @@ TEST_F(DatabaseTest, ReplacingAnExistingIdKeepsSingleLogicalRecord) {
 TEST_F(DatabaseTest, AutoCheckpointOnDestruction) {
     {
         auto db = elips::open(path(), elips::Config{}.dimension(2));
-        db->vault("v").place(elips::Vector{{1.0F, 2.0F}});
+        db->collection("v").add(elips::Vector{{1.0F, 2.0F}});
     }  // no explicit checkpoint; destructor must persist
     auto db = elips::open(path());
-    EXPECT_EQ(db->vault("v").info().count, 1U);
+    EXPECT_EQ(db->collection("v").info().count, 1U);
 }
 
 TEST_F(DatabaseTest, DocumentLineageRoundTripAndNativeTextQuery) {
@@ -168,7 +168,7 @@ TEST_F(DatabaseTest, DocumentLineageRoundTripAndNativeTextQuery) {
         elips::Config{}
             .dimension(2)
             .text_embedder(std::make_shared<ToyEmbedder>()));
-    auto& collection = db->vault("docs");
+    auto& collection = db->collection("docs");
 
     elips::ChunkInfo chunk;
     chunk.document_key = "doc-alpha";
@@ -176,13 +176,13 @@ TEST_F(DatabaseTest, DocumentLineageRoundTripAndNativeTextQuery) {
     chunk.char_start = 5;
     chunk.char_end = 14;
 
-    const auto id = collection.place_document(
+    const auto id = collection.add_document(
         "alpha note",
         {{"kind", std::string{"alpha"}}},
         std::nullopt,
         chunk);
 
-    const auto record = collection.fetch(id);
+    const auto record = collection.get(id);
     ASSERT_TRUE(record.has_value());
     ASSERT_TRUE(record->document.has_value());
     EXPECT_EQ(record->document->text, "alpha note");
@@ -193,7 +193,7 @@ TEST_F(DatabaseTest, DocumentLineageRoundTripAndNativeTextQuery) {
     EXPECT_EQ(record->lineage->provider, "test");
     EXPECT_EQ(record->lineage->model, "toy");
 
-    const auto hits = collection.seek_text("alpha", 1);
+    const auto hits = collection.search_text("alpha", 1);
     ASSERT_EQ(hits.size(), 1U);
     EXPECT_EQ(hits[0].id, id);
     ASSERT_TRUE(hits[0].document.has_value());
@@ -202,20 +202,20 @@ TEST_F(DatabaseTest, DocumentLineageRoundTripAndNativeTextQuery) {
 
 TEST_F(DatabaseTest, ExplainSeekUsesMetadataAccelerationAndHybridPlanner) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    auto& collection = db->vault("docs");
-    collection.place(elips::Vector{{1.0F, 0.0F}}, {{"kind", std::string{"alpha"}}});
-    collection.place(elips::Vector{{0.0F, 1.0F}}, {{"kind", std::string{"beta"}}});
+    auto& collection = db->collection("docs");
+    collection.add(elips::Vector{{1.0F, 0.0F}}, {{"kind", std::string{"alpha"}}});
+    collection.add(elips::Vector{{0.0F, 1.0F}}, {{"kind", std::string{"beta"}}});
 
     const auto filter = elips::Filter().field("kind").equals("alpha");
 
     const auto exact_plan =
-        collection.explain_seek(elips::Vector{{1.0F, 0.0F}}, 1, filter);
+        collection.explain_query(elips::Vector{{1.0F, 0.0F}}, 1, filter);
     EXPECT_TRUE(exact_plan.metadata_accelerated);
     EXPECT_EQ(exact_plan.strategy, elips::QueryStrategy::exact_candidates);
     EXPECT_GE(exact_plan.candidate_count, 1U);
 
     const auto hybrid_plan =
-        collection.explain_seek(elips::Vector{{1.0F, 0.0F}}, 1, filter,
+        collection.explain_query(elips::Vector{{1.0F, 0.0F}}, 1, filter,
                            std::nullopt, true);
     EXPECT_TRUE(hybrid_plan.metadata_accelerated);
     EXPECT_EQ(hybrid_plan.strategy, elips::QueryStrategy::hybrid_fusion);
@@ -227,10 +227,10 @@ TEST_F(DatabaseTest, SegmentedStorageAndReadOnlyModeWorkTogether) {
         auto db = elips::open(
             root.string(),
             elips::Config{}.dimension(2).segmented_storage(true));
-        auto& collection = db->vault("docs");
-        collection.place(elips::Vector{{1.0F, 0.0F}},
+        auto& collection = db->collection("docs");
+        collection.add(elips::Vector{{1.0F, 0.0F}},
                     {{"kind", std::string{"alpha"}}});
-        collection.place(elips::Vector{{0.0F, 1.0F}},
+        collection.add(elips::Vector{{0.0F, 1.0F}},
                     {{"kind", std::string{"beta"}}});
         db->checkpoint();
     }
@@ -240,7 +240,7 @@ TEST_F(DatabaseTest, SegmentedStorageAndReadOnlyModeWorkTogether) {
 
     {
         auto db = elips::open(root.string());
-        EXPECT_EQ(db->vault("docs").info().count, 2U);
+        EXPECT_EQ(db->collection("docs").info().count, 2U);
         db->compact();
     }
 
@@ -251,10 +251,10 @@ TEST_F(DatabaseTest, SegmentedStorageAndReadOnlyModeWorkTogether) {
         root.string(),
         elips::Config{}.access_mode(elips::AccessMode::read_only));
 
-    EXPECT_EQ(reader_a->vault("docs").info().count, 2U);
-    EXPECT_EQ(reader_b->vault("docs").info().count, 2U);
+    EXPECT_EQ(reader_a->collection("docs").info().count, 2U);
+    EXPECT_EQ(reader_b->collection("docs").info().count, 2U);
     EXPECT_THROW(
-        reader_a->vault("docs").place(elips::Vector{{1.0F, 0.0F}}),
+        reader_a->collection("docs").add(elips::Vector{{1.0F, 0.0F}}),
         elips::StorageError);
 }
 

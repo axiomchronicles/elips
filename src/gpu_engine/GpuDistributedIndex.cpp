@@ -42,21 +42,21 @@ GpuDistributedIndex::GpuDistributedIndex(
     std::vector<std::unique_ptr<GpuIndex>> indexes, DistributedMode mode)
     : indexes_(std::move(indexes)), mode_(mode) {}
 
-void GpuDistributedIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuDistributedIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     if (indexes_.empty()) {
         return;
     }
 
     if (mode_ == DistributedMode::replicate) {
         for (auto& index : indexes_) {
-            index->insert(id, vector);
+            index->add_with_ids(id, vector);
         }
         return;
     }
 
     const auto shard =
         next_replica_.fetch_add(1, std::memory_order_relaxed) % indexes_.size();
-    indexes_[shard]->insert(id, vector);
+    indexes_[shard]->add_with_ids(id, vector);
 }
 
 void GpuDistributedIndex::remove(const RecordID& id) {
@@ -102,13 +102,13 @@ std::vector<Index::Hit> GpuDistributedIndex::search(std::span<const float> query
     return merge_hits(shard_hits, k);
 }
 
-std::size_t GpuDistributedIndex::size() const noexcept {
+std::size_t GpuDistributedIndex::ntotal() const noexcept {
     std::size_t total = 0;
     for (const auto& index : indexes_) {
-        total += index->size();
+        total += index->ntotal();
     }
     if (mode_ == DistributedMode::replicate && !indexes_.empty()) {
-        return indexes_.front()->size();
+        return indexes_.front()->ntotal();
     }
     return total;
 }

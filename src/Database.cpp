@@ -698,7 +698,7 @@ void load_snapshot_file(const fs::path& file, Database& instance) {
     for (std::uint32_t collection_index = 0; collection_index < collection_count;
          ++collection_index) {
         const std::string name = get_string(in);
-        Collection& collection = instance.vault(name);
+        Collection& collection = instance.collection(name);
         collection.set_read_only(false);
         if (version >= version_with_codecs) {
             collection.install_quantizer(get_codebook(in));
@@ -735,7 +735,7 @@ void load_segmented_state(const fs::path& root, Database& instance) {
         if (stored_name != entry.collection_name) {
             throw StorageError{"segment collection mismatch for " + entry.file_name};
         }
-        Collection& collection = instance.vault(entry.collection_name);
+        Collection& collection = instance.collection(entry.collection_name);
         collection.set_read_only(false);
         if (version >= version_with_codecs) {
             collection.install_quantizer(get_codebook(in));
@@ -790,8 +790,8 @@ void configure_gpu_backend(Database& instance, const Config& config) {
 }
 
 void apply_read_only_mode(Database& instance) {
-    for (const auto& name : instance.list_vaults()) {
-        instance.vault(name).set_read_only(true);
+    for (const auto& name : instance.list_collections()) {
+        instance.collection(name).set_read_only(true);
     }
 }
 
@@ -866,7 +866,7 @@ std::map<RecordID, Record> Collection::records() const {
     return records_;
 }
 
-RecordID Collection::place(const Vector& vector, Payload payload,
+RecordID Collection::add(const Vector& vector, Payload payload,
                       std::optional<RecordID> id,
                       std::optional<DocumentAttachment> document,
                       std::optional<ChunkInfo> chunk,
@@ -900,7 +900,7 @@ RecordID Collection::place_locked(const Vector& vector, Payload payload,
         index_->remove(record_id);
     }
 
-    index_->insert(record_id, prepared.values());
+    index_->add_with_ids(record_id, prepared.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(record_id, payload);
     }
@@ -992,7 +992,7 @@ void Collection::place_record_locked(const Record& record) {
     // re-encoded internally to the identical code, since encoding is
     // deterministic against a fixed codebook.
     const Vector decoded = reconstruct(record);
-    index_->insert(record.id, decoded.values());
+    index_->add_with_ids(record.id, decoded.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(record.id, record.payload);
     }
@@ -1002,7 +1002,7 @@ void Collection::place_record_locked(const Record& record) {
     records_[record.id] = std::move(stored);
 }
 
-RecordID Collection::place_document(std::string text, Payload payload,
+RecordID Collection::add_document(std::string text, Payload payload,
                                std::optional<RecordID> id,
                                std::optional<ChunkInfo> chunk,
                                std::optional<EmbeddingLineage> lineage) {
@@ -1043,11 +1043,11 @@ RecordID Collection::place_document(std::string text, Payload payload,
         .uri = {},
         .mime_type = "text/plain",
     };
-    return place(embedded, std::move(payload), record_id, std::move(document),
+    return add(embedded, std::move(payload), record_id, std::move(document),
                  std::move(chunk), std::move(lineage));
 }
 
-void Collection::place_many(const std::vector<Record>& records) {
+void Collection::add_many(const std::vector<Record>& records) {
     const std::unique_lock lock(mutex_);
     // Check up front so an empty batch against a sealed or read-only collection
     // still reports the problem, rather than silently succeeding.
@@ -1175,7 +1175,7 @@ QueryPlan Collection::plan_seek(const Vector& prepared, std::size_t top,
     return plan;
 }
 
-std::vector<SearchResult> Collection::seek(const Vector& query, std::size_t top,
+std::vector<SearchResult> Collection::search(const Vector& query, std::size_t top,
                                       const Filter& filter,
                                       std::optional<float> threshold) const {
     const std::shared_lock lock(mutex_);
@@ -1254,7 +1254,7 @@ std::vector<SearchResult> Collection::seek_locked(
     }
 }
 
-std::vector<SearchResult> Collection::seek_text(std::string_view text, std::size_t top,
+std::vector<SearchResult> Collection::search_text(std::string_view text, std::size_t top,
                                            const Filter& filter,
                                            std::optional<float> threshold) const {
     if (!config_.has_text_embedder()) {
@@ -1269,7 +1269,7 @@ std::vector<SearchResult> Collection::seek_text(std::string_view text, std::size
     return seek_locked(embedded, top, filter, threshold);
 }
 
-std::vector<SearchResult> Collection::seek_hybrid(const Vector& query,
+std::vector<SearchResult> Collection::hybrid_search(const Vector& query,
                                              std::string_view text,
                                              std::size_t top,
                                              const Filter& filter,
@@ -1313,7 +1313,7 @@ std::vector<SearchResult> Collection::seek_hybrid(const Vector& query,
     return candidates;
 }
 
-QueryPlan Collection::explain_seek(const Vector& query, std::size_t top,
+QueryPlan Collection::explain_query(const Vector& query, std::size_t top,
                               const Filter& filter,
                               std::optional<float> threshold,
                               bool has_text_component) const {
@@ -1343,7 +1343,7 @@ std::vector<Record> Collection::scan(const Filter& filter, std::size_t offset,
     return out;
 }
 
-std::optional<Record> Collection::fetch(const RecordID& id) const {
+std::optional<Record> Collection::get(const RecordID& id) const {
     const std::shared_lock lock(mutex_);
     const auto it = records_.find(id);
     if (it == records_.end()) {
@@ -1352,7 +1352,7 @@ std::optional<Record> Collection::fetch(const RecordID& id) const {
     return hydrate(it->second);
 }
 
-bool Collection::erase(const RecordID& id) {
+bool Collection::remove(const RecordID& id) {
     const std::unique_lock lock(mutex_);
     return erase_locked(id);
 }
@@ -1395,7 +1395,7 @@ void Collection::restore_for_undo(const RecordID& id,
     // record a generation of accuracy it never asked for, on a transaction that
     // may not even have modified it.
     const Vector vector = reconstruct(*previous);
-    index_->insert(id, vector.values());
+    index_->add_with_ids(id, vector.values());
     if (config_.metadata_acceleration()) {
         metadata_index_.insert(id, previous->payload);
     }
@@ -1426,7 +1426,7 @@ void Collection::rebuild_index_locked() {
         // Compressed records decode once here; the index re-encodes internally
         // to the same code, so a rebuild does not degrade what is stored.
         const Vector vector = reconstruct(record);
-        rebuilt->insert(id, vector.values());
+        rebuilt->add_with_ids(id, vector.values());
         if (config_.metadata_acceleration()) {
             metadata_index_.insert(id, record.payload);
         }
@@ -1434,7 +1434,7 @@ void Collection::rebuild_index_locked() {
     index_ = std::move(rebuilt);
 }
 
-bool Collection::quantized() const noexcept {
+bool Collection::is_trained() const noexcept {
     const std::shared_lock lock(mutex_);
     return quantizer() != nullptr;
 }
@@ -1467,7 +1467,7 @@ void Collection::install_quantizer(quant::QuantizerPtr quantizer) {
     }
 }
 
-void Collection::quantize() {
+void Collection::train() {
     const std::unique_lock lock(mutex_);
     ensure_writable();
 
@@ -1526,12 +1526,12 @@ void Collection::quantize() {
     rebuild_index_locked();
 }
 
-void Database::quantize(const std::string& collection_name) {
+void Database::train(const std::string& collection_name) {
     const std::lock_guard lock(mutex_);
     if (closed_) {
         throw StorageError{"database is closed"};
     }
-    vault_locked(collection_name).quantize();
+    collection_locked(collection_name).train();
 
     // Order matters and is the reason no partial-quantize state can exist on
     // disk: the checkpoint durably publishes both the codebook and the encoded
@@ -1545,8 +1545,8 @@ void Database::quantize(const std::string& collection_name) {
 }
 
 void Database::quantize_all() {
-    for (const auto& name : list_vaults()) {
-        quantize(name);
+    for (const auto& name : list_collections()) {
+        train(name);
     }
 }
 
@@ -1599,12 +1599,12 @@ void Database::abandon() noexcept {
     closed_ = true;
 }
 
-Collection& Database::vault(const std::string& name) {
+Collection& Database::collection(const std::string& name) {
     const std::lock_guard lock(mutex_);
-    return vault_locked(name);
+    return collection_locked(name);
 }
 
-Collection& Database::vault_locked(const std::string& name) {
+Collection& Database::collection_locked(const std::string& name) {
     const auto it = collections_.find(name);
     if (it != collections_.end()) {
         return *it->second;
@@ -1628,7 +1628,7 @@ Collection& Database::vault_locked(const std::string& name) {
     return ref;
 }
 
-Collection& Database::adopt_vault(std::unique_ptr<Collection> collection) {
+Collection& Database::adopt_collection(std::unique_ptr<Collection> collection) {
     const std::lock_guard lock(mutex_);
     collection->set_wal(wal_.get());
     if (config_.access_mode() == AccessMode::read_only) {
@@ -1648,7 +1648,7 @@ void Database::attach_wal(std::unique_ptr<WAL> wal) {
     }
 }
 
-std::vector<std::string> Database::list_vaults() const {
+std::vector<std::string> Database::list_collections() const {
     const std::lock_guard lock(mutex_);
     std::vector<std::string> names;
     names.reserve(collections_.size());
@@ -1840,7 +1840,7 @@ std::unique_ptr<Database> open(const std::string& path,
 
     const fs::path walpath = fs::path(path) / wal_file;
     for (const auto& entry : WAL::replay(walpath)) {
-        Collection& collection = instance->vault(entry.collection);
+        Collection& collection = instance->collection(entry.collection);
         collection.set_read_only(false);
         if (entry.op == WAL::Op::insert_q) {
             // The codebook came from the snapshot that was loaded above.
@@ -1850,10 +1850,10 @@ std::unique_ptr<Database> open(const std::string& path,
                                       entry.document, entry.chunk, entry.lineage,
                                       entry.codes, entry.codec});
         } else if (entry.op == WAL::Op::insert || entry.op == WAL::Op::insert_ex) {
-            collection.place(Vector{entry.vector}, entry.payload, entry.id, entry.document,
+            collection.add(Vector{entry.vector}, entry.payload, entry.id, entry.document,
                         entry.chunk, entry.lineage);
         } else {
-            collection.erase(entry.id);
+            collection.remove(entry.id);
         }
     }
 
@@ -1901,7 +1901,7 @@ void Transaction::undo(const std::vector<UndoEntry>& entries) noexcept {
     // Reverse order so repeated writes to the same id land on the oldest state.
     for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
         try {
-            db_->vault_locked(it->collection).restore_for_undo(it->id, it->previous);
+            db_->collection_locked(it->collection).restore_for_undo(it->id, it->previous);
         } catch (...) {
             // Undo is a best-effort in-memory operation on structures that were
             // just successfully mutated; nothing here can be usefully retried.
@@ -1920,7 +1920,7 @@ void Transaction::commit() {
     // collection existence and writability. Runtime I/O failure is still possible,
     // which is what the undo log below is for.
     for (const auto& op : ops_) {
-        const Collection& collection = db_->vault_locked(op.collection);
+        const Collection& collection = db_->collection_locked(op.collection);
         if (collection.read_only() || collection.sealed()) {
             throw StorageError{collection.sealed()
                                    ? "database is closed: this write would "
@@ -1938,15 +1938,15 @@ void Transaction::commit() {
     undo_log.reserve(ops_.size());
     try {
         for (auto& op : ops_) {
-            Collection& collection = db_->vault_locked(op.collection);
+            Collection& collection = db_->collection_locked(op.collection);
             const RecordID target =
                 op.id.value_or(op.is_erase ? RecordID{} : RecordID::generate());
             undo_log.push_back(
-                UndoEntry{op.collection, target, collection.fetch(target)});
+                UndoEntry{op.collection, target, collection.get(target)});
             if (op.is_erase) {
-                collection.erase(target);
+                collection.remove(target);
             } else {
-                collection.place(op.vector, op.payload, target);
+                collection.add(op.vector, op.payload, target);
             }
         }
     } catch (...) {
@@ -1963,14 +1963,14 @@ void Transaction::commit() {
     done_ = true;
 }
 
-RecordID TransactionCollection::place(const Vector& vector, Payload payload,
+RecordID TransactionCollection::add(const Vector& vector, Payload payload,
                                  std::optional<RecordID> id) {
     const RecordID assigned = id.value_or(RecordID::generate());
     txn_->enqueue_place(collection_, vector, std::move(payload), assigned);
     return assigned;
 }
 
-void TransactionCollection::erase(const RecordID& id) {
+void TransactionCollection::remove(const RecordID& id) {
     txn_->enqueue_erase(collection_, id);
 }
 

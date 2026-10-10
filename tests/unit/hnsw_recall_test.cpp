@@ -38,8 +38,8 @@ TEST(HnswRecallTest, RecallAtTenIsHighVsExactGroundTruth) {
             v = dist(rng);
         }
         const RecordID id = RecordID::generate();
-        graph.insert(id, data[i]);
-        exact.insert(id, data[i]);
+        graph.add_with_ids(id, data[i]);
+        exact.add_with_ids(id, data[i]);
     }
 
     std::size_t hits = 0;
@@ -72,11 +72,11 @@ TEST(HnswRecallTest, SoftRemoveExcludesFromResults) {
     IndexHNSW graph(Metric::euclidean, 2, HnswParams{});
     const RecordID a = RecordID::generate();
     const RecordID b = RecordID::generate();
-    graph.insert(a, std::vector<float>{0.0F, 0.0F});
-    graph.insert(b, std::vector<float>{5.0F, 5.0F});
+    graph.add_with_ids(a, std::vector<float>{0.0F, 0.0F});
+    graph.add_with_ids(b, std::vector<float>{5.0F, 5.0F});
 
     graph.remove(a);
-    EXPECT_EQ(graph.size(), 1U);
+    EXPECT_EQ(graph.ntotal(), 1U);
     const auto hits = graph.search(std::vector<float>{0.0F, 0.0F}, 5);
     for (const auto& [id, d] : hits) {
         EXPECT_NE(id, a);

@@ -139,7 +139,7 @@ TEST_F(ParserFuzzTest, CorruptSnapshotIsRejectedNotCrashed) {
     {
         auto db = elips::open(root.string(), elips::Config{}.dimension(4));
         for (int i = 0; i < 20; ++i) {
-            db->vault("v").place(elips::Vector{
+            db->collection("v").add(elips::Vector{
                 {static_cast<float>(i), 1.0F, 2.0F, 3.0F}},
                 {{"tag", std::string(16, 'x')}});
         }
@@ -173,7 +173,7 @@ TEST_F(ParserFuzzTest, CorruptSnapshotIsRejectedNotCrashed) {
             auto db = elips::open(root.string());
             // Opening may legitimately succeed if the flipped byte only altered
             // a vector value; the records must still be self-consistent.
-            EXPECT_LE(db->vault("v").info().count, 20U);
+            EXPECT_LE(db->collection("v").info().count, 20U);
             db->abandon();
         } catch (const elips::ElipsError&) {
             // A clear, typed rejection is the other acceptable outcome.

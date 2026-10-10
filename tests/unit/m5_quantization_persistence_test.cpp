@@ -98,7 +98,7 @@ std::vector<RecordID> populate(elips::Collection& collection,
     for (std::size_t i = 0; i < rows.size(); ++i) {
         elips::Payload payload;
         payload.emplace("row", static_cast<std::int64_t>(i));
-        ids.push_back(collection.place(Vector{rows[i]}, payload));
+        ids.push_back(collection.add(Vector{rows[i]}, payload));
     }
     return ids;
 }
@@ -137,8 +137,8 @@ TEST(M5QuantizationPersistence, RepeatedReopenLeavesTheStoredBytesIdentical) {
 
     {
         auto db = elips::open(dir.string(), quantized_config());
-        populate(db->vault("main"), rows);
-        db->quantize("main");
+        populate(db->collection("main"), rows);
+        db->train("main");
         db->close();
     }
 
@@ -147,8 +147,8 @@ TEST(M5QuantizationPersistence, RepeatedReopenLeavesTheStoredBytesIdentical) {
     std::string baseline;
     for (int cycle = 0; cycle < 5; ++cycle) {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& collection = db->vault("main");
-        EXPECT_TRUE(collection.quantized());
+        auto& collection = db->collection("main");
+        EXPECT_TRUE(collection.is_trained());
         EXPECT_EQ(collection.info().count, kCount);
         db->checkpoint();
         db->close();
@@ -172,19 +172,19 @@ TEST(M5QuantizationPersistence, SearchResultsAreStableAcrossReopen) {
 
     {
         auto db = elips::open(dir.string(), quantized_config());
-        ids = populate(db->vault("main"), rows);
-        db->quantize("main");
+        ids = populate(db->collection("main"), rows);
+        db->train("main");
         db->close();
     }
 
     std::vector<std::vector<RecordID>> first_run;
     for (int cycle = 0; cycle < 3; ++cycle) {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& collection = db->vault("main");
+        auto& collection = db->collection("main");
         std::vector<std::vector<RecordID>> run;
         for (std::size_t q = 0; q < 10; ++q) {
             std::vector<RecordID> hits;
-            for (const auto& result : collection.seek(Vector{rows[q]}, 5)) {
+            for (const auto& result : collection.search(Vector{rows[q]}, 5)) {
                 hits.push_back(result.id);
                 // Every hit from a quantized collection must be labelled approximate.
                 EXPECT_TRUE(result.approximate());
@@ -215,19 +215,19 @@ TEST(M5QuantizationPersistence, UnquantizedDatabaseRoundTripsExactly) {
         Config config;
         config.dimension(kDim).metric(Metric::euclidean);
         auto db = elips::open(dir.string(), config);
-        ids = populate(db->vault("main"), rows);
+        ids = populate(db->collection("main"), rows);
         db->close();
     }
 
     Config config;
     config.dimension(kDim).metric(Metric::euclidean);
     auto db = elips::open(dir.string(), config);
-    auto& collection = db->vault("main");
-    EXPECT_FALSE(collection.quantized());
+    auto& collection = db->collection("main");
+    EXPECT_FALSE(collection.is_trained());
     EXPECT_EQ(collection.codec(), CodecId::none);
 
     for (std::size_t i = 0; i < ids.size(); ++i) {
-        const auto record = collection.fetch(ids[i]);
+        const auto record = collection.get(ids[i]);
         ASSERT_TRUE(record.has_value());
         EXPECT_FALSE(record->approximate());
         const auto stored = record->vector.values();
@@ -252,7 +252,7 @@ TEST(M5QuantizationPersistence, ExistingV2DatabaseOpensUnderTheV3Reader) {
         Config config;
         config.dimension(kDim).metric(Metric::euclidean).segmented_storage(false);
         auto db = elips::open(dir.string(), config);
-        ids = populate(db->vault("main"), rows);
+        ids = populate(db->collection("main"), rows);
         db->close();
     }
 
@@ -326,12 +326,12 @@ TEST(M5QuantizationPersistence, ExistingV2DatabaseOpensUnderTheV3Reader) {
     Config config;
     config.dimension(kDim).metric(Metric::euclidean).segmented_storage(false);
     auto db = elips::open(dir.string(), config);
-    auto& collection = db->vault("main");
+    auto& collection = db->collection("main");
     EXPECT_EQ(collection.info().count, ids.size());
-    EXPECT_FALSE(collection.quantized());
+    EXPECT_FALSE(collection.is_trained());
 
     for (std::size_t i = 0; i < ids.size(); ++i) {
-        const auto record = collection.fetch(ids[i]);
+        const auto record = collection.get(ids[i]);
         ASSERT_TRUE(record.has_value()) << "record " << i << " lost";
         // The payload proves the extras were not misparsed: a wrong `with_extras`
         // would desynchronize the stream and corrupt everything after it.
@@ -351,7 +351,7 @@ TEST(M5QuantizationPersistence, NewerOnDiskVersionIsRejected) {
         Config config;
         config.dimension(kDim).metric(Metric::euclidean).segmented_storage(false);
         auto db = elips::open(dir.string(), config);
-        populate(db->vault("main"), sample_vectors(5));
+        populate(db->collection("main"), sample_vectors(5));
         db->close();
     }
 
@@ -375,8 +375,8 @@ TEST(M5QuantizationPersistence, TruncatedQuantizedSnapshotIsRejectedNotOverAlloc
     const TempDir dir("truncated");
     {
         auto db = elips::open(dir.string(), quantized_config());
-        populate(db->vault("main"), sample_vectors(kCount));
-        db->quantize("main");
+        populate(db->collection("main"), sample_vectors(kCount));
+        db->train("main");
         db->close();
     }
 
@@ -401,7 +401,7 @@ TEST(M5QuantizationPersistence, TruncatedQuantizedSnapshotIsRejectedNotOverAlloc
         try {
             auto db = elips::open(dir.string(), quantized_config());
             // Accepting a prefix is legitimate only if it decoded coherently.
-            (void)db->vault("main").info();
+            (void)db->collection("main").info();
             db->abandon();
         } catch (const elips::ElipsError&) {
             // Expected for most cuts.
@@ -415,7 +415,7 @@ TEST(M5QuantizationPersistence, CorruptCodecTagIsRejected) {
         Config config;
         config.dimension(kDim).metric(Metric::euclidean).segmented_storage(false);
         auto db = elips::open(dir.string(), config);
-        populate(db->vault("main"), sample_vectors(5));
+        populate(db->collection("main"), sample_vectors(5));
         db->close();
     }
 
@@ -449,14 +449,14 @@ TEST(M5QuantizationPersistence, QuantizeRejectsInvalidStates) {
     auto db = elips::open(dir.string(), quantized_config());
 
     // Empty collection: nothing to learn a codebook from.
-    EXPECT_THROW(db->quantize("main"), elips::ConfigError);
+    EXPECT_THROW(db->train("main"), elips::ConfigError);
 
-    populate(db->vault("main"), sample_vectors(50));
-    db->quantize("main");
-    EXPECT_TRUE(db->vault("main").quantized());
+    populate(db->collection("main"), sample_vectors(50));
+    db->train("main");
+    EXPECT_TRUE(db->collection("main").is_trained());
 
     // Already quantized.
-    EXPECT_THROW(db->quantize("main"), elips::ConfigError);
+    EXPECT_THROW(db->train("main"), elips::ConfigError);
     db->abandon();
 }
 
@@ -465,8 +465,8 @@ TEST(M5QuantizationPersistence, QuantizeRequiresAConfiguredCodec) {
     Config config;
     config.dimension(kDim).metric(Metric::euclidean);
     auto db = elips::open(dir.string(), config);
-    populate(db->vault("main"), sample_vectors(20));
-    EXPECT_THROW(db->quantize("main"), elips::ConfigError);
+    populate(db->collection("main"), sample_vectors(20));
+    EXPECT_THROW(db->train("main"), elips::ConfigError);
     db->abandon();
 }
 
@@ -477,12 +477,12 @@ TEST(M5QuantizationPersistence, InsertsAfterQuantizationAreEncodedOnArrival) {
 
     {
         auto db = elips::open(dir.string(), quantized_config());
-        auto& collection = db->vault("main");
+        auto& collection = db->collection("main");
         populate(collection, rows);
-        db->quantize("main");
+        db->train("main");
 
-        late = collection.place(Vector{rows[0]});
-        const auto record = collection.fetch(late);
+        late = collection.add(Vector{rows[0]});
+        const auto record = collection.get(late);
         ASSERT_TRUE(record.has_value());
         EXPECT_TRUE(record->approximate());
         EXPECT_EQ(record->codec, CodecId::pq);
@@ -492,22 +492,22 @@ TEST(M5QuantizationPersistence, InsertsAfterQuantizationAreEncodedOnArrival) {
     // And it survives the reopen, which means it was logged as insert_q and
     // replayed as a code.
     auto db = elips::open(dir.string(), quantized_config());
-    const auto record = db->vault("main").fetch(late);
+    const auto record = db->collection("main").get(late);
     ASSERT_TRUE(record.has_value());
     EXPECT_TRUE(record->approximate());
-    EXPECT_EQ(db->vault("main").info().count, kCount + 1);
+    EXPECT_EQ(db->collection("main").info().count, kCount + 1);
 }
 
 TEST(M5QuantizationPersistence, CollectionInfoReportsTheCompressionRatio) {
     const TempDir dir("info");
     auto db = elips::open(dir.string(), quantized_config());
-    populate(db->vault("main"), sample_vectors(kCount));
+    populate(db->collection("main"), sample_vectors(kCount));
 
-    EXPECT_EQ(db->vault("main").info().codec, CodecId::none);
-    EXPECT_EQ(db->vault("main").info().code_bytes, 0U);
+    EXPECT_EQ(db->collection("main").info().codec, CodecId::none);
+    EXPECT_EQ(db->collection("main").info().code_bytes, 0U);
 
-    db->quantize("main");
-    const auto info = db->vault("main").info();
+    db->train("main");
+    const auto info = db->collection("main").info();
     EXPECT_EQ(info.codec, CodecId::pq);
     EXPECT_EQ(info.code_bytes, 8U);
     // 32 floats down to 8 bytes.
@@ -524,22 +524,22 @@ TEST(M5QuantizationPersistence, VacuumAndCompactPreserveCompression) {
     std::vector<RecordID> ids;
 
     auto db = elips::open(dir.string(), quantized_config());
-    auto& collection = db->vault("main");
+    auto& collection = db->collection("main");
     ids = populate(collection, rows);
-    db->quantize("main");
+    db->train("main");
 
     for (std::size_t i = 0; i < 100; ++i) {
         collection.erase(ids[i]);
     }
     db->vacuum();
-    EXPECT_TRUE(collection.quantized());
+    EXPECT_TRUE(collection.is_trained());
     EXPECT_EQ(collection.info().codec, CodecId::pq);
 
     db->compact();
-    EXPECT_TRUE(collection.quantized());
+    EXPECT_TRUE(collection.is_trained());
     EXPECT_EQ(collection.info().count, kCount - 100);
 
-    const auto record = collection.fetch(ids[200]);
+    const auto record = collection.get(ids[200]);
     ASSERT_TRUE(record.has_value());
     EXPECT_TRUE(record->approximate());
     db->close();
@@ -557,19 +557,19 @@ TEST(M5QuantizationPersistence, EveryCodecSurvivesARoundTrip) {
 
         {
             auto db = elips::open(dir.string(), quantized_config(params));
-            ids = populate(db->vault("main"), rows);
-            db->quantize("main");
+            ids = populate(db->collection("main"), rows);
+            db->train("main");
             db->close();
         }
 
         auto db = elips::open(dir.string(), quantized_config(params));
-        auto& collection = db->vault("main");
+        auto& collection = db->collection("main");
         EXPECT_EQ(collection.codec(), codec)
             << "codec " << elips::quant::to_string(codec);
         EXPECT_EQ(collection.info().count, ids.size());
 
         // Self-retrieval: the nearest neighbor of a stored vector is itself.
-        const auto hits = collection.seek(Vector{rows[3]}, 1);
+        const auto hits = collection.search(Vector{rows[3]}, 1);
         ASSERT_FALSE(hits.empty());
         EXPECT_EQ(hits[0].id, ids[3]) << "codec " << elips::quant::to_string(codec);
         db->close();
@@ -586,23 +586,23 @@ TEST(M5QuantizationPersistence, RollbackLeavesUntouchedCodesBitIdentical) {
     const auto rows = sample_vectors(kCount);
 
     auto db = elips::open(dir.string(), quantized_config());
-    auto& collection = db->vault("main");
+    auto& collection = db->collection("main");
     const auto ids = populate(collection, rows);
-    db->quantize("main");
+    db->train("main");
 
-    const auto before = collection.fetch(ids[7]);
+    const auto before = collection.get(ids[7]);
     ASSERT_TRUE(before.has_value());
     ASSERT_FALSE(before->codes.empty());
 
     // Overwrite the record inside a transaction, then roll back.
     {
         auto txn = db->begin_transaction();
-        auto handle = txn.vault("main");
-        handle.place(Vector{rows[99]}, {}, ids[7]);
+        auto handle = txn.collection("main");
+        handle.add(Vector{rows[99]}, {}, ids[7]);
         txn.rollback();
     }
 
-    const auto after = collection.fetch(ids[7]);
+    const auto after = collection.get(ids[7]);
     ASSERT_TRUE(after.has_value());
     EXPECT_EQ(after->codes, before->codes)
         << "rollback re-encoded the record instead of restoring its code";

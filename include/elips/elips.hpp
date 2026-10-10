@@ -127,17 +127,17 @@ public:
 #endif
     );
 
-    RecordID place(const Vector& vector, Payload payload = {},
+    RecordID add(const Vector& vector, Payload payload = {},
                    std::optional<RecordID> id = std::nullopt,
                    std::optional<DocumentAttachment> document = std::nullopt,
                    std::optional<ChunkInfo> chunk = std::nullopt,
                    std::optional<EmbeddingLineage> lineage = std::nullopt);
-    RecordID place_document(
+    RecordID add_document(
         std::string text, Payload payload = {},
         std::optional<RecordID> id = std::nullopt,
         std::optional<ChunkInfo> chunk = std::nullopt,
         std::optional<EmbeddingLineage> lineage = std::nullopt);
-    void place_many(const std::vector<Record>& records);
+    void add_many(const std::vector<Record>& records);
 
     // Stores a record as-is, bypassing normalization and encoding when it
     // already carries a code. This is the load path: snapshot, segment, and WAL
@@ -146,18 +146,18 @@ public:
     // generation of loss per reopen, unbounded across restarts.
     void place_record(const Record& record);
 
-    [[nodiscard]] std::vector<SearchResult> seek(
+    [[nodiscard]] std::vector<SearchResult> search(
         const Vector& query, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt) const;
-    [[nodiscard]] std::vector<SearchResult> seek_text(
+    [[nodiscard]] std::vector<SearchResult> search_text(
         std::string_view text, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt) const;
-    [[nodiscard]] std::vector<SearchResult> seek_hybrid(
+    [[nodiscard]] std::vector<SearchResult> hybrid_search(
         const Vector& query, std::string_view text, std::size_t top,
         const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt,
         float lexical_weight = 0.25F) const;
-    [[nodiscard]] QueryPlan explain_seek(
+    [[nodiscard]] QueryPlan explain_query(
         const Vector& query, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt,
         bool has_text_component = false) const;
@@ -166,8 +166,8 @@ public:
         const Filter& filter = Filter{}, std::size_t offset = 0,
         std::size_t limit = std::numeric_limits<std::size_t>::max()) const;
 
-    [[nodiscard]] std::optional<Record> fetch(const RecordID& id) const;
-    bool erase(const RecordID& id);
+    [[nodiscard]] std::optional<Record> get(const RecordID& id) const;
+    bool remove(const RecordID& id);
 
     [[nodiscard]] CollectionInfo info() const noexcept;
     [[nodiscard]] const std::string& name() const noexcept { return name_; }
@@ -205,8 +205,8 @@ public:
     // (reads too, briefly). Training samples at most quant::train_sample_cap
     // rows, so its cost tracks the dimension and codebook size rather than the
     // collection size, but encoding is still linear in the record count.
-    void quantize();
-    [[nodiscard]] bool quantized() const noexcept;
+    void train();
+    [[nodiscard]] bool is_trained() const noexcept;
     [[nodiscard]] quant::CodecId codec() const noexcept;
 
     // Effective configuration, including any attached codebook. Checkpointing
@@ -229,6 +229,63 @@ public:
     // and undo must work even when the WAL write is what failed.
     void restore_for_undo(const RecordID& id,
                           const std::optional<Record>& previous);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to add")]] RecordID place(
+        const Vector& vector, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt,
+        std::optional<DocumentAttachment> document = std::nullopt,
+        std::optional<ChunkInfo> chunk = std::nullopt,
+        std::optional<EmbeddingLineage> lineage = std::nullopt) {
+        return add(vector, std::move(payload), std::move(id),
+                   std::move(document), std::move(chunk), std::move(lineage));
+    }
+    [[deprecated("renamed to add_document")]] RecordID place_document(
+        std::string text, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt,
+        std::optional<ChunkInfo> chunk = std::nullopt,
+        std::optional<EmbeddingLineage> lineage = std::nullopt) {
+        return add_document(std::move(text), std::move(payload), std::move(id),
+                            std::move(chunk), std::move(lineage));
+    }
+    [[deprecated("renamed to add_many")]] void place_many(
+        const std::vector<Record>& records) {
+        add_many(records);
+    }
+    [[deprecated("renamed to search")]] std::vector<SearchResult> seek(
+        const Vector& query, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt) const {
+        return search(query, top, filter, threshold);
+    }
+    [[deprecated("renamed to search_text")]] std::vector<SearchResult> seek_text(
+        std::string_view text, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt) const {
+        return search_text(text, top, filter, threshold);
+    }
+    [[deprecated("renamed to hybrid_search")]] std::vector<SearchResult>
+    seek_hybrid(const Vector& query, std::string_view text, std::size_t top,
+                const Filter& filter = Filter{},
+                std::optional<float> threshold = std::nullopt,
+                float lexical_weight = 0.25F) const {
+        return hybrid_search(query, text, top, filter, threshold, lexical_weight);
+    }
+    [[deprecated("renamed to explain_query")]] QueryPlan explain_seek(
+        const Vector& query, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt,
+        bool has_text_component = false) const {
+        return explain_query(query, top, filter, threshold, has_text_component);
+    }
+    [[deprecated("renamed to get")]] std::optional<Record> fetch(
+        const RecordID& id) const {
+        return get(id);
+    }
+    [[deprecated("renamed to remove")]] bool erase(const RecordID& id) {
+        return remove(id);
+    }
+    [[deprecated("renamed to train")]] void quantize() { train(); }
+    [[deprecated("renamed to is_trained")]] bool quantized() const noexcept {
+        return is_trained();
+    }
 
 private:
     [[nodiscard]] QueryPlan plan_seek(
@@ -298,8 +355,8 @@ public:
     Database(Database&&) = delete;
     Database& operator=(Database&&) = delete;
 
-    Collection& vault(const std::string& name);
-    [[nodiscard]] std::vector<std::string> list_vaults() const;
+    Collection& collection(const std::string& name);
+    [[nodiscard]] std::vector<std::string> list_collections() const;
 
     [[nodiscard]] Transaction begin_transaction();
 
@@ -313,7 +370,7 @@ public:
     // Compresses a vault (or every collection) in place. See Collection::quantize().
     // For a persistent database this checkpoints afterwards, publishing the
     // codebook and the encoded records durably before the WAL is truncated.
-    void quantize(const std::string& collection_name);
+    void train(const std::string& collection_name);
     void quantize_all();
     // Reclaim tombstoned index space across every collection. Unlike compact(), this
     // does not rewrite the on-disk snapshot and works on in-memory databases.
@@ -338,13 +395,31 @@ public:
     }
 #endif
 
-    Collection& adopt_vault(std::unique_ptr<Collection> collection);
+    Collection& adopt_collection(std::unique_ptr<Collection> collection);
     void attach_wal(std::unique_ptr<WAL> wal);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to collection")]] Collection& vault(
+        const std::string& name) {
+        return collection(name);
+    }
+    [[deprecated("renamed to list_collections")]]
+    std::vector<std::string> list_vaults() const {
+        return list_collections();
+    }
+    [[deprecated("renamed to train")]] void quantize(
+        const std::string& collection_name) {
+        train(collection_name);
+    }
+    [[deprecated("renamed to adopt_collection")]] Collection& adopt_vault(
+        std::unique_ptr<Collection> collection) {
+        return adopt_collection(std::move(collection));
+    }
 
 private:
     friend class Transaction;
 
-    Collection& vault_locked(const std::string& name);
+    Collection& collection_locked(const std::string& name);
     void checkpoint_locked();
 
     std::string path_;
@@ -374,9 +449,19 @@ class Transaction;
 
 class TransactionCollection {
 public:
-    RecordID place(const Vector& vector, Payload payload = {},
+    RecordID add(const Vector& vector, Payload payload = {},
                    std::optional<RecordID> id = std::nullopt);
-    void erase(const RecordID& id);
+    void remove(const RecordID& id);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to add")]] RecordID place(
+        const Vector& vector, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt) {
+        return add(vector, std::move(payload), std::move(id));
+    }
+    [[deprecated("renamed to remove")]] void erase(const RecordID& id) {
+        remove(id);
+    }
 
 private:
     friend class Transaction;
@@ -396,8 +481,12 @@ public:
     Transaction(Transaction&&) = delete;
     Transaction& operator=(Transaction&&) = delete;
 
-    [[nodiscard]] TransactionCollection vault(const std::string& name) {
+    [[nodiscard]] TransactionCollection collection(const std::string& name) {
         return TransactionCollection{*this, name};
+    }
+    [[deprecated("renamed to collection")]] TransactionCollection vault(
+        const std::string& name) {
+        return collection(name);
     }
 
     // Applies every enqueued op or none: a failure partway through (read-only

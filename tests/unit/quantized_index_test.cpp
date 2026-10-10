@@ -88,7 +88,7 @@ struct Fixture {
           truth(Metric::euclidean, kDim) {
         for (std::size_t i = 0; i < kCount; ++i) {
             ids[i] = RecordID::generate();
-            truth.insert(ids[i], row_at(rows, i));
+            truth.add_with_ids(ids[i], row_at(rows, i));
         }
     }
 };
@@ -129,7 +129,7 @@ TEST(QuantizedIndexTest, QuantizedIndexFlatKeepsUsefulRecall) {
             make_quantizer(codec, Metric::euclidean, fixture.rows, kCount);
         elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
 
         const double recall =
@@ -157,7 +157,7 @@ TEST(QuantizedIndexTest, WiderCodesBuyBetterRecall) {
 
         elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
         const double recall =
             recall_at_k(index, fixture.truth, fixture.queries, kQueries);
@@ -172,7 +172,7 @@ TEST(QuantizedIndexTest, WiderCodesBuyBetterRecall) {
     auto sq = make_quantizer(CodecId::sq8, Metric::euclidean, fixture.rows, kCount);
     elips::IndexFlat sq_index(Metric::euclidean, kDim, sq);
     for (std::size_t i = 0; i < kCount; ++i) {
-        sq_index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        sq_index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
     EXPECT_GT(recall_at_k(sq_index, fixture.truth, fixture.queries, kQueries),
               previous);
@@ -192,7 +192,7 @@ TEST(QuantizedIndexTest, QuantizedGraphIndexKeepsUsefulRecall) {
         elips::IndexHNSW index(Metric::euclidean, kDim,
                                             HnswParams{}, quantizer);
         for (std::size_t i = 0; i < kCount; ++i) {
-            index.insert(fixture.ids[i], row_at(fixture.rows, i));
+            index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
         }
 
         const double recall =
@@ -223,14 +223,14 @@ TEST(QuantizedIndexTest, RemoveAndSizeTrackCorrectlyUnderCompression) {
         make_quantizer(CodecId::pq, Metric::euclidean, fixture.rows, kCount);
     elips::IndexFlat index(Metric::euclidean, kDim, quantizer);
     for (std::size_t i = 0; i < 100; ++i) {
-        index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
-    ASSERT_EQ(index.size(), 100U);
+    ASSERT_EQ(index.ntotal(), 100U);
 
     // Removing from the middle must keep the remaining codes aligned with their
     // ids; a stride bug here silently returns the wrong record's distance.
     index.remove(fixture.ids[50]);
-    EXPECT_EQ(index.size(), 99U);
+    EXPECT_EQ(index.ntotal(), 99U);
 
     const auto hits = index.search(row_at(fixture.rows, 51), 1);
     ASSERT_EQ(hits.size(), 1U);
@@ -247,7 +247,7 @@ TEST(QuantizedIndexTest, GraphVacuumPreservesCodesWithoutRecompressing) {
     elips::IndexHNSW index(Metric::euclidean, kDim, params,
                                         quantizer);
     for (std::size_t i = 0; i < 500; ++i) {
-        index.insert(fixture.ids[i], row_at(fixture.rows, i));
+        index.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto before = index.export_snapshot();
@@ -259,7 +259,7 @@ TEST(QuantizedIndexTest, GraphVacuumPreservesCodesWithoutRecompressing) {
     ASSERT_EQ(index.pending_removals(), 100U);
     index.vacuum();
     EXPECT_EQ(index.pending_removals(), 0U);
-    EXPECT_EQ(index.size(), 400U);
+    EXPECT_EQ(index.ntotal(), 400U);
 
     // The surviving rows must carry the *same* codes they had before the
     // rebuild. A vacuum that decoded and re-encoded would drift a generation
@@ -293,7 +293,7 @@ TEST(QuantizedIndexTest, SnapshotRoundTripPreservesRanking) {
 
     elips::IndexFlat source(Metric::euclidean, kDim, quantizer);
     for (std::size_t i = 0; i < 500; ++i) {
-        source.insert(fixture.ids[i], row_at(fixture.rows, i));
+        source.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto snapshot = source.export_snapshot();
@@ -306,7 +306,7 @@ TEST(QuantizedIndexTest, SnapshotRoundTripPreservesRanking) {
 
     elips::IndexFlat restored(Metric::euclidean, kDim, quantizer);
     ASSERT_TRUE(restored.import_snapshot(*snapshot).has_value());
-    EXPECT_EQ(restored.size(), source.size());
+    EXPECT_EQ(restored.ntotal(), source.ntotal());
 
     for (std::size_t q = 0; q < 20; ++q) {
         const auto query = row_at(fixture.queries, q);
@@ -328,7 +328,7 @@ TEST(QuantizedIndexTest, GraphSnapshotRoundTripPreservesMembership) {
     elips::IndexHNSW source(Metric::cosine, kDim, HnswParams{},
                                          quantizer);
     for (std::size_t i = 0; i < 300; ++i) {
-        source.insert(fixture.ids[i], row_at(fixture.rows, i));
+        source.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     const auto snapshot = source.export_snapshot();
@@ -337,7 +337,7 @@ TEST(QuantizedIndexTest, GraphSnapshotRoundTripPreservesMembership) {
     elips::IndexHNSW restored(Metric::cosine, kDim, HnswParams{},
                                            quantizer);
     ASSERT_TRUE(restored.import_snapshot(*snapshot).has_value());
-    EXPECT_EQ(restored.size(), 300U);
+    EXPECT_EQ(restored.ntotal(), 300U);
 
     // The graph is rebuilt with fresh random levels, so edge-for-edge identity
     // is not expected; membership and self-retrieval are.
@@ -356,8 +356,8 @@ TEST(QuantizedIndexTest, NoQuantizerLeavesBehaviorAndTypeNameUnchanged) {
     elips::IndexFlat plain(Metric::euclidean, kDim);
     elips::IndexHNSW graph(Metric::euclidean, kDim, HnswParams{});
     for (std::size_t i = 0; i < 200; ++i) {
-        plain.insert(fixture.ids[i], row_at(fixture.rows, i));
-        graph.insert(fixture.ids[i], row_at(fixture.rows, i));
+        plain.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
+        graph.add_with_ids(fixture.ids[i], row_at(fixture.rows, i));
     }
 
     EXPECT_EQ(plain.type_name(), "exact");

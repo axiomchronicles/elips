@@ -179,7 +179,7 @@ TEST_F(GpuBackendIntegrationTest, brute_force_index_search) {
     auto build = index.build_from_batch(all_vectors, ids, GpuIndexBuildParams{});
     ASSERT_TRUE(build.has_value());
 
-    EXPECT_EQ(index.size(), 3u);
+    EXPECT_EQ(index.ntotal(), 3u);
 
     std::vector<float> query = {1.0f, 0.0f, 0.0f};
     auto results = index.search(query, 3);
@@ -196,9 +196,9 @@ TEST_F(GpuBackendIntegrationTest, brute_force_index_replace_same_id_is_stable) {
 
     const RecordID id = RecordID::generate();
 
-    index.insert(id, std::vector<float>{1.0f, 0.0f});
+    index.add_with_ids(id, std::vector<float>{1.0f, 0.0f});
     index.remove(id);
-    index.insert(id, std::vector<float>{0.0f, 1.0f});
+    index.add_with_ids(id, std::vector<float>{0.0f, 1.0f});
 
     const auto results = index.search(std::vector<float>{0.0f, 1.0f}, 1);
     ASSERT_EQ(results.size(), 1u);

@@ -32,11 +32,11 @@ int main() {
                 return 1;
             }
 
-            auto& collection = db->vault("docs");
-            collection.place(elips::Vector{{1.0F, 0.0F}});
-            collection.place(elips::Vector{{0.0F, 1.0F}});
+            auto& collection = db->collection("docs");
+            collection.add(elips::Vector{{1.0F, 0.0F}});
+            collection.add(elips::Vector{{0.0F, 1.0F}});
 
-            const auto hits = collection.seek(elips::Vector{{1.0F, 0.0F}}, 2);
+            const auto hits = collection.search(elips::Vector{{1.0F, 0.0F}}, 2);
             if (hits.size() != 2U) {
                 std::cerr << "Unexpected hit count: " << hits.size() << '\n';
                 return 1;

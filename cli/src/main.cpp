@@ -103,9 +103,9 @@ void print_results(const std::vector<elips::SearchResult>& results) {
 
 int cmd_info(const Args& a) {
     auto db = open_db(a);
-    const auto collections = db->list_vaults();
+    const auto collections = db->list_collections();
     std::size_t total = 0;
-    for (const auto& name : collections) total += db->vault(name).info().count;
+    for (const auto& name : collections) total += db->collection(name).info().count;
     std::cout << "path: " << a.path << "\n"
               << "dimension: " << db->config().dimension() << "\n"
               << "metric: " << elips::to_string(db->config().metric()) << "\n"
@@ -116,7 +116,7 @@ int cmd_info(const Args& a) {
               << "collections: " << collections.size() << "\n"
               << "records: " << total << "\n";
     for (const auto& name : collections) {
-        const auto info = db->vault(name).info();
+        const auto info = db->collection(name).info();
         if (info.codec == elips::quant::CodecId::none) {
             continue;
         }
@@ -132,8 +132,8 @@ int cmd_info(const Args& a) {
 
 int cmd_vaults(const Args& a) {
     auto db = open_db(a);
-    for (const auto& name : db->list_vaults()) {
-        std::cout << name << "\t" << db->vault(name).info().count << "\n";
+    for (const auto& name : db->list_collections()) {
+        std::cout << name << "\t" << db->collection(name).info().count << "\n";
     }
     return 0;
 }
@@ -167,7 +167,7 @@ int cmd_export(const Args& a) {
     const std::string collection = option(a, "collection");
     const std::string out_path = option(a, "output");
     auto db = open_db(a);
-    const auto info = db->vault(collection).info();
+    const auto info = db->collection(collection).info();
     if (info.codec != elips::quant::CodecId::none) {
         // An export from a compressed collection is not a faithful backup: the
         // vectors are reconstructions, so a re-import will not reproduce the
@@ -179,7 +179,7 @@ int cmd_export(const Args& a) {
     }
     std::ofstream out(out_path);
     std::size_t n = 0;
-    for (const auto& record : db->vault(collection).scan()) {
+    for (const auto& record : db->collection(collection).scan()) {
         out << elips::cli::json::dump_record(record) << "\n";
         ++n;
     }
@@ -192,7 +192,7 @@ int cmd_quantize(const Args& a) {
     auto db = open_db(a);
 
     const auto report = [&](const std::string& name) {
-        const auto info = db->vault(name).info();
+        const auto info = db->collection(name).info();
         const auto uncompressed =
             static_cast<double>(info.dimension) * sizeof(float);
         const double ratio =
@@ -206,11 +206,11 @@ int cmd_quantize(const Args& a) {
 
     if (collection_name.empty()) {
         db->quantize_all();
-        for (const auto& name : db->list_vaults()) {
+        for (const auto& name : db->list_collections()) {
             report(name);
         }
     } else {
-        db->quantize(collection_name);
+        db->train(collection_name);
         report(collection_name);
     }
     return 0;
@@ -220,14 +220,14 @@ int cmd_import(const Args& a) {
     const std::string collection_name = option(a, "collection");
     const std::string in_path = option(a, "input");
     auto db = open_db(a);
-    auto& collection = db->vault(collection_name);
+    auto& collection = db->collection(collection_name);
     std::ifstream in(in_path);
     std::string line;
     std::size_t n = 0;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         const elips::Record r = elips::cli::json::parse_record(line);
-        collection.place(r.vector, r.payload, r.id);
+        collection.add(r.vector, r.payload, r.id);
         ++n;
     }
     db->checkpoint();
@@ -239,10 +239,10 @@ int cmd_verify(const Args& a) {
     try {
         auto db = open_db(a);  // replays WAL + validates snapshot
         std::size_t total = 0;
-        for (const auto& name : db->list_vaults()) {
-            total += db->vault(name).info().count;
+        for (const auto& name : db->list_collections()) {
+            total += db->collection(name).info().count;
         }
-        std::cout << "OK: " << db->list_vaults().size() << " collections, " << total
+        std::cout << "OK: " << db->list_collections().size() << " collections, " << total
                   << " records\n";
         return 0;
     } catch (const std::exception& e) {
@@ -253,8 +253,8 @@ int cmd_verify(const Args& a) {
 
 int cmd_stats(const Args& a) {
     auto db = open_db(a);
-    for (const auto& name : db->list_vaults()) {
-        const auto info = db->vault(name).info();
+    for (const auto& name : db->list_collections()) {
+        const auto info = db->collection(name).info();
         std::cout << "collection." << name << ".records: " << info.count << "\n";
     }
     return 0;
@@ -265,7 +265,7 @@ int cmd_bench(const Args& a) {
     const auto dim = static_cast<std::uint16_t>(std::stoul(option(a, "dim", "128")));
     auto db = elips::open(a.path, Config{}.dimension(dim).metric(
                                       elips::Metric::cosine));
-    auto& collection = db->vault("bench");
+    auto& collection = db->collection("bench");
 
     std::mt19937 rng(42);
     std::normal_distribution<float> dist(0.0F, 1.0F);
@@ -277,11 +277,11 @@ int cmd_bench(const Args& a) {
 
     using clock = std::chrono::steady_clock;
     const auto t0 = clock::now();
-    for (std::size_t i = 0; i < count; ++i) collection.place(random_vec());
+    for (std::size_t i = 0; i < count; ++i) collection.add(random_vec());
     const auto t1 = clock::now();
 
     constexpr int queries = 1000;
-    for (int q = 0; q < queries; ++q) (void)collection.seek(random_vec(), 10);
+    for (int q = 0; q < queries; ++q) (void)collection.search(random_vec(), 10);
     const auto t2 = clock::now();
 
     const double insert_s = std::chrono::duration<double>(t1 - t0).count();

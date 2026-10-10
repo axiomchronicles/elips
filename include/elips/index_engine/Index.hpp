@@ -25,14 +25,14 @@ public:
     Index& operator=(Index&&) = delete;
 
     // Write path. Vectors are pre-validated/normalized by the vector engine.
-    virtual void insert(const RecordID& id, std::span<const float> vector) = 0;
+    virtual void add_with_ids(const RecordID& id, std::span<const float> vector) = 0;
     virtual void remove(const RecordID& id) = 0;
 
     // Search path: up to k nearest, sorted ascending by distance.
     [[nodiscard]] virtual std::vector<Hit> search(std::span<const float> query,
                                                   std::size_t k) const = 0;
 
-    [[nodiscard]] virtual std::size_t size() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t ntotal() const noexcept = 0;
     [[nodiscard]] virtual std::string_view type_name() const noexcept = 0;
 
     // Reclaim space held by removed records. Indexes that delete eagerly have

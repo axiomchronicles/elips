@@ -187,7 +187,7 @@ void IndexHNSW::connect(NodeId node,
     }
 }
 
-void IndexHNSW::insert(const RecordID& id,
+void IndexHNSW::add_with_ids(const RecordID& id,
                                     std::span<const float> vector) {
     insert_unchecked(id, vector);
 }

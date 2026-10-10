@@ -74,7 +74,7 @@ GpuBruteForceIndex::create_device_buffer_from_host(std::span<const float> vector
     return buffer;
 }
 
-void GpuBruteForceIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuBruteForceIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     ids_.push_back(id);
     host_vectors_.insert(host_vectors_.end(), vector.begin(), vector.end());
@@ -124,7 +124,7 @@ std::vector<Index::Hit> GpuBruteForceIndex::search(std::span<const float> query,
     return hits;
 }
 
-std::size_t GpuBruteForceIndex::size() const noexcept { return count_; }
+std::size_t GpuBruteForceIndex::ntotal() const noexcept { return count_; }
 std::string_view GpuBruteForceIndex::type_name() const noexcept { return "gpu_brute_force"; }
 
 std::expected<void, GpuError>

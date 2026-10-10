@@ -147,7 +147,7 @@ std::vector<float> GpuIVFPQIndex::decode_candidate_vector(
     return decoded;
 }
 
-void GpuIVFPQIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuIVFPQIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     state_->insert(backend_, id, vector);
     rebuild_codes();
@@ -236,7 +236,7 @@ std::vector<Index::Hit> GpuIVFPQIndex::search(std::span<const float> query,
                       rerank_vectors, k);
 }
 
-std::size_t GpuIVFPQIndex::size() const noexcept { return state_->size(); }
+std::size_t GpuIVFPQIndex::ntotal() const noexcept { return state_->size(); }
 
 std::string_view GpuIVFPQIndex::type_name() const noexcept {
     return "gpu_ivf_pq";

@@ -32,7 +32,7 @@ GpuIVFFlatIndex::GpuIVFFlatIndex(GpuBackend& backend, elips::Metric metric,
 
 GpuIVFFlatIndex::~GpuIVFFlatIndex() = default;
 
-void GpuIVFFlatIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuIVFFlatIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     state_->insert(backend_, id, vector);
 }
@@ -102,7 +102,7 @@ std::vector<Index::Hit> GpuIVFFlatIndex::search(std::span<const float> query,
     return rank_candidates(query, k, candidates.ids, candidates.vectors);
 }
 
-std::size_t GpuIVFFlatIndex::size() const noexcept { return state_->size(); }
+std::size_t GpuIVFFlatIndex::ntotal() const noexcept { return state_->size(); }
 
 std::string_view GpuIVFFlatIndex::type_name() const noexcept {
     return "gpu_ivf_flat";

@@ -40,13 +40,12 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - [x] `03_naming_map.md` ADR recorded (collisions resolved, DO-NOT-RENAME safety list, shim policy, batch plan)
 - [x] Batch 1: C++ core types/methods → build+ctest green — `DynamicBatcher`→`QueryBatcher`, `GpuSelector`→`BackendSelector`, `MetadataIndex`→`MetadataFilterIndex` (3 classes + files + deprecated `using` aliases). Independently verified: build 0, ctest 256/256 (255+1skip), pytest 34/34.
 - [x] Batch 2: core index/port classes → build+ctest+pytest green — `IndexPort`→`Index`, `ExactIndex`→`IndexFlat`, `HierarchicalGraphIndex`→`IndexHNSW`, `GpuPort`→`GpuBackend`, `GpuIndexPort`→`GpuIndex`, `GraphParams`→`HnswParams`, `ElipsInstance`→`Database` (7 classes + files + deprecated aliases; no collisions). Verified: ctest 256/256, pytest 34/34.
-- [ ] Batch 2b: file renames + include fixups  *(folded into batches 1–2)*
-- [ ] Batch 3: EQL verbs + AST
-- [x] Batch 2c: `Vault`→`Collection` (type + `VaultInfo`/`TransactionVault` compounds, lowercase identifiers, 13 user-facing strings; on-disk `vault_` prefix + manifest keys PRESERVED; pybind Python names + methods deferred). Verified: ctest 256/256 (persistence tests pass = format intact), pytest 34/34.
-- [ ] Batch 4: pybind + Python facades + kwargs → pytest green
-- [ ] Batch 5: CMake option aliases + target/test renames
-- [ ] Batch 6: error strings + typed exceptions
-- [ ] Batch 7: deprecation shim + MIGRATION.md; final old-term grep empty (except shim+MIGRATION)
+- [x] Batch 3: `Vault`→`Collection` (type + `VaultInfo`/`TransactionVault` compounds, lowercase identifiers, 13 user-facing strings; on-disk `vault_` prefix + manifest keys PRESERVED; pybind Python names + methods deferred). Verified: ctest 256/256 (persistence tests pass = format intact), pytest 34/34.
+- [x] Batch 4: API verbs/methods → green — place→add, seek→search, erase→remove, fetch→get, explain_seek→explain_query, insert→add_with_ids, size→ntotal, Database::vault→collection, quantize→train (+ `[[deprecated]]` forwarder shims). std `.erase/.insert/.size` + EQL AST + pybind name strings left intact. Verified: ctest 256/256, pytest 34/34.
+- [ ] Batch 5: EQL verbs + AST → ctest green (place→add, seek→search, fetch→get, erase→delete, data→metadata, top→k; delete fabricated uppercase website dialect)
+- [ ] Batch 6: pybind + Python facades + kwargs → pytest green (Chroma Collection API, Client/PersistentClient, n_results/metadatas/where/include; retire dead IndexSnapshot*; expose FAISS Index API)
+- [ ] Batch 7: CMake option aliases (ELIPS_ENABLE_*) + target/test renames + error strings + typed exceptions
+- [ ] Batch 8: consolidate deprecation shim + MIGRATION.md; final old-term grep empty (except shim+MIGRATION)
 - [ ] Full suite green; one commit
 
 ## Open questions

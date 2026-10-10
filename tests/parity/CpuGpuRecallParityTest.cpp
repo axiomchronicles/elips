@@ -62,7 +62,7 @@ TEST_F(CpuGpuRecallParityTest, brute_force_recall_perfect) {
 
     IndexFlat cpu_index(Metric::cosine, static_cast<uint16_t>(dim));
     for (size_t i = 0; i < n; ++i) {
-        cpu_index.insert(ids[i], {vectors.data() + i * dim, dim});
+        cpu_index.add_with_ids(ids[i], {vectors.data() + i * dim, dim});
     }
 
     GpuConfig gconfig;

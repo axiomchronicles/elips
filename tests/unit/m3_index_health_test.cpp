@@ -33,10 +33,10 @@ TEST(M3IndexHealth, ChurnDoesNotGrowIndexUnbounded) {
     std::vector<elips::RecordID> live;
     for (int i = 0; i < 200; ++i) {
         const auto id = elips::RecordID::generate();
-        index.insert(id, random_vector(rng, kDim));
+        index.add_with_ids(id, random_vector(rng, kDim));
         live.push_back(id);
     }
-    ASSERT_EQ(index.size(), 200U);
+    ASSERT_EQ(index.ntotal(), 200U);
 
     // Steady insert/delete churn: the live set stays ~200 but 4000 records pass
     // through. Without compaction the graph would hold all 4200 nodes forever.
@@ -44,20 +44,20 @@ TEST(M3IndexHealth, ChurnDoesNotGrowIndexUnbounded) {
         for (int i = 0; i < 200; ++i) {
             index.remove(live[static_cast<std::size_t>(i)]);
             const auto id = elips::RecordID::generate();
-            index.insert(id, random_vector(rng, kDim));
+            index.add_with_ids(id, random_vector(rng, kDim));
             live[static_cast<std::size_t>(i)] = id;
         }
         // Tombstones never accumulate past the compaction threshold.
         EXPECT_LE(index.pending_removals(),
                   static_cast<std::size_t>(
                       params.compaction_ratio *
-                      static_cast<float>(index.size() + index.pending_removals())) +
+                      static_cast<float>(index.ntotal() + index.pending_removals())) +
                       1U);
     }
 
-    EXPECT_EQ(index.size(), 200U);
+    EXPECT_EQ(index.ntotal(), 200U);
     // Graph nodes = live + tombstones; bounded, not 4200.
-    EXPECT_LT(index.size() + index.pending_removals(), 400U);
+    EXPECT_LT(index.ntotal() + index.pending_removals(), 400U);
 }
 
 TEST(M3IndexHealth, VacuumReclaimsTombstones) {
@@ -70,17 +70,17 @@ TEST(M3IndexHealth, VacuumReclaimsTombstones) {
     std::vector<elips::RecordID> ids;
     for (int i = 0; i < 100; ++i) {
         ids.push_back(elips::RecordID::generate());
-        index.insert(ids.back(), random_vector(rng, kDim));
+        index.add_with_ids(ids.back(), random_vector(rng, kDim));
     }
     for (int i = 0; i < 60; ++i) {
         index.remove(ids[static_cast<std::size_t>(i)]);
     }
     EXPECT_EQ(index.pending_removals(), 60U);
-    EXPECT_EQ(index.size(), 40U);
+    EXPECT_EQ(index.ntotal(), 40U);
 
     index.vacuum();
     EXPECT_EQ(index.pending_removals(), 0U);
-    EXPECT_EQ(index.size(), 40U);
+    EXPECT_EQ(index.ntotal(), 40U);
 
     // Survivors remain findable after the rebuild.
     for (std::size_t i = 60; i < ids.size(); ++i) {
@@ -104,7 +104,7 @@ TEST(M3IndexHealth, RecallHoldsAsDeleteRatioGrows) {
     for (std::size_t i = 0; i < kTotal; ++i) {
         ids.push_back(elips::RecordID::generate());
         vectors.push_back(random_vector(rng, kDim));
-        index.insert(ids.back(), vectors.back());
+        index.add_with_ids(ids.back(), vectors.back());
     }
 
     const auto brute_force_top =
@@ -194,7 +194,7 @@ TEST(M3IndexHealth, RecallHoldsAsDeleteRatioGrows) {
 
 TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(8));
-    auto& collection = db->vault("v");
+    auto& collection = db->collection("v");
 
     std::mt19937 rng(4242);
     // 1 in 50 records matches the filter, so a fixed top*20 over-fetch would
@@ -202,11 +202,11 @@ TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
     for (int i = 0; i < 2000; ++i) {
         elips::Payload payload;
         payload.emplace("bucket", static_cast<std::int64_t>(i % 50));
-        collection.place(elips::Vector{random_vector(rng, 8)}, payload);
+        collection.add(elips::Vector{random_vector(rng, 8)}, payload);
     }
 
     const auto filter = elips::Filter{}.field("bucket").equals(std::int64_t{7});
-    const auto hits = collection.seek(elips::Vector{random_vector(rng, 8)}, 10, filter);
+    const auto hits = collection.search(elips::Vector{random_vector(rng, 8)}, 10, filter);
     EXPECT_EQ(hits.size(), 10U);
     for (const auto& hit : hits) {
         EXPECT_EQ(std::get<std::int64_t>(hit.data.at("bucket")), 7);
@@ -215,17 +215,17 @@ TEST(M3IndexHealth, FilteredSearchStillFillsTopK) {
 
 TEST(M3IndexHealth, FilteredSearchReturnsAllMatchesWhenFewerThanTopK) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(4));
-    auto& collection = db->vault("v");
+    auto& collection = db->collection("v");
 
     std::mt19937 rng(11);
     for (int i = 0; i < 500; ++i) {
         elips::Payload payload;
         payload.emplace("rare", static_cast<std::int64_t>(i < 3 ? 1 : 0));
-        collection.place(elips::Vector{random_vector(rng, 4)}, payload);
+        collection.add(elips::Vector{random_vector(rng, 4)}, payload);
     }
 
     const auto filter = elips::Filter{}.field("rare").equals(std::int64_t{1});
-    const auto hits = collection.seek(elips::Vector{random_vector(rng, 4)}, 10, filter);
+    const auto hits = collection.search(elips::Vector{random_vector(rng, 4)}, 10, filter);
     // Only 3 records can match; the loop must terminate rather than spin.
     EXPECT_EQ(hits.size(), 3U);
 }
@@ -242,10 +242,10 @@ TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossCollections) {
                                           }));
     std::mt19937 rng(5);
     for (const std::string name : {"a", "b"}) {
-        auto& collection = db->vault(name);
+        auto& collection = db->collection(name);
         std::vector<elips::RecordID> ids;
         for (int i = 0; i < 50; ++i) {
-            ids.push_back(collection.place(elips::Vector{random_vector(rng, 4)}));
+            ids.push_back(collection.add(elips::Vector{random_vector(rng, 4)}));
         }
         for (int i = 0; i < 30; ++i) {
             collection.erase(ids[static_cast<std::size_t>(i)]);
@@ -254,10 +254,10 @@ TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossCollections) {
     }
 
     db->vacuum();
-    EXPECT_EQ(db->vault("a").pending_removals(), 0U);
-    EXPECT_EQ(db->vault("b").pending_removals(), 0U);
-    EXPECT_EQ(db->vault("a").info().count, 20U);
-    EXPECT_EQ(db->vault("b").info().count, 20U);
+    EXPECT_EQ(db->collection("a").pending_removals(), 0U);
+    EXPECT_EQ(db->collection("b").pending_removals(), 0U);
+    EXPECT_EQ(db->collection("a").info().count, 20U);
+    EXPECT_EQ(db->collection("b").info().count, 20U);
 }
 
 }  // namespace
