@@ -15,6 +15,8 @@ Examples::
 
 from __future__ import annotations
 
+import os
+import warnings
 from typing import TYPE_CHECKING
 
 from elips._internal.protocols import Embedder
@@ -29,6 +31,58 @@ from elips.typing import AccessModeName, CodecName, IndexName, MetricName
 
 if TYPE_CHECKING:
     from elips._native import GpuConfig
+
+
+def _build_gpu_config(device: str, *, fallback: bool) -> GpuConfig:
+    r"""Parse a device string into a native :class:`GpuConfig`.
+
+    Grammar (case-insensitive)::
+
+        "cpu"              -> CpuOnly
+        "auto"             -> Auto (GPU if present, else logged CPU fallback)
+        "metal"            -> Specific metal
+        "cuda:N" / "hip:N" -> Specific backend, device index N
+        "cuda" / "hip"     -> Specific backend, any index
+
+    A named backend that is absent raises ``BackendUnavailableError`` at open
+    time unless ``fallback`` is true, which demotes to CPU with a warning.
+    """
+    from elips._native import GpuConfig, GpuPolicy
+
+    spec = device.strip().lower()
+    cfg = GpuConfig()
+    cfg.fallback = fallback
+
+    if spec in ("cpu", ""):
+        cfg.policy = GpuPolicy.cpu_only
+        return cfg
+    if spec == "auto":
+        cfg.policy = GpuPolicy.auto
+        return cfg
+
+    backend, _, index = spec.partition(":")
+    if backend not in ("metal", "cuda", "hip"):
+        raise ValueError(
+            f"device: unknown backend {device!r}; expected one of "
+            "'cpu', 'auto', 'metal', 'cuda[:N]', 'hip[:N]'"
+        )
+    cfg.policy = GpuPolicy.specific
+    cfg.preferred_backend = backend
+    if index:
+        try:
+            cfg.device_index = int(index)
+        except ValueError as exc:
+            raise ValueError(
+                f"device: {device!r} has a non-integer device index"
+            ) from exc
+    return cfg
+
+
+def _wanted_gpu(gpu: GpuConfig) -> bool:
+    """True when this config asked for a GPU (anything but CPU-only)."""
+    from elips._native import GpuPolicy
+
+    return gpu.policy != GpuPolicy.cpu_only
 
 
 def _attach_embedder(
@@ -71,6 +125,8 @@ def connect(
     use_default_text_embedder: bool = True,
     quantization: QuantParams | CodecName | None = None,
     gpu: GpuConfig | None = None,
+    device: str | None = None,
+    fallback: bool = False,
 ) -> Engine:
     r"""connect(path, *, dimension=0, metric="cosine", index="graph", access_mode="read_write", segmented_storage=True, metadata_acceleration=True, embedder=None, embedder_provider="python", embedder_model="callable", embedder_revision="", use_default_text_embedder=True, quantization=None, gpu=None) -> Engine
 
@@ -111,6 +167,14 @@ def connect(
             data. Default: ``None``.
         gpu (GpuConfig, optional): GPU runtime configuration. Default:
             ``None``.
+        device (str, optional): Device string -- ``"cpu"``, ``"auto"``,
+            ``"metal"``, ``"cuda:N"``, or ``"hip:N"`` -- compiled into a
+            :class:`GpuConfig`. Consulted (with ``ELIPS_DEVICE`` as the
+            environment fallback) only when ``gpu=`` is not given. A named GPU
+            backend that is absent raises :class:`BackendUnavailableError`
+            unless ``fallback=True``. Default: ``None``.
+        fallback (bool, optional): Allow a logged demotion to CPU when the
+            requested GPU backend is unavailable. Default: ``False``.
 
         Returns:
             Engine: High-level engine wrapper.
@@ -144,10 +208,33 @@ def connect(
             else QuantParams(codec=quantization)
         )
 
+    # GPU resolution priority: explicit ``gpu=`` wins, then ``device=``, then
+    # the ELIPS_DEVICE environment override.
+    has_gpu_bindings = hasattr(config, "gpu")
+    resolved_gpu: GpuConfig | None = None
+
     if gpu is not None:
-        if not hasattr(config, "gpu"):
+        if not has_gpu_bindings:
             raise ValueError("gpu config requires ELIPS to be built with GPU bindings")
         config.gpu(gpu)
+        resolved_gpu = gpu
+    else:
+        dev = device if device is not None else os.environ.get("ELIPS_DEVICE")
+        if dev is not None:
+            if has_gpu_bindings:
+                resolved_gpu = _build_gpu_config(dev, fallback=fallback)
+                config.gpu(resolved_gpu)
+            elif dev.strip().lower() not in ("cpu", "auto", ""):
+                # CPU-only build: a named GPU backend can only run on CPU.
+                msg = (
+                    f"device {dev!r} requested but ELIPS was built without "
+                    "GPU support"
+                )
+                if not fallback:
+                    from elips.exceptions import BackendUnavailableError
+
+                    raise BackendUnavailableError(msg)
+                warnings.warn(f"{msg}; running on CPU", stacklevel=2)
 
     runtime_embedder = _attach_embedder(
         config,
@@ -157,7 +244,20 @@ def connect(
         embedder_revision=embedder_revision,
         dimension=dimension,
     )
-    return Engine(_open_with_config(path, config), default_embedder=runtime_embedder)
+    engine = Engine(_open_with_config(path, config), default_embedder=runtime_embedder)
+
+    # No-silent-fallback: when a GPU was requested but the engine opened on CPU
+    # (an allowed/Auto demotion), surface a Python warning. The native layer
+    # also logs the fallback to stderr.
+    if resolved_gpu is not None and _wanted_gpu(resolved_gpu):
+        info = engine.native.gpu_info()
+        if getattr(info, "backend", "cpu") == "cpu":
+            warnings.warn(
+                f"GPU backend {resolved_gpu.preferred_backend or 'auto'!r} "
+                "requested but unavailable; running on CPU",
+                stacklevel=2,
+            )
+    return engine
 
 
 def connect_with_config(

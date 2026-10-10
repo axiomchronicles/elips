@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <sstream>
 #include <string_view>
@@ -759,24 +760,42 @@ void configure_gpu_backend(Database& instance, const Config& config) {
         return;
     }
 
+    const auto& gpu_cfg = config.gpu();
+    const bool explicit_request = gpu_cfg.policy == gpu::GpuPolicy::RequireGpu ||
+                                  gpu_cfg.policy == gpu::GpuPolicy::Specific;
+
+    // Auto always permits CPU fallback (CPU is always available); explicit
+    // GPU requests only fall back when the caller opted in.
+    const bool fallback_ok = !explicit_request || gpu_cfg.allow_cpu_fallback;
+
+    auto requested = [&]() -> std::string {
+        if (!gpu_cfg.preferred_backend.empty()) return gpu_cfg.preferred_backend;
+        return "gpu";
+    };
+
+    auto demote_or_throw = [&](const char* reason) {
+        if (fallback_ok) {
+            // ground rule #9: never fall back silently.
+            std::cerr << "[elips] warning: GPU backend '" << requested()
+                      << "' requested but " << reason
+                      << "; falling back to CPU\n";
+            return;  // leave the CPU fallback info already set.
+        }
+        throw BackendUnavailableError{
+            "GPU backend '" + requested() + "' requested but " + reason +
+            "; pass fallback=true (or device fallback) to allow CPU"};
+    };
+
     const auto devices = manager.probe_all_devices();
     if (devices.empty()) {
-        if (config.gpu().policy == gpu::GpuPolicy::RequireGpu ||
-            config.gpu().policy == gpu::GpuPolicy::Specific) {
-            throw ConfigError{"GPU acceleration was requested, but no compatible "
-                              "device was found"};
-        }
+        demote_or_throw("no compatible device was found");
         return;
     }
 
     gpu::BackendSelector selector;
-    auto selected = selector.select(config.gpu(), devices);
+    auto selected = selector.select(gpu_cfg, devices);
     if (!selected.has_value() || *selected == nullptr) {
-        if (config.gpu().policy == gpu::GpuPolicy::RequireGpu ||
-            config.gpu().policy == gpu::GpuPolicy::Specific) {
-            throw ConfigError{"GPU acceleration was requested, but the backend "
-                              "could not be initialized"};
-        }
+        demote_or_throw("the backend could not be initialized");
         return;
     }
 

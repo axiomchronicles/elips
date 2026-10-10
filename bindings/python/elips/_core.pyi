@@ -58,6 +58,9 @@ class NotFound(ElipsError):
 class StorageError(ElipsError):
     """Persistence/IO failure."""
 
+class BackendUnavailableError(ElipsError):
+    """A required GPU backend was unavailable and CPU fallback was not permitted."""
+
 class LockConflict(ElipsError):
     """A second writer tried to open a database directory already held."""
 
@@ -453,6 +456,7 @@ class GpuConfig:
     policy: GpuPolicy
     preferred_backend: str
     device_index: int
+    fallback: bool
     build_mode: IndexBuildMode
     algorithm: GpuIndexAlgorithm
     device_memory_pool_mb: int

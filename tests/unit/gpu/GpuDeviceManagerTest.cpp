@@ -162,5 +162,68 @@ TEST(GpuDeviceManagerTest, cpu_only_policy_reports_cpu_fallback_metadata) {
     EXPECT_FALSE(info.name.empty());
 }
 
+// Phase 7.4: a GPU explicitly requested for a backend that is not present must
+// surface a typed BackendUnavailableError, not silently demote to CPU. We
+// simulate "no matching device" by naming a backend absent from this build
+// (no CUDA on the Metal/CPU hosts the suite runs on).
+TEST(GpuDeviceManagerTest, specific_absent_backend_throws_backend_unavailable) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Specific;
+    gpu_config.preferred_backend = "cuda";
+    gpu_config.allow_cpu_fallback = false;
+    config.gpu(gpu_config);
+
+    EXPECT_THROW(
+        { auto db = elips::open(":memory:", config); (void)db; },
+        elips::BackendUnavailableError);
+}
+
+TEST(GpuDeviceManagerTest, require_gpu_absent_backend_throws_backend_unavailable) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::RequireGpu;
+    gpu_config.preferred_backend = "cuda";  // force "no device" on this host
+    gpu_config.allow_cpu_fallback = false;
+    config.gpu(gpu_config);
+
+    EXPECT_THROW(
+        { auto db = elips::open(":memory:", config); (void)db; },
+        elips::BackendUnavailableError);
+}
+
+TEST(GpuDeviceManagerTest, specific_absent_backend_with_fallback_demotes_to_cpu) {
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Specific;
+    gpu_config.preferred_backend = "cuda";
+    gpu_config.allow_cpu_fallback = true;  // opt into logged CPU fallback
+    config.gpu(gpu_config);
+
+    auto db = elips::open(":memory:", config);
+    ASSERT_NE(db, nullptr);
+    EXPECT_EQ(db->gpu_info().backend, "cpu");
+}
+
+TEST(GpuDeviceManagerTest, auto_policy_opens_without_throwing) {
+    // Auto never throws: GPU when present, else a logged CPU fallback.
+    Config config;
+    config.dimension(2);
+
+    GpuConfig gpu_config;
+    gpu_config.policy = GpuPolicy::Auto;
+    config.gpu(gpu_config);
+
+    auto db = elips::open(":memory:", config);
+    ASSERT_NE(db, nullptr);
+    EXPECT_FALSE(db->gpu_info().backend.empty());
+}
+
 }  // namespace
 }  // namespace elips::gpu

@@ -6,8 +6,9 @@ All ELIPS errors derive from :class:`ElipsError`, which in turn derives from
 ``*Error``-suffixed spellings (Phase 5 naming alignment) as aliases of the same
 classes, so ``except DimensionMismatchError`` catches what the engine raises,
 and the typed additions ELIPS surfaces from the Python layer
-(:class:`CollectionNotFoundError`, :class:`NotTrainedError`,
-:class:`BackendUnavailableError`).
+(:class:`CollectionNotFoundError`, :class:`NotTrainedError`). The native
+runtime also raises :class:`BackendUnavailableError` (re-exported here) when a
+required GPU backend is unavailable and no CPU fallback was permitted.
 
 Examples::
 
@@ -23,6 +24,7 @@ Examples::
 from __future__ import annotations
 
 from elips._native import (
+    BackendUnavailableError,
     ConfigError,
     DimensionMismatch,
     ElipsError,
@@ -55,14 +57,6 @@ class CollectionNotFoundError(NotFoundError):
     Raised by :meth:`elips.Client.get_collection`. Subclasses
     :class:`NotFoundError` so existing ``except NotFound`` handlers still catch
     it.
-    """
-
-
-class BackendUnavailableError(ElipsError):
-    """A requested compute backend (e.g. a GPU device) is not available.
-
-    Maps the native ``GpuError.backend_unavailable`` condition to a typed
-    Python error.
     """
 
 

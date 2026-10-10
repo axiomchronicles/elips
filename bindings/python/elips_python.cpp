@@ -601,6 +601,8 @@ PYBIND11_MODULE(_core, m) {
     py::register_exception<elips::NotFound>(m, "NotFound", elips_error);
     py::register_exception<elips::StorageError>(m, "StorageError",
                                                  elips_error);
+    py::register_exception<elips::BackendUnavailableError>(
+        m, "BackendUnavailableError", elips_error);
     py::register_exception<elips::LockConflict>(m, "LockConflict",
                                                  elips_error);
     py::register_exception<elips::eql::ParseError>(m, "ParseError",
@@ -1535,6 +1537,7 @@ Example:
         .def_readwrite("policy", &elips::gpu::GpuConfig::policy)
         .def_readwrite("preferred_backend", &elips::gpu::GpuConfig::preferred_backend)
         .def_readwrite("device_index", &elips::gpu::GpuConfig::device_index)
+        .def_readwrite("fallback", &elips::gpu::GpuConfig::allow_cpu_fallback)
         .def_readwrite("build_mode", &elips::gpu::GpuConfig::index_build_mode)
         .def_readwrite("algorithm", &elips::gpu::GpuConfig::algorithm)
         .def_property("device_memory_pool_mb",

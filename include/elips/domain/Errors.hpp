@@ -57,6 +57,15 @@ public:
     using ElipsError::ElipsError;
 };
 
+// A requested compute backend (e.g. a GPU device) was required but is not
+// available, and no CPU fallback was permitted. Mirrors the Python
+// `BackendUnavailableError`; surfaces the GPU policy failure as a typed error
+// instead of a silent CPU demotion (redesign ground rule #9).
+class BackendUnavailableError : public ElipsError {
+public:
+    using ElipsError::ElipsError;
+};
+
 }  // namespace elips
 
 #endif  // ELIPS_DOMAIN_ERRORS_HPP
