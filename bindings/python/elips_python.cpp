@@ -2880,4 +2880,43 @@ Example:
               return elips::open(path, config);
           },
           py::arg("path"), py::arg("config"));
+
+    // =====================  Phase 5 naming aliases  =====================
+    // The C++ core already carries the new vocabulary; expose it in Python
+    // too, keeping every old name working. Native handles are the internal
+    // escape hatch, so the old spellings stay as plain aliases (the public,
+    // user-facing DeprecationWarnings live on the high-level facade).
+    m.attr("Collection") = m.attr("Vault");
+    m.attr("CollectionInfo") = m.attr("VaultInfo");
+    m.attr("TransactionCollection") = m.attr("TransactionVault");
+    {
+        auto coll = m.attr("Vault");
+        coll.attr("add") = coll.attr("place");
+        coll.attr("add_document") = coll.attr("place_document");
+        coll.attr("add_many") = coll.attr("place_many");
+        coll.attr("search") = coll.attr("seek");
+        coll.attr("search_text") = coll.attr("seek_text");
+        coll.attr("hybrid_search") = coll.attr("seek_hybrid");
+        coll.attr("explain_query") = coll.attr("explain_seek");
+        coll.attr("get") = coll.attr("fetch");
+        coll.attr("delete") = coll.attr("erase");
+        coll.attr("remove") = coll.attr("erase");
+        coll.attr("rebuild") = coll.attr("rebuild_index");
+        coll.attr("train") = coll.attr("quantize");
+        coll.attr("is_trained") = coll.attr("quantized");
+
+        auto db = m.attr("Database");
+        db.attr("collection") = db.attr("vault");
+        db.attr("list_collections") = db.attr("list_vaults");
+        db.attr("train_collection") = db.attr("quantize");
+        db.attr("train_all") = db.attr("quantize_all");
+
+        auto txn = m.attr("TransactionVault");
+        txn.attr("add") = txn.attr("place");
+        txn.attr("delete") = txn.attr("erase");
+
+        auto transaction = m.attr("Transaction");
+        transaction.attr("collection") = transaction.attr("vault");
+    }
 }
+

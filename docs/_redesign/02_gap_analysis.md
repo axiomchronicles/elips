@@ -26,6 +26,13 @@ Severity: blocker / major / minor. Effort: S / M / L.
 - Retire dead Python bindings `IndexSnapshot*`; fix `Engine`/`elips.query` docstring lies. minor/S.
 
 ## Phase 6 (core engine) — the real "maturity" work (reframed: fill gaps, don't rebuild)
+
+> Added during Phase 5 rename (discovered by verifying the new Python surface):
+> - **Chroma arbitrary string `ids`**: Chroma allows any string id; ELIPS `RecordID` is a 32-hex UUID.
+>   Need an id-mapping layer (FAISS-IDMap-style: user-id ⇄ internal RecordID) so `add(ids=["a"])` works. major/M.
+> - **Zero-config `Client()` dimension inference**: Chroma infers dim from its default embedding function;
+>   ELIPS's default embedder is dimension-parameterized. Current: `Client()` raises a clear dimension-first error.
+>   Decide in Phase 6: keep dimension-first (recommended, document) vs infer from first `add`. minor/S.
 - `index_factory("IVF4096,PQ16")` parser over existing index types (B2). blocker/M.
 - **CPU IVF family (IVFFlat/IVFPQ/IVF-SQ) — currently GPU-only** (`Config.hpp:31` has only graph+exact). major/L. *(biggest single core gap)*
 - `IndexRefine`/exact-rerank — implement `QuantParams::refine_fraction` (dead knob, cites nonexistent ADR-0011). major/M.

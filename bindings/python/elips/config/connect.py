@@ -76,6 +76,10 @@ def connect(
 
     Open a high-level :class:`Engine` wrapper.
 
+    .. deprecated:: 1.2
+        Use :class:`elips.Client` (ephemeral) or :class:`elips.PersistentClient`
+        (on disk) instead. ``connect`` remains as a working shim.
+
     Args:
         path (str): Filesystem path or ``":memory:"``.
         dimension (int, optional): Vector dimension for new databases. Default:
@@ -168,6 +172,10 @@ def connect_with_config(
     r"""connect_with_config(path, config, *, embedder=None, embedder_provider="python", embedder_model="callable", embedder_revision="") -> Engine
 
     Open an :class:`Engine` wrapper from a prepared :class:`elips.Config`.
+
+    .. deprecated:: 1.2
+        Use :class:`elips.Client` / :class:`elips.PersistentClient`. This
+        remains as a working shim.
 
     Args:
         path (str): Filesystem path or ``":memory:"``.
