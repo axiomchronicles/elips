@@ -240,6 +240,14 @@ if(ELIPS_GPU_ENABLED)
         target_link_libraries(elips_tests PRIVATE elips_gpu_cuda)
     endif()
 
+    # HIP/ROCm parity test — compiled only when the HIP backend is enabled,
+    # skipped at runtime unless an AMD GPU is present (EXPERIMENTAL).
+    if(ELIPS_ENABLE_ROCM)
+        target_sources(elips_tests PRIVATE tests/gpu/hip/HipBackendTest.cpp)
+        target_compile_definitions(elips_tests PRIVATE ELIPS_HIP_ENABLED)
+        target_link_libraries(elips_tests PRIVATE elips_gpu_hip)
+    endif()
+
     add_executable(elips_gpu_lifecycle_probe
         tests/integration/gpu/DatabaseGpuLifecycleProbe.cpp
     )
