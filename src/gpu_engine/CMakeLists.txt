@@ -39,21 +39,21 @@ target_compile_options(elips_gpu PRIVATE -Wall -Wextra -Wpedantic)
 # truth); this file only consumes them.
 
 # ---- CUDA backend ----
-if(ELIPS_GPU_CUDA)
+if(ELIPS_ENABLE_CUDA)
     add_subdirectory(backends/cuda)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_cuda)
     target_compile_definitions(elips_gpu PRIVATE ELIPS_CUDA_ENABLED)
 endif()
 
 # ---- HIP backend ----
-if(ELIPS_GPU_HIP)
+if(ELIPS_ENABLE_ROCM)
     add_subdirectory(backends/hip)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_hip)
     target_compile_definitions(elips_gpu PRIVATE ELIPS_HIP_ENABLED)
 endif()
 
 # ---- Metal backend ----
-if(APPLE AND ELIPS_GPU_METAL)
+if(APPLE AND ELIPS_ENABLE_METAL)
     add_subdirectory(backends/metal)
     target_link_libraries(elips_gpu PUBLIC elips_gpu_metal)
     target_compile_definitions(elips_gpu PUBLIC ELIPS_METAL_ENABLED)

@@ -43,18 +43,33 @@ endif()
 # `cmake -S . -B build` on Linux set ELIPS_GPU_ENABLED, build the whole
 # elips_gpu library, and expose gpu_info()/gpu_stats() with no backend behind
 # them.
-option(ELIPS_GPU_METAL "Enable Apple Metal GPU backend" ${APPLE})
-option(ELIPS_GPU_CUDA "Enable NVIDIA CUDA GPU backend" OFF)
-option(ELIPS_GPU_HIP "Enable AMD ROCm/HIP GPU backend" OFF)
+# Back-compat: honor the old option names (deprecated). Each alias must run
+# before the matching option() so the forced cache value wins.
+if(DEFINED ELIPS_GPU_METAL AND NOT DEFINED ELIPS_ENABLE_METAL)
+    set(ELIPS_ENABLE_METAL "${ELIPS_GPU_METAL}" CACHE BOOL "" FORCE)
+    message(DEPRECATION "ELIPS_GPU_METAL is deprecated; use ELIPS_ENABLE_METAL")
+endif()
+if(DEFINED ELIPS_GPU_CUDA AND NOT DEFINED ELIPS_ENABLE_CUDA)
+    set(ELIPS_ENABLE_CUDA "${ELIPS_GPU_CUDA}" CACHE BOOL "" FORCE)
+    message(DEPRECATION "ELIPS_GPU_CUDA is deprecated; use ELIPS_ENABLE_CUDA")
+endif()
+if(DEFINED ELIPS_GPU_HIP AND NOT DEFINED ELIPS_ENABLE_ROCM)
+    set(ELIPS_ENABLE_ROCM "${ELIPS_GPU_HIP}" CACHE BOOL "" FORCE)
+    message(DEPRECATION "ELIPS_GPU_HIP is deprecated; use ELIPS_ENABLE_ROCM")
+endif()
 
-if(ELIPS_GPU_METAL AND NOT APPLE)
+option(ELIPS_ENABLE_METAL "Enable Apple Metal GPU backend" ${APPLE})
+option(ELIPS_ENABLE_CUDA "Enable NVIDIA CUDA GPU backend" OFF)
+option(ELIPS_ENABLE_ROCM "Enable AMD ROCm/HIP GPU backend" OFF)
+
+if(ELIPS_ENABLE_METAL AND NOT APPLE)
     message(WARNING
-        "ELIPS_GPU_METAL is ON but this is not an Apple platform; "
+        "ELIPS_ENABLE_METAL is ON but this is not an Apple platform; "
         "no Metal backend will be compiled.")
 endif()
 
 set(ELIPS_GPU_ENABLED OFF)
-if(ELIPS_GPU_CUDA OR ELIPS_GPU_HIP OR (ELIPS_GPU_METAL AND APPLE))
+if(ELIPS_ENABLE_CUDA OR ELIPS_ENABLE_ROCM OR (ELIPS_ENABLE_METAL AND APPLE))
     set(ELIPS_GPU_ENABLED ON)
 endif()
 
@@ -138,9 +153,13 @@ if(ELIPS_BUILD_BENCH)
 endif()
 
 # -------------------------------- tests ----------------------------------
-option(ELIPS_BUILD_TESTS "Build the ELIPS test suite" ON)
+if(DEFINED ELIPS_BUILD_TESTS AND NOT DEFINED BUILD_TESTING)
+    set(BUILD_TESTING "${ELIPS_BUILD_TESTS}" CACHE BOOL "" FORCE)
+    message(DEPRECATION "ELIPS_BUILD_TESTS is deprecated; use BUILD_TESTING")
+endif()
+option(BUILD_TESTING "Build the ELIPS test suite" ON)
 
-if(ELIPS_BUILD_TESTS)
+if(BUILD_TESTING)
     include(FetchContent)
     FetchContent_Declare(
         googletest
@@ -194,7 +213,7 @@ if(ELIPS_GPU_ENABLED)
         tests/parity/CpuGpuRecallParityTest.cpp
     )
     target_compile_definitions(elips_tests PRIVATE ELIPS_GPU_ENABLED)
-    if(APPLE AND ELIPS_GPU_METAL)
+    if(APPLE AND ELIPS_ENABLE_METAL)
         target_link_libraries(elips_tests PRIVATE elips_gpu_metal)
         find_library(METAL_FW Metal)
         find_library(MPS_FW MetalPerformanceShaders)
@@ -206,7 +225,7 @@ if(ELIPS_GPU_ENABLED)
         tests/integration/gpu/DatabaseGpuLifecycleProbe.cpp
     )
     target_link_libraries(elips_gpu_lifecycle_probe PRIVATE elips_core)
-    if(APPLE AND ELIPS_GPU_METAL)
+    if(APPLE AND ELIPS_ENABLE_METAL)
         target_link_libraries(elips_gpu_lifecycle_probe PRIVATE elips_gpu_metal)
         target_link_libraries(elips_gpu_lifecycle_probe PRIVATE ${METAL_FW} ${MPS_FW} ${FOUNDATION_FW})
     endif()
@@ -235,9 +254,13 @@ if(ELIPS_BUILD_FUZZERS)
 endif()
 
 # ----------------------------- python bindings ---------------------------
-option(ELIPS_BUILD_PYTHON "Build the Python (PyBind11) bindings" OFF)
+if(DEFINED ELIPS_BUILD_PYTHON AND NOT DEFINED ELIPS_ENABLE_PYTHON)
+    set(ELIPS_ENABLE_PYTHON "${ELIPS_BUILD_PYTHON}" CACHE BOOL "" FORCE)
+    message(DEPRECATION "ELIPS_BUILD_PYTHON is deprecated; use ELIPS_ENABLE_PYTHON")
+endif()
+option(ELIPS_ENABLE_PYTHON "Build the Python (PyBind11) bindings" OFF)
 
-if(ELIPS_BUILD_PYTHON)
+if(ELIPS_ENABLE_PYTHON)
     set(
         ELIPS_PYBIND11_SOURCE_DIR
         ""
