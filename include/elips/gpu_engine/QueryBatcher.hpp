@@ -1,5 +1,5 @@
-#ifndef ELIPS_GPU_ENGINE_DYNAMIC_BATCHER_HPP
-#define ELIPS_GPU_ENGINE_DYNAMIC_BATCHER_HPP
+#ifndef ELIPS_GPU_ENGINE_QUERY_BATCHER_HPP
+#define ELIPS_GPU_ENGINE_QUERY_BATCHER_HPP
 
 #include <atomic>
 #include <chrono>
@@ -14,15 +14,15 @@
 
 namespace elips::gpu {
 
-class DynamicBatcher {
+class QueryBatcher {
 public:
-    DynamicBatcher(size_t window_us = 500, size_t max_batch = 256);
-    ~DynamicBatcher();
+    QueryBatcher(size_t window_us = 500, size_t max_batch = 256);
+    ~QueryBatcher();
 
-    DynamicBatcher(const DynamicBatcher&) = delete;
-    DynamicBatcher& operator=(const DynamicBatcher&) = delete;
-    DynamicBatcher(DynamicBatcher&&) = delete;
-    DynamicBatcher& operator=(DynamicBatcher&&) = delete;
+    QueryBatcher(const QueryBatcher&) = delete;
+    QueryBatcher& operator=(const QueryBatcher&) = delete;
+    QueryBatcher(QueryBatcher&&) = delete;
+    QueryBatcher& operator=(QueryBatcher&&) = delete;
 
     std::future<std::vector<elips::SearchResult>>
     enqueue(std::span<const float> query_vector, size_t k);
@@ -69,6 +69,8 @@ private:
     std::atomic<size_t> total_queries_{0};
     std::atomic<size_t> total_launches_{0};
 };
+
+using DynamicBatcher [[deprecated("renamed to QueryBatcher")]] = QueryBatcher;
 
 } // namespace elips::gpu
 

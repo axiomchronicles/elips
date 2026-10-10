@@ -6,7 +6,7 @@
 #include <iomanip>
 
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 #include "elips/index_engine/ExactIndex.hpp"
@@ -49,7 +49,7 @@ BenchResult bench_search(size_t n_vectors, size_t dim, Metric metric, size_t n_q
 
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
-    GpuSelector selector;
+    BackendSelector selector;
     GpuConfig config;
     config.policy = GpuPolicy::Auto;
     auto backend = selector.select(config, devices);

@@ -1,26 +1,26 @@
-#include "elips/gpu_engine/DynamicBatcher.hpp"
+#include "elips/gpu_engine/QueryBatcher.hpp"
 #include <algorithm>
 
 namespace elips::gpu {
 
-DynamicBatcher::DynamicBatcher(size_t window_us, size_t max_batch)
+QueryBatcher::QueryBatcher(size_t window_us, size_t max_batch)
     : window_us_(window_us), max_batch_(max_batch) {}
 
-DynamicBatcher::~DynamicBatcher() { stop(); }
+QueryBatcher::~QueryBatcher() { stop(); }
 
-void DynamicBatcher::start() {
+void QueryBatcher::start() {
     running_ = true;
-    worker_ = std::thread(&DynamicBatcher::worker_loop, this);
+    worker_ = std::thread(&QueryBatcher::worker_loop, this);
 }
 
-void DynamicBatcher::stop() {
+void QueryBatcher::stop() {
     running_ = false;
     cv_.notify_all();
     if (worker_.joinable()) worker_.join();
 }
 
 std::future<std::vector<elips::SearchResult>>
-DynamicBatcher::enqueue(std::span<const float> query_vector, size_t k) {
+QueryBatcher::enqueue(std::span<const float> query_vector, size_t k) {
     PendingQuery pq;
     pq.query.assign(query_vector.begin(), query_vector.end());
     pq.k = k;
@@ -33,7 +33,7 @@ DynamicBatcher::enqueue(std::span<const float> query_vector, size_t k) {
     return future;
 }
 
-void DynamicBatcher::flush() {
+void QueryBatcher::flush() {
     std::vector<PendingQuery> batch;
     {
         const std::lock_guard lock(mutex_);
@@ -64,7 +64,7 @@ void DynamicBatcher::flush() {
     }
 }
 
-void DynamicBatcher::worker_loop() {
+void QueryBatcher::worker_loop() {
     while (running_) {
         std::unique_lock lock(mutex_);
         cv_.wait_for(lock, std::chrono::microseconds(window_us_),
@@ -105,7 +105,7 @@ void DynamicBatcher::worker_loop() {
     }
 }
 
-DynamicBatcher::BatchStats DynamicBatcher::stats() const noexcept {
+QueryBatcher::BatchStats QueryBatcher::stats() const noexcept {
     BatchStats s;
     s.kernel_launches = total_launches_.load();
     s.queries_coalesced = total_queries_.load();
@@ -116,7 +116,7 @@ DynamicBatcher::BatchStats DynamicBatcher::stats() const noexcept {
     return s;
 }
 
-void DynamicBatcher::set_search_fn(
+void QueryBatcher::set_search_fn(
     std::function<std::vector<std::vector<elips::SearchResult>>(
         const std::vector<std::span<const float>>&, size_t k)> fn) {
     search_fn_ = std::move(fn);

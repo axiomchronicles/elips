@@ -24,7 +24,7 @@
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
-#include "elips/gpu_engine/DynamicBatcher.hpp"
+#include "elips/gpu_engine/QueryBatcher.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
@@ -1563,24 +1563,24 @@ Returns:
                    std::to_string(profiler.total_launches()) + ">";
         });
 
-    py::class_<elips::gpu::DynamicBatcher::BatchStats>(
+    py::class_<elips::gpu::QueryBatcher::BatchStats>(
         m, "BatchStats",
         "Coalescing statistics from the dynamic query batcher.")
         .def(py::init<>())
         .def_readonly("queries_coalesced",
-                      &elips::gpu::DynamicBatcher::BatchStats::queries_coalesced,
+                      &elips::gpu::QueryBatcher::BatchStats::queries_coalesced,
                       "Queries merged into shared kernel launches.")
         .def_readonly("kernel_launches",
-                      &elips::gpu::DynamicBatcher::BatchStats::kernel_launches,
+                      &elips::gpu::QueryBatcher::BatchStats::kernel_launches,
                       "Kernel launches issued.")
         .def_readonly("avg_batch_size",
-                      &elips::gpu::DynamicBatcher::BatchStats::avg_batch_size,
+                      &elips::gpu::QueryBatcher::BatchStats::avg_batch_size,
                       "Mean queries per launch.")
         .def_readonly("p99_latency_us",
-                      &elips::gpu::DynamicBatcher::BatchStats::p99_latency_us,
+                      &elips::gpu::QueryBatcher::BatchStats::p99_latency_us,
                       "99th-percentile end-to-end batch latency.")
         .def("__repr__",
-             [](const elips::gpu::DynamicBatcher::BatchStats& stats) {
+             [](const elips::gpu::QueryBatcher::BatchStats& stats) {
                  return "<BatchStats coalesced=" +
                         std::to_string(stats.queries_coalesced) +
                         " launches=" + std::to_string(stats.kernel_launches) +

@@ -4,11 +4,11 @@
 
 add_library(elips_gpu STATIC
     GpuDeviceManager.cpp
-    GpuSelector.cpp
+    BackendSelector.cpp
     GpuIndexTransferManager.cpp
     GpuMemoryManager.cpp
     GpuMemoryPool.cpp
-    DynamicBatcher.cpp
+    QueryBatcher.cpp
     GpuIngestionPipeline.cpp
     GpuSearchPipeline.cpp
     GpuQuantizationPipeline.cpp

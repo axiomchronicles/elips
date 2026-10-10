@@ -3,13 +3,13 @@
 #include <thread>
 #include <chrono>
 
-#include "elips/gpu_engine/DynamicBatcher.hpp"
+#include "elips/gpu_engine/QueryBatcher.hpp"
 
 namespace elips::gpu {
 namespace {
 
-TEST(DynamicBatcherTest, single_query_completes) {
-    DynamicBatcher batcher(100, 256);
+TEST(QueryBatcherTest, single_query_completes) {
+    QueryBatcher batcher(100, 256);
 
     std::atomic<int> call_count{0};
     batcher.set_search_fn(
@@ -39,8 +39,8 @@ TEST(DynamicBatcherTest, single_query_completes) {
     batcher.stop();
 }
 
-TEST(DynamicBatcherTest, batch_coalesces_concurrent_queries) {
-    DynamicBatcher batcher(50000, 256);
+TEST(QueryBatcherTest, batch_coalesces_concurrent_queries) {
+    QueryBatcher batcher(50000, 256);
 
     std::atomic<int> call_count{0};
     std::atomic<size_t> total_batched{0};
@@ -74,8 +74,8 @@ TEST(DynamicBatcherTest, batch_coalesces_concurrent_queries) {
     batcher.stop();
 }
 
-TEST(DynamicBatcherTest, stats_are_accurate) {
-    DynamicBatcher batcher(100, 256);
+TEST(QueryBatcherTest, stats_are_accurate) {
+    QueryBatcher batcher(100, 256);
 
     batcher.set_search_fn(
         [](const std::vector<std::span<const float>>& queries, size_t)

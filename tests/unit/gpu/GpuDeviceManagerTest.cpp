@@ -4,7 +4,7 @@
 
 #include "elips/elips.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 
 namespace elips::gpu {
@@ -66,7 +66,7 @@ TEST(GpuDeviceManagerTest, probe_returns_results_on_supported_system) {
 TEST(GpuDeviceManagerTest, selector_chooses_best_available) {
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
-    GpuSelector selector;
+    BackendSelector selector;
 
     GpuConfig config;
     config.policy = GpuPolicy::Auto;
@@ -80,7 +80,7 @@ TEST(GpuDeviceManagerTest, selector_chooses_best_available) {
 TEST(GpuDeviceManagerTest, policy_cpu_only_returns_no_backend) {
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
-    GpuSelector selector;
+    BackendSelector selector;
 
     GpuConfig config;
     config.policy = GpuPolicy::CpuOnly;
@@ -104,7 +104,7 @@ TEST(GpuDeviceManagerTest, can_fit_index_estimation) {
 }
 
 TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_hip) {
-    GpuSelector selector;
+    BackendSelector selector;
     std::vector<GpuDeviceInfo> devices;
 
     GpuDeviceInfo cuda_dev;

@@ -26,7 +26,7 @@
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #endif
 
 namespace elips {
@@ -769,7 +769,7 @@ void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
         return;
     }
 
-    gpu::GpuSelector selector;
+    gpu::BackendSelector selector;
     auto selected = selector.select(config.gpu(), devices);
     if (!selected.has_value() || *selected == nullptr) {
         if (config.gpu().policy == gpu::GpuPolicy::RequireGpu ||
@@ -1421,7 +1421,7 @@ void Vault::rebuild_index_locked() {
 #endif
     );
 
-    metadata_index_ = MetadataIndex{};
+    metadata_index_ = MetadataFilterIndex{};
     for (const auto& [id, record] : records_) {
         // Compressed records decode once here; the index re-encodes internally
         // to the same code, so a rebuild does not degrade what is stored.

@@ -6,12 +6,12 @@
 
 #include "elips/domain/Record.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/metadata/MetadataIndex.hpp"
+#include "elips/metadata/MetadataFilterIndex.hpp"
 
 namespace {
 
-TEST(MetadataIndexTest, ExactCandidatesIntersectEqualityConstraints) {
-    elips::MetadataIndex index;
+TEST(MetadataFilterIndexTest, ExactCandidatesIntersectEqualityConstraints) {
+    elips::MetadataFilterIndex index;
     const auto alpha_design = elips::RecordID::generate();
     const auto alpha_ops = elips::RecordID::generate();
     const auto beta_design = elips::RecordID::generate();
@@ -37,8 +37,8 @@ TEST(MetadataIndexTest, ExactCandidatesIntersectEqualityConstraints) {
     EXPECT_EQ(*candidates, std::set<elips::RecordID>{alpha_design});
 }
 
-TEST(MetadataIndexTest, ExactCandidatesSupportInSetAndRemoval) {
-    elips::MetadataIndex index;
+TEST(MetadataFilterIndexTest, ExactCandidatesSupportInSetAndRemoval) {
+    elips::MetadataFilterIndex index;
     const auto design = elips::RecordID::generate();
     const auto ops = elips::RecordID::generate();
     const auto finance = elips::RecordID::generate();
@@ -66,8 +66,8 @@ TEST(MetadataIndexTest, ExactCandidatesSupportInSetAndRemoval) {
     EXPECT_EQ(*after_remove, std::set<elips::RecordID>{design});
 }
 
-TEST(MetadataIndexTest, NonExactFiltersDoNotProduceCandidates) {
-    elips::MetadataIndex index;
+TEST(MetadataFilterIndexTest, NonExactFiltersDoNotProduceCandidates) {
+    elips::MetadataFilterIndex index;
     index.insert(elips::RecordID::generate(),
                  {{"kind", std::string{"design"}},
                   {"title", std::string{"alpha design note"}}});

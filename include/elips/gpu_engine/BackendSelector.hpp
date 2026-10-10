@@ -1,5 +1,5 @@
-#ifndef ELIPS_GPU_ENGINE_GPU_SELECTOR_HPP
-#define ELIPS_GPU_ENGINE_GPU_SELECTOR_HPP
+#ifndef ELIPS_GPU_ENGINE_BACKEND_SELECTOR_HPP
+#define ELIPS_GPU_ENGINE_BACKEND_SELECTOR_HPP
 
 #include <memory>
 #include <optional>
@@ -11,7 +11,7 @@
 
 namespace elips::gpu {
 
-class GpuSelector {
+class BackendSelector {
 public:
     [[nodiscard]] std::optional<std::unique_ptr<GpuPort>>
     select(const GpuConfig& config, const std::vector<GpuDeviceInfo>& devices) const;
@@ -19,6 +19,8 @@ public:
 private:
     [[nodiscard]] int rank_backend(std::string_view backend) const noexcept;
 };
+
+using GpuSelector [[deprecated("renamed to BackendSelector")]] = BackendSelector;
 
 } // namespace elips::gpu
 

@@ -1,4 +1,4 @@
-#include "elips/metadata/MetadataIndex.hpp"
+#include "elips/metadata/MetadataFilterIndex.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -19,7 +19,7 @@ std::set<RecordID> intersect_sets(const std::set<RecordID>& left,
 
 }  // namespace
 
-std::string MetadataIndex::encode_value(const MetaValue& value) {
+std::string MetadataFilterIndex::encode_value(const MetaValue& value) {
     std::ostringstream encoded;
     std::visit(
         [&encoded](const auto& v) {
@@ -38,13 +38,13 @@ std::string MetadataIndex::encode_value(const MetaValue& value) {
     return encoded.str();
 }
 
-void MetadataIndex::insert(const RecordID& id, const Payload& payload) {
+void MetadataFilterIndex::insert(const RecordID& id, const Payload& payload) {
     for (const auto& [field, value] : payload) {
         exact_[field][encode_value(value)].insert(id);
     }
 }
 
-void MetadataIndex::remove(const RecordID& id, const Payload& payload) noexcept {
+void MetadataFilterIndex::remove(const RecordID& id, const Payload& payload) noexcept {
     for (const auto& [field, value] : payload) {
         const auto field_it = exact_.find(field);
         if (field_it == exact_.end()) {
@@ -64,7 +64,7 @@ void MetadataIndex::remove(const RecordID& id, const Payload& payload) noexcept 
     }
 }
 
-std::optional<std::set<RecordID>> MetadataIndex::exact_candidates(
+std::optional<std::set<RecordID>> MetadataFilterIndex::exact_candidates(
     const Filter& filter) const {
     const auto constraints = filter.exact_constraints();
     if (!constraints.has_value()) {

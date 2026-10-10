@@ -38,7 +38,7 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 ## Phase 5 checklist (deep rename — ADR-R2)
 - [x] Naming map drafted (3 agents → `_naming_cpp.md` 344 rows, `_naming_python.md`, `_naming_other.md`)
 - [x] `03_naming_map.md` ADR recorded (collisions resolved, DO-NOT-RENAME safety list, shim policy, batch plan)
-- [ ] Batch 1: C++ core types/methods → build+ctest green
+- [x] Batch 1: C++ core types/methods → build+ctest green — `DynamicBatcher`→`QueryBatcher`, `GpuSelector`→`BackendSelector`, `MetadataIndex`→`MetadataFilterIndex` (3 classes + files + deprecated `using` aliases). Independently verified: build 0, ctest 256/256 (255+1skip), pytest 34/34.
 - [ ] Batch 2: file renames + include fixups
 - [ ] Batch 3: EQL verbs + AST
 - [ ] Batch 4: pybind + Python facades + kwargs → pytest green

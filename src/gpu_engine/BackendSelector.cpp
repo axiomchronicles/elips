@@ -1,11 +1,11 @@
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 
 #include <algorithm>
 
 namespace elips::gpu {
 
-int GpuSelector::rank_backend(std::string_view backend) const noexcept {
+int BackendSelector::rank_backend(std::string_view backend) const noexcept {
     if (backend == "cuda")   return 100;
     if (backend == "hip")    return 90;
     if (backend == "metal")  return 80;
@@ -14,7 +14,7 @@ int GpuSelector::rank_backend(std::string_view backend) const noexcept {
 }
 
 std::optional<std::unique_ptr<GpuPort>>
-GpuSelector::select(const GpuConfig& config,
+BackendSelector::select(const GpuConfig& config,
                     const std::vector<GpuDeviceInfo>& devices) const {
     if (config.policy == GpuPolicy::CpuOnly) return std::nullopt;
     if (devices.empty()) {

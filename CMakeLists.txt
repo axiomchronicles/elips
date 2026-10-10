@@ -77,7 +77,7 @@ add_library(elips_core
     src/LockManager.cpp
     src/WAL.cpp
     src/Filter.cpp
-    src/MetadataIndex.cpp
+    src/MetadataFilterIndex.cpp
     src/EQLLexer.cpp
     src/EQLParser.cpp
     src/QueryExecutor.cpp
@@ -159,7 +159,7 @@ if(ELIPS_BUILD_TESTS)
         tests/unit/eql_test.cpp
         tests/unit/vector_test.cpp
         tests/unit/config_test.cpp
-        tests/unit/metadata_index_test.cpp
+        tests/unit/metadata_filter_index_test.cpp
         tests/unit/exact_edge_cases_test.cpp
         tests/unit/hnsw_edge_cases_test.cpp
         tests/unit/filter_edge_test.cpp
@@ -189,7 +189,7 @@ if(ELIPS_GPU_ENABLED)
         tests/unit/gpu/GpuAdvancedIndexTest.cpp
         tests/unit/gpu/GpuMemoryManagerTest.cpp
         tests/unit/gpu/m4_memory_manager_test.cpp
-        tests/unit/gpu/DynamicBatcherTest.cpp
+        tests/unit/gpu/QueryBatcherTest.cpp
         tests/integration/gpu/MetalBackendTest.cpp
         tests/parity/CpuGpuRecallParityTest.cpp
     )

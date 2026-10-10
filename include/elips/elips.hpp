@@ -19,7 +19,7 @@
 #include "elips/index_engine/IndexPort.hpp"
 #include "elips/kernel/LockManager.hpp"
 #include "elips/metadata/Filter.hpp"
-#include "elips/metadata/MetadataIndex.hpp"
+#include "elips/metadata/MetadataFilterIndex.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
@@ -270,7 +270,7 @@ private:
     Config config_;
     std::unique_ptr<IndexPort> index_;
     std::map<RecordID, Record> records_;
-    MetadataIndex metadata_index_;
+    MetadataFilterIndex metadata_index_;
     WAL* wal_{nullptr};
     bool read_only_{false};
     bool sealed_{false};
