@@ -80,7 +80,7 @@ GPU ENGINE (OPTIONAL ENGINE)
 ==================================================
 - Build switch: \`-DELIPS_ENABLE_GPU=ON\` (Metal is default-on on Apple). Optional; fallback to CPU is automatic unless a specific backend is required.
 - Abstraction: \`GpuBackend\` (the device interface), \`BackendSelector\` (chooses a backend at startup), \`QueryBatcher\` (coalesces queries).
-- Backends & maturity: Metal (Apple Silicon, unified memory) is the implemented/production path; CUDA (NVIDIA) and HIP/ROCm (AMD) are experimental and off by default; CPU is always available. SYCL and Vulkan were removed.
+- Backends & maturity: Metal (Apple Silicon, unified memory) is the implemented/implemented path (Beta, validated on Apple M4); CUDA (NVIDIA) and HIP/ROCm (AMD) are experimental and off by default; CPU is always available. SYCL and Vulkan were removed.
 - Device selection: open with \`device="cpu"|"auto"|"metal"|"cuda:N"|"hip:N"\` (not \`gpu=True\`); a named-but-absent backend raises \`BackendUnavailableError\` unless \`fallback=True\`. Enumerate with \`elips.accelerators()\`; inspect the active backend via \`client.native.gpu_info()\`.
 - Metal implements distance and top-k kernels; it does not provide CAGRA/cuVS GPU graph kernels.
 

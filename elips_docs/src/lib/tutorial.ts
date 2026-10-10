@@ -1137,7 +1137,7 @@ public:
       {
         kind: "ul",
         items: [
-          "Metal — production, default ON on Apple; distance + top-k kernels",
+          "Metal — implemented (Beta, M4-validated), default ON on Apple; distance + top-k kernels",
           "CUDA — experimental",
           "HIP / ROCm — experimental",
           "CPU — always available; the fallback path",

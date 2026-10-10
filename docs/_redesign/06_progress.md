@@ -14,10 +14,8 @@ Running checklist. Update at every gate. Dates are absolute (today: 2026-10-10).
 | 6 | Core engine maturity | DONE (2026-10-10) | ☑ |
 | 7 | GPU acceleration redesign | DONE (2026-10-10) | ☑ |
 | 8 | Build / packaging / test infra | DONE (2026-10-10) | ☑ |
-| 9 | Documentation | IN PROGRESS (2026-10-11) | ☐ |
-| 8 | Build / packaging / test infra | not started | ☐ |
-| 9 | Documentation | not started | ☐ |
-| 10 | Release readiness | not started | ☐ |
+| 9 | Documentation | DONE (2026-10-11) | ☑ |
+| 10 | Release readiness | DONE (2026-10-11) | ☑ |
 
 ## Phase 1 checklist
 - [x] 1A C++ inventory (`_phase1_cpp.md`) — core essentially COMPLETE, not stubby
@@ -110,3 +108,8 @@ FAISS-style CMake (opt-levels, options, install/export + find_package), packagin
 - 2026-10-10: Phase 3 started. Cloned facebookresearch/faiss @ v1.15.1 (`75c755c5`) to /tmp/faiss. Fanned out 3A–3H study agents. **MAJOR CORRECTION (overrides mission ground rule #8):** upstream FAISS v1.15.1 now has a REAL Metal backend (`faiss/gpu_metal/`, ~7700 LOC, incl. GPU top-k `topk_threadgroup_2048`). Added agent 3I to study it; recorded as ADR-R1 in `04_architecture.md`. Phase 7 Metal work is now adapt-a-precedent, not greenfield.
 - 2026-10-10: Phase 3 DONE. All 9 section reports written (`_faiss_3A..3H.md` + `_faiss_3I_metal.md`); synthesized into `01_faiss_study.md` with 8 reality-corrections + adopt/adapt/skip per section + consolidated decisions feeding Phases 5–8. Gate MET (study non-destructive, nothing built). Next: Phase 4 gap analysis.
 - 2026-10-10: Phase 4 DONE. 3 gap agents (4A index/search/CRUD/persistence, 4B GPU/Metal, 4C API/build/concurrency/docs) → merged into `02_gap_analysis.md`. 7 blockers identified; every gap carries an owner phase (gate MET). Headlines: 3 live vocabularies (B1), no index_factory (B2), no Client/PersistentClient (B3), GPU top-k on CPU + naive kernel + no real-kernel test (B4-6), docs actively wrong (B7). ELIPS has NO CPU IVF (GPU-only) — biggest core gap. ELIPS ahead on durability/hybrid/batcher/unified-memory. Committed `02_gap_analysis.md`.
+- 2026-10-11: Phases 5–10 DONE. P5 deep rename (8 batches, shims, MIGRATION). P6 CPU IVF family (IVFFlat/IVFPQ/IVF-SQ) + index_factory + FAISS Index API in Python + Chroma string ids + range_search + typed errors. P7 GPU: real Metal Flat/IVF/bf_knn validated on M4 (real-kernel parity tests), device selection + no-silent-fallback, honest benchmarks vs faiss-cpu; CUDA + HIP implemented, EXPERIMENTAL, gated OFF, container-compile scripts (x86_64 CI only — QEMU can't run nvcc here; HIP host-syntax-verified). P8 FAISS-style CMake (opt-level/C_API/install-export/find_package), packaging (numpy dep, version SSOT 1.1.0), CI matrix + docs-snippet runner. P9 docs truth pass across Python/C++/arch/GPU/EQL/website (0 snippet failures, old-vocab grep clean). P10 THIRD_PARTY_NOTICES + final_report.md + skeptic pass.
+- 2026-10-11: SKEPTIC verdict (`_skeptic_report.md`): fresh build EXIT 0; ctest 307 (306 pass/1 skip/0 fail, Metal parity tests confirmed RUN not mock); pytest 263; doc snippets 0 failed; ASan bounded subset 46/46 no errors; benchmark smoke sanity gate PASS; old-name grep clean (shims only); honesty audit — NO overclaim, CUDA/HIP all labelled experimental. Nits fixed: website "production"→"implemented (Beta, M4-validated)"; GpuBackend.hpp comment dropped stale Vulkan/SYCL. **Mission complete.**
+
+## MISSION COMPLETE (2026-10-11)
+All 10 phases done on branch `redesign` (~40 commits), green at every gate. Honest end-state in `final_report.md`. Validated here: CPU + Metal (Apple M4). CUDA/HIP implemented but NOT hardware-validated (experimental). Known limitations + roadmap in `final_report.md`. Deprecation shims keep old names working (removed next minor); SemVer-major (2.0.0) recommended, bump left to maintainer. Not merged to `main` (awaiting user review/PR).

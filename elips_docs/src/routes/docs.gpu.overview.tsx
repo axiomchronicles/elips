@@ -34,7 +34,7 @@ function Page() {
       <p className="text-[18px] text-ink">
         ELIPS has a multi-backend GPU abstraction for offloading distance math and top-k selection
         to hardware accelerators. Today the <strong>Metal</strong> backend is the implemented,
-        production path on Apple silicon; CUDA and HIP/ROCm are experimental, and everything falls
+        implemented path (Beta, validated on Apple M4) on Apple silicon; CUDA and HIP/ROCm are experimental, and everything falls
         back to CPU.
       </p>
 

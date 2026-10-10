@@ -359,7 +359,7 @@ public:
         built around <code>GpuBackend</code> (the backend abstraction),{" "}
         <code>BackendSelector</code> (device resolution and fallback), and{" "}
         <code>QueryBatcher</code> (coalesces concurrent queries into batched kernel launches).
-        Backends: <strong>Metal</strong> (production on Apple; distance and top-k kernels),{" "}
+        Backends: <strong>Metal</strong> (implemented on Apple (Beta, M4-validated); distance and top-k kernels),{" "}
         <strong>CUDA</strong> (experimental), <strong>HIP/ROCm</strong> (experimental), and{" "}
         <strong>CPU</strong> (always available). GPU paths accelerate exact brute force and the IVF
         family; the HNSW graph index remains CPU-resident. See{" "}

@@ -86,7 +86,7 @@ public:
     // contiguously; list_offsets (size nlists+1) bound each list's rows. The
     // index written into indices_out is the GLOBAL candidate row (0..ncand), so
     // the caller maps it back to a record id. Defaulted to "unsupported" so a
-    // backend without an IVF-scan kernel (CUDA/HIP/Vulkan/SYCL today) is left
+    // backend without an IVF-scan kernel (CUDA/HIP today) is left
     // untouched and the IVF index falls back to its generic scan path.
     [[nodiscard]] virtual std::expected<void, GpuError>
     ivf_scan(

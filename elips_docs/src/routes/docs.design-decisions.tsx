@@ -148,7 +148,7 @@ function Page() {
 
       <h2>GPU ADRs</h2>
       <p className="text-body">
-        GPU support is Metal-first: the Metal backend is the implemented, production path on Apple
+        GPU support is Metal-first: the Metal backend is the implemented, implemented path (Beta, validated on Apple M4) on Apple
         silicon, CUDA and HIP/ROCm are experimental and off by default, and CPU is always available.
         SYCL and Vulkan backends were removed. See the{" "}
         <a href="/docs/gpu/overview" className="text-primary underline">GPU engine overview</a> for

@@ -116,7 +116,7 @@ print(plan.strategy, plan.metadata_accelerated, plan.candidate_count)`}
         When built with <code>-DELIPS_GPU_ENABLED=ON</code>, ELIPS accelerates the distance and
         top-k stage on the GPU behind <code>GpuBackend</code>. The exact brute-force path is exposed
         directly as <code>elips.bf_knn(xq, xb, k, device=&quot;metal&quot;)</code> — no index build.
-        Metal is the production path on Apple Silicon; CUDA and HIP/ROCm are experimental. Selection
+        Metal is the implemented path (Beta, validated on Apple M4) on Apple Silicon; CUDA and HIP/ROCm are experimental. Selection
         runs through <code>BackendSelector</code> at startup; domain code never sees a backend type.
         For the full engine architecture, see <Link to="/docs/gpu-engine">GPU engine</Link>.
       </p>

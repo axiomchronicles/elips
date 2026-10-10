@@ -279,7 +279,7 @@ client.close()`}</CodeBlock>
       <h2 id="gpu">GPU acceleration</h2>
       <p>
         If your build includes GPU support, select a backend with the <code>device</code> string.
-        Metal is the production path on Apple silicon; CUDA and HIP are experimental:
+        Metal is the implemented path (Beta, validated on Apple M4) on Apple silicon; CUDA and HIP are experimental:
       </p>
       <CodeBlock lang="python">{`import elips
 

@@ -10,13 +10,13 @@ export const Route = createFileRoute("/docs/gpu-engine")({
       {
         name: "description",
         content:
-          "The ELIPS GPU engine — the GpuBackend port, backends (Metal production on Apple, CUDA/HIP experimental), distance + top-k kernels, bf_knn, query batching, memory pools, and configuration.",
+          "The ELIPS GPU engine — the GpuBackend port, backends (Metal implemented on Apple (Beta, M4-validated), CUDA/HIP experimental), distance + top-k kernels, bf_knn, query batching, memory pools, and configuration.",
       },
       { property: "og:title", content: "GPU engine — ELIPS" },
       {
         property: "og:description",
         content:
-          "Optional GPU acceleration behind GpuBackend — Metal (production on Apple Silicon), CUDA and HIP/ROCm (experimental) — running distance and top-k kernels with query batching and pinned pools.",
+          "Optional GPU acceleration behind GpuBackend — Metal (implemented on Apple (Beta, M4-validated) Silicon), CUDA and HIP/ROCm (experimental) — running distance and top-k kernels with query batching and pinned pools.",
       },
       { property: "og:url", content: "/docs/gpu-engine" },
     ],
@@ -168,7 +168,7 @@ struct GpuConfig {
       </p>
       <ul>
         <li>
-          <strong>Metal</strong> (<code>backends/metal/</code>) — Apple Silicon, the production path.
+          <strong>Metal</strong> (<code>backends/metal/</code>) — Apple Silicon, the implemented path (Beta, validated on Apple M4).
           Leans on unified memory (<code>has_unified_memory</code> in <code>GpuDeviceInfo</code>).
         </li>
         <li>
