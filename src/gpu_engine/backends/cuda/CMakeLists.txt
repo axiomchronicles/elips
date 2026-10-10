@@ -18,7 +18,7 @@ enable_language(CUDA)
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES "70;80;90")
 endif()
-# The GpuPort interface uses std::span (C++20). nvcc (CUDA 12.x) supports up to
+# The GpuBackend interface uses std::span (C++20). nvcc (CUDA 12.x) supports up to
 # C++20 for device code, so pin to 20 here even though the host project is C++23;
 # std::expected comes from the project's polyfill (domain/Expected.hpp).
 set(CMAKE_CUDA_STANDARD 20)
