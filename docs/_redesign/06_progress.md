@@ -77,7 +77,7 @@ Next: **Phase 7 — Metal GPU (the heart).**
 
 ## Phase 7 checklist (GPU — Metal first; the heart)
 - [x] 7.1 Real Metal Flat path on M4: metallib build chain (`xcrun metal→air→metallib` + env/compiled-in/dladdr loader), tiled-GEMM distance (`elips_l2_matrix`/`elips_ip_matrix`), **GPU top-k** (`topk_select`, exact chunked sort-merge, smaller-index tiebreak — replaces CPU `std::partial_sort`), real `synchronize`. **MetalRealKernelParity test RAN+PASSED on M4** (L2/IP/cosine × dims{2,64,128,384} × n{1,1e3,1e4} × k{1,10,100} + k>ntotal, tol 6e-3). ctest 299. THIRD_PARTY_NOTICES.md (FAISS MIT) added. Device limits queried, not hardcoded. k>1024 clamped (documented ceiling).
-- [ ] REGRESSION FIX (pre-7.1, from Phase 5/6): `.pyi` stub + `_native` seam out of sync with the new surface → `test_exposed_surface`/`test_native_seam` fail (2). Full pytest = 250 pass / 2 fail / 1 skip. Must fix to restore green.
+- [x] REGRESSION FIX (pre-7.1, from Phase 5/6): completed the `*Snapshot*` pybind retirement (removed 4 dead `py::class_`/`enum` from `_core`; kept internal C++ classes), dropped the `_native` RETIRED filter, synced `_core.pyi` with the new/renamed symbols. **Full pytest now 251 pass / 1 skip / 0 fail** (was 2 fail), ctest 299, test_bindings 34/34. Gate tightened: full `pytest tests/python` runs on every Python-touching batch now.
 - [ ] 7.2 GPU IVF scan (ivf_scan_list + merge); 7.3 bf_knn; 7.4 cloner/unified-memory + logged fallback; 7.5 full §7.2 M4 checklist + benchmarks vs faiss-cpu
 - [ ] 7.6 CUDA/HIP compile-check, labelled EXPERIMENTAL
 

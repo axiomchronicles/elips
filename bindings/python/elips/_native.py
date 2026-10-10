@@ -39,25 +39,11 @@ __version__: str = _core.__version__
 has_gpu: bool = hasattr(_core, "GpuDevice")
 
 
-# Dead bindings retired from the Python surface in Phase 5 (naming map §8):
-# nothing in the API ever returned one, so they were only constructible
-# placeholders. The extension still defines them (a C++-side removal is a later
-# batch), but they are hidden here, so `elips.IndexSnapshot` and
-# `elips.native.IndexSnapshot` now raise AttributeError.
-RETIRED: frozenset[str] = frozenset(
-    {"IndexSnapshot", "IndexSnapshotKind", "IvfSnapshot", "PqSnapshot"}
-)
-
-
 def _public_names() -> tuple[str, ...]:
     """Every public symbol the extension exposes, in sorted order."""
 
     return tuple(
-        sorted(
-            name
-            for name in dir(_core)
-            if not name.startswith("_") and name not in RETIRED
-        )
+        sorted(name for name in dir(_core) if not name.startswith("_"))
     )
 
 
