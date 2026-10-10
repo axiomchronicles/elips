@@ -4,6 +4,12 @@ endif()
 
 cmake_minimum_required(VERSION 3.24)
 project(elips LANGUAGES CXX VERSION 1.1.0)
+# ^ project(VERSION) is the SINGLE SOURCE OF TRUTH for the ELIPS version.
+# The Python extension receives it as the ELIPS_VERSION compile definition
+# (see pybind section) and bindings/python/setup.py scrapes it from this line,
+# so the version lives in exactly one place.
+
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +38,63 @@ endif()
 # Enable Objective-C++ for Metal backend on Apple platforms
 if(APPLE)
     enable_language(OBJCXX)
+endif()
+
+# --------------------------- SIMD optimization ---------------------------
+# ELIPS CPU distance kernels are hand-written NEON (arm64) / scalar fallbacks.
+# ELIPS_OPT_LEVEL picks the baseline ISA the core library is compiled for.
+# Unlike FAISS (which builds one static lib per tier for runtime dispatch), we
+# build a single elips_core at the selected tier -- simpler, and enough until a
+# portable multi-tier wheel is actually needed.
+# ponytail: single-tier build now; add FAISS-style per-tier libs / runtime
+# dispatch ("dd") only when one wheel must serve many x86 CPUs.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    set(_elips_opt_default "neon")
+else()
+    set(_elips_opt_default "generic")
+endif()
+set(ELIPS_OPT_LEVEL "${_elips_opt_default}" CACHE STRING
+    "SIMD baseline for elips_core: generic|neon|avx2|avx512")
+set_property(CACHE ELIPS_OPT_LEVEL PROPERTY STRINGS generic neon avx2 avx512)
+
+# Resolved into ELIPS_OPT_FLAGS, applied to elips_core once it is defined.
+set(ELIPS_OPT_FLAGS "")
+if(ELIPS_OPT_LEVEL STREQUAL "generic")
+    # Portable baseline: no extra ISA flags. NEON is still mandatory on arm64.
+elseif(ELIPS_OPT_LEVEL STREQUAL "neon")
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+        message(WARNING "ELIPS_OPT_LEVEL=neon on a non-arm64 target; NEON is "
+                        "the arm64 baseline. Treating as generic.")
+    endif()
+    # NEON is baseline-mandatory on arm64 (AArch64 ABI) -- no flag needed.
+elseif(ELIPS_OPT_LEVEL STREQUAL "avx2")
+    if(MSVC)
+        set(ELIPS_OPT_FLAGS /arch:AVX2)
+    else()
+        set(ELIPS_OPT_FLAGS -mavx2 -mfma -mf16c)
+    endif()
+elseif(ELIPS_OPT_LEVEL STREQUAL "avx512")
+    if(MSVC)
+        set(ELIPS_OPT_FLAGS /arch:AVX512)
+    else()
+        set(ELIPS_OPT_FLAGS -mavx2 -mfma -mf16c
+            -mavx512f -mavx512cd -mavx512vl -mavx512dq -mavx512bw)
+    endif()
+else()
+    message(FATAL_ERROR "Unknown ELIPS_OPT_LEVEL '${ELIPS_OPT_LEVEL}' "
+                        "(expected generic|neon|avx2|avx512)")
+endif()
+message(STATUS "ELIPS_OPT_LEVEL=${ELIPS_OPT_LEVEL} flags='${ELIPS_OPT_FLAGS}'")
+
+# ------------------------------- BLAS (future) ---------------------------
+# ELIPS distance is hand/NEON, NOT BLAS -- there is no gemm consumer today, so
+# this stays OFF and is a deliberate no-op. It exists only to reserve the knob
+# for a future batched gemm distance path (then: find_package(BLAS) + link).
+# ponytail: no-op until a gemm distance kernel actually exists.
+option(ELIPS_ENABLE_BLAS "Reserve BLAS linkage for a future gemm path (no-op today)" OFF)
+if(ELIPS_ENABLE_BLAS)
+    message(WARNING "ELIPS_ENABLE_BLAS=ON has no effect: ELIPS has no BLAS "
+                    "consumer yet. Ignoring.")
 endif()
 
 # ------------------------------- GPU engine -------------------------------
@@ -101,7 +164,13 @@ add_library(elips_core
     src/QueryExecutor.cpp
     src/Database.cpp
 )
-target_include_directories(elips_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(elips_core PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+# SIMD baseline selected by ELIPS_OPT_LEVEL (resolved above).
+if(ELIPS_OPT_FLAGS)
+    target_compile_options(elips_core PRIVATE ${ELIPS_OPT_FLAGS})
+endif()
 if(WIN32)
     target_compile_definitions(elips_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
@@ -117,6 +186,14 @@ endif()
 if(ELIPS_GPU_ENABLED)
     target_link_libraries(elips_core PUBLIC elips_gpu)
     target_compile_definitions(elips_core PUBLIC ELIPS_GPU_ENABLED)
+endif()
+
+# ------------------------------- C API -----------------------------------
+# Thin extern "C" shim over the index_factory/add/search lifecycle. Off by
+# default (mirrors FAISS_ENABLE_C_API); its own subdir keeps the surface small.
+option(ELIPS_ENABLE_C_API "Build the minimal C API wrapper (elips_c)" OFF)
+if(ELIPS_ENABLE_C_API)
+    add_subdirectory(src/c_api)
 endif()
 
 # -------------------------------- elips-cli ------------------------------
@@ -169,6 +246,9 @@ if(BUILD_TESTING)
         URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    # Don't let GoogleTest's own install() rules leak gtest/gmock into the ELIPS
+    # package prefix.
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
@@ -227,7 +307,10 @@ if(ELIPS_GPU_ENABLED)
             tests/integration/gpu/MetalRealKernelParityTest.cpp
             tests/integration/gpu/MetalBruteForceKnnParityTest.cpp
             tests/integration/gpu/MetalIvfParityTest.cpp)
-        target_link_libraries(elips_tests PRIVATE elips_gpu_metal)
+        # elips_gpu_metal arrives transitively (elips_core -> elips_gpu ->
+        # elips_gpu_metal, all PUBLIC); linking it directly too made ld64 warn
+        # "ignoring duplicate libraries". Only MPS (not re-exported by the
+        # backend) needs an explicit link here.
         find_library(METAL_FW Metal)
         find_library(MPS_FW MetalPerformanceShaders)
         find_library(FOUNDATION_FW Foundation)
@@ -253,7 +336,7 @@ if(ELIPS_GPU_ENABLED)
     )
     target_link_libraries(elips_gpu_lifecycle_probe PRIVATE elips_core)
     if(APPLE AND ELIPS_ENABLE_METAL)
-        target_link_libraries(elips_gpu_lifecycle_probe PRIVATE elips_gpu_metal)
+        # elips_gpu_metal is transitive via elips_core (see note above).
         target_link_libraries(elips_gpu_lifecycle_probe PRIVATE ${METAL_FW} ${MPS_FW} ${FOUNDATION_FW})
     endif()
     add_test(NAME GpuDatabaseLifecycleProbe COMMAND elips_gpu_lifecycle_probe)
@@ -310,6 +393,9 @@ if(ELIPS_ENABLE_PYTHON)
 
     pybind11_add_module(elips_pymodule bindings/python/elips_python.cpp)
     target_link_libraries(elips_pymodule PRIVATE elips_core)
+    # Version flows from project(VERSION) -> extension -> elips.__version__,
+    # so there is nothing to hand-sync.
+    target_compile_definitions(elips_pymodule PRIVATE ELIPS_VERSION="${PROJECT_VERSION}")
     if(ELIPS_GPU_ENABLED)
         target_compile_definitions(elips_pymodule PRIVATE ELIPS_GPU_ENABLED)
     endif()
@@ -349,3 +435,61 @@ if(ELIPS_ENABLE_PYTHON)
         )
     endif()
 endif()
+
+# ------------------------- install / export ------------------------------
+# Mirrors FAISS's install convention (faiss/CMakeLists.txt:778-841): one export
+# set, a generated config package + version file, so downstream projects do
+#     find_package(elips REQUIRED)
+#     target_link_libraries(app PRIVATE elips::elips_core)
+# Every library that ends up on elips_core's PUBLIC interface must share the
+# export set, otherwise install(EXPORT) errors. elips_core PUBLIC-links elips_gpu
+# (GPU builds), which PUBLIC-links elips_gpu_metal (Apple) -- so those join too.
+include(CMakePackageConfigHelpers)
+
+set(ELIPS_INSTALL_TARGETS elips_core)
+if(ELIPS_GPU_ENABLED)
+    list(APPEND ELIPS_INSTALL_TARGETS elips_gpu)
+endif()
+if(APPLE AND ELIPS_ENABLE_METAL AND ELIPS_GPU_ENABLED)
+    list(APPEND ELIPS_INSTALL_TARGETS elips_gpu_metal)
+endif()
+if(ELIPS_ENABLE_CUDA AND ELIPS_GPU_ENABLED)
+    list(APPEND ELIPS_INSTALL_TARGETS elips_gpu_cuda)
+endif()
+if(ELIPS_ENABLE_ROCM AND ELIPS_GPU_ENABLED)
+    list(APPEND ELIPS_INSTALL_TARGETS elips_gpu_hip)
+endif()
+if(TARGET elips_c)
+    list(APPEND ELIPS_INSTALL_TARGETS elips_c)
+endif()
+
+install(TARGETS ${ELIPS_INSTALL_TARGETS}
+    EXPORT elipsTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/elips
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(EXPORT elipsTargets
+    FILE elipsTargets.cmake
+    NAMESPACE elips::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/elips)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/elipsConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/elipsConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/elips)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/elipsConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/elipsConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/elipsConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/elips)
+

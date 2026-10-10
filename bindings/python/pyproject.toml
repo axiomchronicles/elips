@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elips"
-version = "1.1.0"
+# Version is NOT hard-coded here: it is scraped from the top-level CMakeLists
+# `project(... VERSION ...)` by setup.py (_read_version). CMake is the single
+# source of truth, so the C++ project, the compiled extension's __version__, and
+# the wheel metadata can never drift apart.
+dynamic = ["version"]
 description = "Embedded local vector database (SQLite for vectors)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,7 +28,26 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = []
+# numpy is a real runtime dependency: the Index API (elips.IndexFlat/IVF*) takes
+# and returns float32 numpy arrays. 1.x and 2.x are both ABI-compatible with how
+# the bindings consume arrays, so the floor is loose and 3.x is excluded.
+dependencies = [
+    "numpy>=1.21,<3",
+]
+
+# ----------------------------------------------------------------------------
+# Wheel split rationale (cpu vs gpu), mirroring FAISS's faiss-cpu / faiss-gpu
+# packaging model (docs/_redesign/_faiss_3F.md §6):
+#   * macOS arm64  -> ONE wheel ships CPU (NEON) + Metal together. Metal is a
+#     system framework (no CUDA-style external toolkit), so bundling it costs
+#     nothing and needs no separate SKU.
+#   * Linux/Windows x86_64 -> CPU-only wheel (generic/avx2 via ELIPS_OPT_LEVEL).
+#   * CUDA / HIP(ROCm) -> NOT shipped as wheels: they need a matching toolkit +
+#     driver on the build and target host, so they are build-from-source
+#     (-DELIPS_ENABLE_CUDA=ON / -DELIPS_ENABLE_ROCM=ON) rather than pip installs.
+# A single-tier wheel is built today (ELIPS_OPT_LEVEL); FAISS-style runtime
+# dispatch ("dd") is deferred until the x86 wheel matrix actually hurts.
+# ----------------------------------------------------------------------------
 
 [project.urls]
 Homepage = "https://github.com/axiomchronicles/elips"

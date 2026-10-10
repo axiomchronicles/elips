@@ -13,6 +13,7 @@ behind an untracked duplicate of the engine that silently went stale.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -159,7 +160,25 @@ class CMakeBuild(build_ext):
         )
 
 
+def _read_version() -> str:
+    """Scrape the version from the top-level CMakeLists `project(... VERSION x.y.z)`.
+
+    CMake's `project(VERSION)` is the single source of truth for the ELIPS
+    version. The same CMakeLists is vendored into the sdist (see VENDORED_PATHS),
+    so this resolves in both a dev checkout and an unpacked sdist.
+    """
+
+    cmakelists = (_cmake_source_dir() / "CMakeLists.txt").read_text()
+    match = re.search(
+        r"project\s*\([^)]*VERSION\s+(\d+\.\d+\.\d+)", cmakelists, re.IGNORECASE
+    )
+    if not match:
+        raise SystemExit("could not read project(VERSION ...) from CMakeLists.txt")
+    return match.group(1)
+
+
 setup(
+    version=_read_version(),
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild, "sdist": VendorSourcesSdist},
     zip_safe=False,

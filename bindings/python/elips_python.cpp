@@ -586,7 +586,13 @@ PYBIND11_MODULE(_core, m) {
     m.doc() = "ELIPS — embedded local vector database (C extension)";
 
     // ---- version ----
-    m.attr("__version__") = "1.1.0";
+    // Single source of truth is CMake's project(VERSION); it is injected as the
+    // ELIPS_VERSION compile definition (see root CMakeLists.txt). The fallback
+    // only applies to a hand-run compile that forgets to pass it.
+#ifndef ELIPS_VERSION
+#define ELIPS_VERSION "0.0.0+unknown"
+#endif
+    m.attr("__version__") = ELIPS_VERSION;
 
     // =====================  Error hierarchy  =====================
 
