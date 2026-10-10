@@ -49,6 +49,11 @@ option(ELIPS_GPU_HIP "Enable AMD ROCm/HIP GPU backend" OFF)
 option(ELIPS_GPU_SYCL "Enable Intel oneAPI/SYCL GPU backend" OFF)
 option(ELIPS_GPU_VULKAN "Enable Vulkan compute GPU backend" OFF)
 
+# Compat alias: external CI / the CUDA compile-check script pass -DELIPS_ENABLE_CUDA=ON.
+if(ELIPS_ENABLE_CUDA)
+    set(ELIPS_GPU_CUDA ON CACHE BOOL "Enable NVIDIA CUDA GPU backend" FORCE)
+endif()
+
 if(ELIPS_GPU_METAL AND NOT APPLE)
     message(WARNING
         "ELIPS_GPU_METAL is ON but this is not an Apple platform; "
@@ -202,6 +207,12 @@ if(ELIPS_GPU_ENABLED)
         find_library(MPS_FW MetalPerformanceShaders)
         find_library(FOUNDATION_FW Foundation)
         target_link_libraries(elips_tests PRIVATE ${METAL_FW} ${MPS_FW} ${FOUNDATION_FW})
+    endif()
+    # CUDA parity test — compiled only with the CUDA backend; skips without a device.
+    if(ELIPS_GPU_CUDA)
+        target_sources(elips_tests PRIVATE tests/gpu/cuda/CudaBackendTest.cpp)
+        target_compile_definitions(elips_tests PRIVATE ELIPS_CUDA_ENABLED)
+        target_link_libraries(elips_tests PRIVATE elips_gpu_cuda)
     endif()
 
     add_executable(elips_gpu_lifecycle_probe

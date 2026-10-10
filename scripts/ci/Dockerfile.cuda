@@ -1,0 +1,20 @@
+# ============================================================================
+# ELIPS CUDA compile-check image  —  EXPERIMENTAL / NOT HARDWARE-VALIDATED
+# ----------------------------------------------------------------------------
+# Optional pre-baked toolchain for the CUDA backend compile-check, so repeated
+# runs skip the apt-get step in scripts/ci/compile_cuda.sh. No GPU needed to
+# BUILD the image; running the backend still requires real NVIDIA hardware.
+#
+# Build:  docker build -f scripts/ci/Dockerfile.cuda -t elips-cuda-build .
+# Use:    CUDA_IMAGE=elips-cuda-build scripts/ci/compile_cuda.sh
+# ============================================================================
+ARG CUDA_IMAGE=nvidia/cuda:12.6.2-devel-ubuntu24.04
+FROM ${CUDA_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+        cmake ninja-build g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

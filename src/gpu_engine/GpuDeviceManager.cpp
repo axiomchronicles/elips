@@ -10,7 +10,7 @@
 #endif
 
 #if defined(ELIPS_CUDA_ENABLED)
-#include "cuda/CudaBackend.hpp"
+#include "CudaBackend.hpp"
 #endif
 
 #if defined(ELIPS_HIP_ENABLED)
