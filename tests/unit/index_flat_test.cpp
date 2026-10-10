@@ -5,18 +5,18 @@
 #include "elips/Config.hpp"
 #include "elips/domain/Errors.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 
 namespace {
 
-using elips::ExactIndex;
+using elips::IndexFlat;
 using elips::Metric;
 using elips::RecordID;
 
 RecordID make_id() { return RecordID::generate(); }
 
-TEST(ExactIndexTest, ReturnsNearestFirstAscending) {
-    ExactIndex index(Metric::euclidean, 2);
+TEST(IndexFlatTest, ReturnsNearestFirstAscending) {
+    IndexFlat index(Metric::euclidean, 2);
     const RecordID near = make_id();
     const RecordID far = make_id();
     index.insert(near, std::vector<float>{0.0F, 0.0F});
@@ -31,8 +31,8 @@ TEST(ExactIndexTest, ReturnsNearestFirstAscending) {
     EXPECT_LT(hits[0].second, hits[1].second);
 }
 
-TEST(ExactIndexTest, TopKCapsResultCount) {
-    ExactIndex index(Metric::euclidean, 1);
+TEST(IndexFlatTest, TopKCapsResultCount) {
+    IndexFlat index(Metric::euclidean, 1);
     for (int i = 0; i < 5; ++i) {
         index.insert(make_id(), std::vector<float>{static_cast<float>(i)});
     }
@@ -40,8 +40,8 @@ TEST(ExactIndexTest, TopKCapsResultCount) {
     EXPECT_EQ(index.search(std::vector<float>{0.0F}, 3).size(), 3U);
 }
 
-TEST(ExactIndexTest, RemoveDropsRecordFromResults) {
-    ExactIndex index(Metric::euclidean, 1);
+TEST(IndexFlatTest, RemoveDropsRecordFromResults) {
+    IndexFlat index(Metric::euclidean, 1);
     const RecordID a = make_id();
     const RecordID b = make_id();
     index.insert(a, std::vector<float>{1.0F});
@@ -53,20 +53,20 @@ TEST(ExactIndexTest, RemoveDropsRecordFromResults) {
     EXPECT_EQ(hits[0].first, b);
 }
 
-TEST(ExactIndexTest, TypeNameIsExact) {
-    ExactIndex index(Metric::cosine, 4);
+TEST(IndexFlatTest, TypeNameIsExact) {
+    IndexFlat index(Metric::cosine, 4);
     EXPECT_EQ(index.type_name(), "exact");
 }
 
-TEST(ExactIndexTest, InsertRejectsDimensionMismatch) {
-    ExactIndex index(Metric::euclidean, 2);
+TEST(IndexFlatTest, InsertRejectsDimensionMismatch) {
+    IndexFlat index(Metric::euclidean, 2);
 
     EXPECT_THROW(index.insert(make_id(), std::vector<float>{1.0F}),
                  elips::DimensionMismatch);
 }
 
-TEST(ExactIndexTest, SearchRejectsDimensionMismatch) {
-    ExactIndex index(Metric::euclidean, 2);
+TEST(IndexFlatTest, SearchRejectsDimensionMismatch) {
+    IndexFlat index(Metric::euclidean, 2);
     index.insert(make_id(), std::vector<float>{0.0F, 0.0F});
 
     EXPECT_THROW((void)index.search(std::vector<float>{1.0F}, 1),

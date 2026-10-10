@@ -5,7 +5,7 @@
 
 #include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 

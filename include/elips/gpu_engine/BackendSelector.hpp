@@ -7,13 +7,13 @@
 
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
 class BackendSelector {
 public:
-    [[nodiscard]] std::optional<std::unique_ptr<GpuPort>>
+    [[nodiscard]] std::optional<std::unique_ptr<GpuBackend>>
     select(const GpuConfig& config, const std::vector<GpuDeviceInfo>& devices) const;
 
 private:

@@ -1,5 +1,5 @@
-#ifndef ELIPS_GPU_ENGINE_GPU_PORT_HPP
-#define ELIPS_GPU_ENGINE_GPU_PORT_HPP
+#ifndef ELIPS_GPU_ENGINE_GPU_BACKEND_HPP
+#define ELIPS_GPU_ENGINE_GPU_BACKEND_HPP
 
 #include <span>
 #include <string_view>
@@ -37,9 +37,9 @@ enum class GpuError {
     return "Unknown";
 }
 
-class GpuPort {
+class GpuBackend {
 public:
-    virtual ~GpuPort() = default;
+    virtual ~GpuBackend() = default;
 
     [[nodiscard]] virtual std::expected<void, GpuError>
     initialize(const GpuConfig& config) = 0;
@@ -84,6 +84,8 @@ public:
     virtual void synchronize() = 0;
     [[nodiscard]] virtual bool is_idle() const noexcept = 0;
 };
+
+using GpuPort [[deprecated("renamed to GpuBackend")]] = GpuBackend;
 
 } // namespace elips::gpu
 

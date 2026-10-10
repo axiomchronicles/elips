@@ -1,5 +1,5 @@
-#ifndef ELIPS_INDEX_ENGINE_HIERARCHICAL_GRAPH_INDEX_HPP
-#define ELIPS_INDEX_ENGINE_HIERARCHICAL_GRAPH_INDEX_HPP
+#ifndef ELIPS_INDEX_ENGINE_INDEX_HNSW_HPP
+#define ELIPS_INDEX_ENGINE_INDEX_HNSW_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +12,7 @@
 
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/Index.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
 #include "elips/quant_engine/Quantizer.hpp"
 
@@ -36,10 +36,10 @@ namespace elips {
 // asymmetric lookup. Compression therefore has to reach inside the graph rather
 // than wrap it: HNSW evaluates distances while navigating, so a wrapper around
 // search() could not compress the storage those evaluations read.
-class HierarchicalGraphIndex final : public IndexPort, public IndexTransferPort {
+class IndexHNSW final : public Index, public IndexTransferPort {
 public:
-    HierarchicalGraphIndex(Metric metric, std::uint16_t dimension,
-                           GraphParams params,
+    IndexHNSW(Metric metric, std::uint16_t dimension,
+                           HnswParams params,
                            quant::QuantizerPtr quantizer = {});
 
     void insert(const RecordID& id, std::span<const float> vector) override;
@@ -78,16 +78,16 @@ private:
     // and it keeps the branch out of the inner loop of search_layer().
     class Probe {
     public:
-        Probe(const HierarchicalGraphIndex& owner, std::span<const float> query);
+        Probe(const IndexHNSW& owner, std::span<const float> query);
         // In the uncompressed case a Probe holds a span over the caller's
         // buffer, so a temporary would dangle for the rest of the traversal.
         // Deleting the rvalue overload turns that into a compile error rather
         // than a recall regression that only shows up in a benchmark.
-        Probe(const HierarchicalGraphIndex&, std::vector<float>&&) = delete;
+        Probe(const IndexHNSW&, std::vector<float>&&) = delete;
         [[nodiscard]] float to(NodeId node) const noexcept;
 
     private:
-        const HierarchicalGraphIndex* owner_;
+        const IndexHNSW* owner_;
         std::span<const float> raw_;  // uncompressed: the query itself
         std::vector<float> lut_;      // compressed: the precomputed table
     };
@@ -114,7 +114,7 @@ private:
 
     Metric metric_;
     std::uint16_t dimension_;
-    GraphParams params_;
+    HnswParams params_;
     quant::QuantizerPtr quantizer_;
     std::size_t row_width_;
     double level_mult_;  // mL = 1 / ln(M)
@@ -134,6 +134,8 @@ private:
     mutable std::mt19937 rng_;
 };
 
+using HierarchicalGraphIndex [[deprecated("renamed to IndexHNSW")]] = IndexHNSW;
+
 }  // namespace elips
 
-#endif  // ELIPS_INDEX_ENGINE_HIERARCHICAL_GRAPH_INDEX_HPP
+#endif  // ELIPS_INDEX_ENGINE_INDEX_HNSW_HPP

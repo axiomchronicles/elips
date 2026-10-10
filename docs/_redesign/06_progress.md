@@ -39,7 +39,8 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - [x] Naming map drafted (3 agents → `_naming_cpp.md` 344 rows, `_naming_python.md`, `_naming_other.md`)
 - [x] `03_naming_map.md` ADR recorded (collisions resolved, DO-NOT-RENAME safety list, shim policy, batch plan)
 - [x] Batch 1: C++ core types/methods → build+ctest green — `DynamicBatcher`→`QueryBatcher`, `GpuSelector`→`BackendSelector`, `MetadataIndex`→`MetadataFilterIndex` (3 classes + files + deprecated `using` aliases). Independently verified: build 0, ctest 256/256 (255+1skip), pytest 34/34.
-- [ ] Batch 2: file renames + include fixups
+- [x] Batch 2: core index/port classes → build+ctest+pytest green — `IndexPort`→`Index`, `ExactIndex`→`IndexFlat`, `HierarchicalGraphIndex`→`IndexHNSW`, `GpuPort`→`GpuBackend`, `GpuIndexPort`→`GpuIndex`, `GraphParams`→`HnswParams`, `ElipsInstance`→`Database` (7 classes + files + deprecated aliases; no collisions). Verified: ctest 256/256, pytest 34/34.
+- [ ] Batch 2b: file renames + include fixups  *(folded into batches 1–2)*
 - [ ] Batch 3: EQL verbs + AST
 - [ ] Batch 4: pybind + Python facades + kwargs → pytest green
 - [ ] Batch 5: CMake option aliases + target/test renames

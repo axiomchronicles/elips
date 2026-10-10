@@ -82,7 +82,7 @@ void IvfIndexState::rebuild_list_members() {
     }
 }
 
-void IvfIndexState::sync_device_buffers_best_effort(GpuPort& backend) noexcept {
+void IvfIndexState::sync_device_buffers_best_effort(GpuBackend& backend) noexcept {
     if (vector_buffer_) {
         backend.free_device(std::move(vector_buffer_));
     }
@@ -190,7 +190,7 @@ std::vector<std::uint32_t> IvfIndexState::assign_vectors_to_centroids(
     return assignments;
 }
 
-void IvfIndexState::rebuild_from_current_data(GpuPort& backend, std::size_t n_lists) {
+void IvfIndexState::rebuild_from_current_data(GpuBackend& backend, std::size_t n_lists) {
     if (ids_.empty()) {
         clear();
         sync_device_buffers_best_effort(backend);
@@ -207,7 +207,7 @@ void IvfIndexState::rebuild_from_current_data(GpuPort& backend, std::size_t n_li
     sync_device_buffers_best_effort(backend);
 }
 
-void IvfIndexState::maybe_retrain_after_growth(GpuPort& backend) {
+void IvfIndexState::maybe_retrain_after_growth(GpuBackend& backend) {
     if (ids_.empty()) {
         clear();
         sync_device_buffers_best_effort(backend);
@@ -229,7 +229,7 @@ void IvfIndexState::maybe_retrain_after_growth(GpuPort& backend) {
     sync_device_buffers_best_effort(backend);
 }
 
-void IvfIndexState::insert(GpuPort& backend, const RecordID& id,
+void IvfIndexState::insert(GpuBackend& backend, const RecordID& id,
                            std::span<const float> vector) {
     validate_dimension(vector, "vector");
     if (id_to_slot_.contains(id)) {
@@ -259,7 +259,7 @@ void IvfIndexState::insert(GpuPort& backend, const RecordID& id,
     maybe_retrain_after_growth(backend);
 }
 
-void IvfIndexState::remove(GpuPort& backend, const RecordID& id) {
+void IvfIndexState::remove(GpuBackend& backend, const RecordID& id) {
     const auto found = id_to_slot_.find(id);
     if (found == id_to_slot_.end()) {
         return;
@@ -326,7 +326,7 @@ void IvfIndexState::remove(GpuPort& backend, const RecordID& id) {
 }
 
 std::expected<void, std::string> IvfIndexState::build_from_batch(
-    GpuPort& backend, std::span<const float> vectors, std::span<const RecordID> ids) {
+    GpuBackend& backend, std::span<const float> vectors, std::span<const RecordID> ids) {
     if (vectors.size() != ids.size() * static_cast<std::size_t>(dimension_)) {
         return std::unexpected("IVF batch build vectors are not row-major");
     }
@@ -337,7 +337,7 @@ std::expected<void, std::string> IvfIndexState::build_from_batch(
 }
 
 std::expected<void, std::string> IvfIndexState::import_snapshot(
-    GpuPort& backend, const elips::IndexSnapshot& snapshot) {
+    GpuBackend& backend, const elips::IndexSnapshot& snapshot) {
     if (snapshot.dimension != dimension_) {
         return std::unexpected("snapshot dimension does not match IVF index");
     }
@@ -393,7 +393,7 @@ elips::IndexSnapshot IvfIndexState::export_snapshot(
 }
 
 std::expected<std::vector<std::uint32_t>, GpuError> IvfIndexState::probe_lists(
-    GpuPort& backend, std::span<const float> query, std::size_t nprobe) const {
+    GpuBackend& backend, std::span<const float> query, std::size_t nprobe) const {
     validate_dimension(query, "query");
     if (!trained_ || centroids_.empty()) {
         return std::vector<std::uint32_t>{};
@@ -423,7 +423,7 @@ std::expected<std::vector<std::uint32_t>, GpuError> IvfIndexState::probe_lists(
 }
 
 std::expected<std::vector<std::vector<std::uint32_t>>, GpuError>
-IvfIndexState::probe_lists_batch(GpuPort& backend, std::span<const float> queries,
+IvfIndexState::probe_lists_batch(GpuBackend& backend, std::span<const float> queries,
                                  std::size_t nprobe) const {
     if (queries.size() % dimension_ != 0) {
         return std::unexpected(GpuError::IndexBuildFailed);

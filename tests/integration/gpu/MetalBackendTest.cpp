@@ -8,7 +8,7 @@
 #include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #include "elips/domain/Vector.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
@@ -28,7 +28,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
 };
 
 TEST_F(GpuBackendIntegrationTest, initialize_succeeds) {

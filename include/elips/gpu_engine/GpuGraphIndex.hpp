@@ -10,18 +10,18 @@
 #include "elips/Config.hpp"
 #include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/gpu_engine/GpuIndexPort.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuIndex.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips {
-class HierarchicalGraphIndex;
+class IndexHNSW;
 }
 
 namespace elips::gpu {
 
-class GpuGraphIndex final : public GpuIndexPort {
+class GpuGraphIndex final : public GpuIndex {
 public:
-    GpuGraphIndex(GpuPort& backend, elips::Metric metric, uint16_t dimension,
+    GpuGraphIndex(GpuBackend& backend, elips::Metric metric, uint16_t dimension,
                   const GpuConfig& config);
     ~GpuGraphIndex() override;
 
@@ -40,10 +40,10 @@ public:
     search_batch(std::span<const float> queries, size_t k, size_t ef_search) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    export_to_cpu_index(elips::IndexPort& cpu_index_out) const override;
+    export_to_cpu_index(elips::Index& cpu_index_out) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    import_from_cpu_index(const elips::IndexPort& cpu_index) override;
+    import_from_cpu_index(const elips::Index& cpu_index) override;
 
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
@@ -58,7 +58,7 @@ private:
     void release_graph_data() noexcept;
     void sync_device_data_best_effort() noexcept;
 
-    GpuPort& backend_;
+    GpuBackend& backend_;
     elips::Metric metric_;
     uint16_t dimension_;
     size_t count_{0};
@@ -66,7 +66,7 @@ private:
     std::vector<RecordID> ids_;
     std::vector<float> host_vectors_;
     std::unordered_map<RecordID, std::size_t> id_to_slot_;
-    std::unique_ptr<elips::HierarchicalGraphIndex> cpu_graph_;
+    std::unique_ptr<elips::IndexHNSW> cpu_graph_;
     std::string backend_name_;
     GpuConfig config_;
 };

@@ -72,7 +72,7 @@ SearchResult make_result(const Record& record, float distance) {
 }
 
 struct Executor {
-    ElipsInstance& db;
+    Database& db;
     const std::map<std::string, Vector>& bindings;
 
     std::vector<SearchResult> operator()(const SearchStatement& s) const {
@@ -139,7 +139,7 @@ struct Executor {
 
 }  // namespace
 
-std::vector<SearchResult> execute(const Statement& statement, ElipsInstance& db,
+std::vector<SearchResult> execute(const Statement& statement, Database& db,
                                   const std::map<std::string, Vector>& bindings) {
     return std::visit(Executor{db, bindings}, statement);
 }
@@ -148,7 +148,7 @@ std::vector<SearchResult> execute(const Statement& statement, ElipsInstance& db,
 
 namespace elips {
 
-std::vector<SearchResult> ElipsInstance::query(
+std::vector<SearchResult> Database::query(
     const std::string& eql, const std::map<std::string, Vector>& bindings) {
     return eql::execute(eql::parse(eql), *this, bindings);
 }

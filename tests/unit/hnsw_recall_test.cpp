@@ -7,19 +7,19 @@
 
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace {
 
-using elips::ExactIndex;
-using elips::GraphParams;
-using elips::HierarchicalGraphIndex;
+using elips::IndexFlat;
+using elips::HnswParams;
+using elips::IndexHNSW;
 using elips::Metric;
 using elips::RecordID;
 
 // HNSW should recover the vast majority of true nearest neighbors that the
-// brute-force ExactIndex (the ground-truth oracle) returns.
+// brute-force IndexFlat (the ground-truth oracle) returns.
 TEST(HnswRecallTest, RecallAtTenIsHighVsExactGroundTruth) {
     constexpr std::size_t count = 2000;
     constexpr std::uint16_t dim = 64;
@@ -29,8 +29,8 @@ TEST(HnswRecallTest, RecallAtTenIsHighVsExactGroundTruth) {
     std::mt19937 rng(1234);
     std::normal_distribution<float> dist(0.0F, 1.0F);
 
-    HierarchicalGraphIndex graph(Metric::euclidean, dim, GraphParams{});
-    ExactIndex exact(Metric::euclidean, dim);
+    IndexHNSW graph(Metric::euclidean, dim, HnswParams{});
+    IndexFlat exact(Metric::euclidean, dim);
 
     std::vector<std::vector<float>> data(count, std::vector<float>(dim));
     for (std::size_t i = 0; i < count; ++i) {
@@ -69,7 +69,7 @@ TEST(HnswRecallTest, RecallAtTenIsHighVsExactGroundTruth) {
 }
 
 TEST(HnswRecallTest, SoftRemoveExcludesFromResults) {
-    HierarchicalGraphIndex graph(Metric::euclidean, 2, GraphParams{});
+    IndexHNSW graph(Metric::euclidean, 2, HnswParams{});
     const RecordID a = RecordID::generate();
     const RecordID b = RecordID::generate();
     graph.insert(a, std::vector<float>{0.0F, 0.0F});

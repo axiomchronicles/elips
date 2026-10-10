@@ -1,4 +1,4 @@
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -14,9 +14,9 @@
 
 namespace elips {
 
-HierarchicalGraphIndex::HierarchicalGraphIndex(Metric metric,
+IndexHNSW::IndexHNSW(Metric metric,
                                                std::uint16_t dimension,
-                                               GraphParams params,
+                                               HnswParams params,
                                                quant::QuantizerPtr quantizer)
     : metric_(metric),
       dimension_(dimension),
@@ -37,7 +37,7 @@ HierarchicalGraphIndex::HierarchicalGraphIndex(Metric metric,
           return seed;
       }()) {}
 
-HierarchicalGraphIndex::Probe::Probe(const HierarchicalGraphIndex& owner,
+IndexHNSW::Probe::Probe(const IndexHNSW& owner,
                                      std::span<const float> query)
     : owner_(&owner) {
     if (owner.compressed()) {
@@ -47,26 +47,26 @@ HierarchicalGraphIndex::Probe::Probe(const HierarchicalGraphIndex& owner,
     }
 }
 
-float HierarchicalGraphIndex::Probe::to(NodeId node) const noexcept {
+float IndexHNSW::Probe::to(NodeId node) const noexcept {
     if (!lut_.empty()) {
         return owner_->quantizer_->lut_distance(lut_, owner_->code_of(node));
     }
     return distance(owner_->metric_, raw_, owner_->vector_of(node));
 }
 
-std::span<const float> HierarchicalGraphIndex::vector_of(
+std::span<const float> IndexHNSW::vector_of(
     NodeId node) const noexcept {
     return {data_.data() + (static_cast<std::size_t>(node) * dimension_),
             dimension_};
 }
 
-std::span<const std::uint8_t> HierarchicalGraphIndex::code_of(
+std::span<const std::uint8_t> IndexHNSW::code_of(
     NodeId node) const noexcept {
     return {codes_.data() + (static_cast<std::size_t>(node) * row_width_),
             row_width_};
 }
 
-std::vector<float> HierarchicalGraphIndex::reconstruct(NodeId node) const {
+std::vector<float> IndexHNSW::reconstruct(NodeId node) const {
     if (!compressed()) {
         const auto row = vector_of(node);
         return {row.begin(), row.end()};
@@ -74,7 +74,7 @@ std::vector<float> HierarchicalGraphIndex::reconstruct(NodeId node) const {
     return quantizer_->decode(code_of(node));
 }
 
-int HierarchicalGraphIndex::random_level() {
+int IndexHNSW::random_level() {
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     double u = dist(rng_);
     if (u <= 0.0) {
@@ -83,8 +83,8 @@ int HierarchicalGraphIndex::random_level() {
     return static_cast<int>(-std::log(u) * level_mult_);
 }
 
-std::vector<HierarchicalGraphIndex::Scored>
-HierarchicalGraphIndex::search_layer(const Probe& probe, NodeId entry,
+std::vector<IndexHNSW::Scored>
+IndexHNSW::search_layer(const Probe& probe, NodeId entry,
                                      std::size_t ef, int level) const {
     std::unordered_set<NodeId> visited;
     visited.insert(entry);
@@ -131,7 +131,7 @@ HierarchicalGraphIndex::search_layer(const Probe& probe, NodeId entry,
     return out;
 }
 
-void HierarchicalGraphIndex::connect(NodeId node,
+void IndexHNSW::connect(NodeId node,
                                      const std::vector<Scored>& candidates,
                                      int level, std::size_t max_links) {
     // Diversity heuristic (HNSW Algorithm 4): keep a candidate only if it is
@@ -187,12 +187,12 @@ void HierarchicalGraphIndex::connect(NodeId node,
     }
 }
 
-void HierarchicalGraphIndex::insert(const RecordID& id,
+void IndexHNSW::insert(const RecordID& id,
                                     std::span<const float> vector) {
     insert_unchecked(id, vector);
 }
 
-void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
+void IndexHNSW::insert_unchecked(const RecordID& id,
                                               std::span<const float> vector) {
     const auto node = static_cast<NodeId>(ids_.size());
     const int level = random_level();
@@ -243,7 +243,7 @@ void HierarchicalGraphIndex::insert_unchecked(const RecordID& id,
     }
 }
 
-void HierarchicalGraphIndex::remove(const RecordID& id) {
+void IndexHNSW::remove(const RecordID& id) {
     const auto it = id_to_node_.find(id);
     if (it == id_to_node_.end() || deleted_[it->second]) {
         return;
@@ -261,7 +261,7 @@ void HierarchicalGraphIndex::remove(const RecordID& id) {
     }
 }
 
-void HierarchicalGraphIndex::vacuum() {
+void IndexHNSW::vacuum() {
     if (deleted_count_ == 0) {
         return;
     }
@@ -336,7 +336,7 @@ void HierarchicalGraphIndex::vacuum() {
     }
 }
 
-std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
+std::vector<Index::Hit> IndexHNSW::search(
     std::span<const float> query, std::size_t k) const {
     if (entry_point_ < 0 || k == 0 || ids_.size() == deleted_count_) {
         return {};
@@ -379,7 +379,7 @@ std::vector<IndexPort::Hit> HierarchicalGraphIndex::search(
 }
 
 std::expected<IndexSnapshot, std::string>
-HierarchicalGraphIndex::export_snapshot() const {
+IndexHNSW::export_snapshot() const {
     IndexSnapshot snapshot;
     snapshot.kind = IndexSnapshotKind::graph;
     snapshot.metric = metric_;
@@ -424,13 +424,13 @@ HierarchicalGraphIndex::export_snapshot() const {
 }
 
 std::expected<void, std::string>
-HierarchicalGraphIndex::import_snapshot(const IndexSnapshot& snapshot) {
+IndexHNSW::import_snapshot(const IndexSnapshot& snapshot) {
     if (snapshot.dimension != dimension_) {
         return std::unexpected(
-            "snapshot dimension does not match HierarchicalGraphIndex");
+            "snapshot dimension does not match IndexHNSW");
     }
     if (snapshot.metric != metric_) {
-        return std::unexpected("snapshot metric does not match HierarchicalGraphIndex");
+        return std::unexpected("snapshot metric does not match IndexHNSW");
     }
     if (snapshot.vectors.size() !=
         snapshot.ids.size() * static_cast<std::size_t>(dimension_)) {

@@ -19,15 +19,15 @@
 namespace elips {
 
 class Config;
-class ElipsInstance;
-[[nodiscard]] std::unique_ptr<ElipsInstance> open(
+class Database;
+[[nodiscard]] std::unique_ptr<Database> open(
     const std::string& path, const Config& config);
 
 // Similarity metrics supported in v1.0. Scoped enum (Enum.3).
 enum class Metric { cosine, euclidean, dot_product };
 
 // Index backends. `exact` is brute-force (ground truth); `graph` is the
-// HierarchicalGraphIndex (HNSW) primary ANN index.
+// IndexHNSW (HNSW) primary ANN index.
 enum class IndexType { graph, exact };
 
 // Durability levels trade write throughput against crash safety.
@@ -42,8 +42,8 @@ enum class AccessMode { read_write, read_only };
 [[nodiscard]] std::string_view to_string(Metric metric) noexcept;
 [[nodiscard]] Metric metric_from_string(std::string_view name);
 
-// Tunable parameters for the HierarchicalGraphIndex (HNSW).
-struct GraphParams {
+// Tunable parameters for the IndexHNSW (HNSW).
+struct HnswParams {
     std::size_t max_connections{16};    // M
     std::size_t ef_construction{200};   // beam width during build
     std::size_t ef_search{50};          // beam width during search
@@ -51,6 +51,8 @@ struct GraphParams {
     // compaction (callers can still vacuum() explicitly).
     float compaction_ratio{0.2F};
 };
+
+using GraphParams [[deprecated("renamed to HnswParams")]] = HnswParams;
 
 // Typed, validated configuration. Fluent builder; immutable intent after open().
 class Config {
@@ -67,7 +69,7 @@ public:
         index_ = type;
         return *this;
     }
-    Config& graph_params(GraphParams params) noexcept {
+    Config& graph_params(HnswParams params) noexcept {
         graph_ = params;
         return *this;
     }
@@ -121,7 +123,7 @@ public:
     [[nodiscard]] std::uint16_t dimension() const noexcept { return dimension_; }
     [[nodiscard]] Metric metric() const noexcept { return metric_; }
     [[nodiscard]] IndexType index() const noexcept { return index_; }
-    [[nodiscard]] const GraphParams& graph_params() const noexcept { return graph_; }
+    [[nodiscard]] const HnswParams& graph_params() const noexcept { return graph_; }
     [[nodiscard]] const quant::QuantParams& quantization() const noexcept {
         return quantization_;
     }
@@ -195,13 +197,13 @@ public:
     }
 
 private:
-    friend std::unique_ptr<ElipsInstance> open(
+    friend std::unique_ptr<Database> open(
         const std::string& path, const Config& config);
 
     std::uint16_t dimension_{0};
     Metric metric_{Metric::cosine};
     IndexType index_{IndexType::graph};
-    GraphParams graph_{};
+    HnswParams graph_{};
     quant::QuantParams quantization_{};
     quant::QuantizerPtr quantizer_{};
     Durability durability_{Durability::standard};

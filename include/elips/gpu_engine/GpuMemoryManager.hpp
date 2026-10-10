@@ -10,7 +10,7 @@
 #include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuMemoryPort.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/gpu_engine/PinnedBuffer.hpp"
 
 namespace elips::gpu {
@@ -26,7 +26,7 @@ struct FreeBlock {
 
 class GpuMemoryManager : public GpuMemoryPort {
 public:
-    explicit GpuMemoryManager(GpuPort& backend);
+    explicit GpuMemoryManager(GpuBackend& backend);
     ~GpuMemoryManager() override;
 
     GpuMemoryManager(const GpuMemoryManager&) = delete;
@@ -63,7 +63,7 @@ private:
     // free block from the same root allocation.
     void release_locked(void* ptr, size_t bytes, size_t root) noexcept;
 
-    GpuPort& backend_;
+    GpuBackend& backend_;
     size_t pool_bytes_{0};      // ceiling we are allowed to request from backend
     size_t pool_committed_{0};  // bytes actually obtained from backend so far
     size_t allocated_{0};       // bytes handed out to callers (rounded)

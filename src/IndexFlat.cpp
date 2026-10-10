@@ -1,4 +1,4 @@
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 
 #include <algorithm>
 #include <string>
@@ -21,7 +21,7 @@ void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
 
 }  // namespace
 
-void ExactIndex::insert(const RecordID& id, std::span<const float> vector) {
+void IndexFlat::insert(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     ids_.push_back(id);
     if (compressed()) {
@@ -34,7 +34,7 @@ void ExactIndex::insert(const RecordID& id, std::span<const float> vector) {
     data_.insert(data_.end(), vector.begin(), vector.end());
 }
 
-void ExactIndex::remove(const RecordID& id) {
+void IndexFlat::remove(const RecordID& id) {
     const auto it = std::find(ids_.begin(), ids_.end(), id);
     if (it == ids_.end()) {
         return;
@@ -52,7 +52,7 @@ void ExactIndex::remove(const RecordID& id) {
     data_.erase(first, first + dimension_);
 }
 
-std::vector<IndexPort::Hit> ExactIndex::search(std::span<const float> query,
+std::vector<Index::Hit> IndexFlat::search(std::span<const float> query,
                                                std::size_t k) const {
     validate_dimension(query, dimension_, "query");
 
@@ -86,7 +86,7 @@ std::vector<IndexPort::Hit> ExactIndex::search(std::span<const float> query,
     return scored;
 }
 
-std::expected<IndexSnapshot, std::string> ExactIndex::export_snapshot() const {
+std::expected<IndexSnapshot, std::string> IndexFlat::export_snapshot() const {
     IndexSnapshot snapshot;
     snapshot.kind = IndexSnapshotKind::exact;
     snapshot.metric = metric_;
@@ -118,12 +118,12 @@ std::expected<IndexSnapshot, std::string> ExactIndex::export_snapshot() const {
 }
 
 std::expected<void, std::string>
-ExactIndex::import_snapshot(const IndexSnapshot& snapshot) {
+IndexFlat::import_snapshot(const IndexSnapshot& snapshot) {
     if (snapshot.dimension != dimension_) {
-        return std::unexpected("snapshot dimension does not match ExactIndex");
+        return std::unexpected("snapshot dimension does not match IndexFlat");
     }
     if (snapshot.metric != metric_) {
-        return std::unexpected("snapshot metric does not match ExactIndex");
+        return std::unexpected("snapshot metric does not match IndexFlat");
     }
     if (snapshot.vectors.size() !=
         snapshot.ids.size() * static_cast<std::size_t>(dimension_)) {

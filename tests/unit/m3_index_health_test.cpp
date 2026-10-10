@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "elips/elips.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace {
 
@@ -26,9 +26,9 @@ std::vector<float> random_vector(std::mt19937& rng, std::size_t dim) {
 TEST(M3IndexHealth, ChurnDoesNotGrowIndexUnbounded) {
     std::mt19937 rng(1234);
     constexpr std::uint16_t kDim = 16;
-    elips::GraphParams params;
+    elips::HnswParams params;
     params.compaction_ratio = 0.25F;
-    elips::HierarchicalGraphIndex index(elips::Metric::euclidean, kDim, params);
+    elips::IndexHNSW index(elips::Metric::euclidean, kDim, params);
 
     std::vector<elips::RecordID> live;
     for (int i = 0; i < 200; ++i) {
@@ -63,9 +63,9 @@ TEST(M3IndexHealth, ChurnDoesNotGrowIndexUnbounded) {
 TEST(M3IndexHealth, VacuumReclaimsTombstones) {
     std::mt19937 rng(99);
     constexpr std::uint16_t kDim = 8;
-    elips::GraphParams params;
+    elips::HnswParams params;
     params.compaction_ratio = 0.0F;  // disable auto compaction; test vacuum()
-    elips::HierarchicalGraphIndex index(elips::Metric::euclidean, kDim, params);
+    elips::IndexHNSW index(elips::Metric::euclidean, kDim, params);
 
     std::vector<elips::RecordID> ids;
     for (int i = 0; i < 100; ++i) {
@@ -95,9 +95,9 @@ TEST(M3IndexHealth, RecallHoldsAsDeleteRatioGrows) {
     constexpr std::size_t kTotal = 800;
     constexpr std::size_t kTop = 10;
 
-    elips::GraphParams params;
+    elips::HnswParams params;
     params.compaction_ratio = 0.0F;  // isolate the adaptive-ef behaviour
-    elips::HierarchicalGraphIndex index(elips::Metric::euclidean, kDim, params);
+    elips::IndexHNSW index(elips::Metric::euclidean, kDim, params);
 
     std::vector<elips::RecordID> ids;
     std::vector<std::vector<float>> vectors;
@@ -234,7 +234,7 @@ TEST(M3IndexHealth, FilteredSearchReturnsAllMatchesWhenFewerThanTopK) {
 
 TEST(M3IndexHealth, DatabaseVacuumReclaimsAcrossVaults) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(4).graph_params(
-                                          elips::GraphParams{
+                                          elips::HnswParams{
                                               .max_connections = 16,
                                               .ef_construction = 200,
                                               .ef_search = 50,

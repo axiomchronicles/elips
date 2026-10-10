@@ -79,7 +79,7 @@ Config config_from_args(const Args& a) {
 // index against the persisted IDENTITY, so those flags stay advisory for an
 // existing database, but options with no on-disk counterpart -- notably
 // --quantize -- only reach the engine through here.
-std::unique_ptr<elips::ElipsInstance> open_db(const Args& a) {
+std::unique_ptr<elips::Database> open_db(const Args& a) {
     return elips::open(a.path, config_from_args(a));
 }
 

@@ -101,7 +101,7 @@ std::vector<GpuDeviceInfo> GpuDeviceManager::probe_all_devices() const {
     return devices;
 }
 
-std::optional<std::unique_ptr<GpuPort>>
+std::optional<std::unique_ptr<GpuBackend>>
 GpuDeviceManager::select(const GpuConfig& config,
                          const std::vector<GpuDeviceInfo>& devices) const {
     if (config.policy == GpuPolicy::CpuOnly) {

@@ -3,7 +3,7 @@
 
 namespace elips::gpu {
 
-GpuMemoryPool::GpuMemoryPool(GpuPort& backend, size_t total_bytes)
+GpuMemoryPool::GpuMemoryPool(GpuBackend& backend, size_t total_bytes)
     : backend_(backend), total_bytes_(total_bytes) {
     auto alloc = backend_.allocate_device(total_bytes);
     if (alloc.has_value()) {

@@ -2,7 +2,7 @@
 #define ELIPS_GPU_ENGINE_GPU_STREAM_PORT_HPP
 
 #include "elips/domain/Expected.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 

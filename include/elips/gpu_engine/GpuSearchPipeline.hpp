@@ -8,13 +8,13 @@
 #include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
 #include "elips/domain/SearchResult.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
 class GpuSearchPipeline {
 public:
-    explicit GpuSearchPipeline(GpuPort& backend);
+    explicit GpuSearchPipeline(GpuBackend& backend);
 
     [[nodiscard]] std::expected<std::vector<std::vector<elips::SearchResult>>, GpuError>
     batch_search(
@@ -28,7 +28,7 @@ public:
         elips::Metric metric);
 
 private:
-    GpuPort& backend_;
+    GpuBackend& backend_;
 };
 
 } // namespace elips::gpu

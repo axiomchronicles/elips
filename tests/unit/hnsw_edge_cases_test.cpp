@@ -5,12 +5,12 @@
 
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace {
 
-using elips::GraphParams;
-using elips::HierarchicalGraphIndex;
+using elips::HnswParams;
+using elips::IndexHNSW;
 using elips::Metric;
 using elips::RecordID;
 
@@ -18,8 +18,8 @@ RecordID r() { return RecordID::generate(); }
 
 class HnswEdgeTest : public ::testing::Test {
 protected:
-    HierarchicalGraphIndex make_index(uint16_t dim, GraphParams p = {}) {
-        return HierarchicalGraphIndex(Metric::euclidean, dim, p);
+    IndexHNSW make_index(uint16_t dim, HnswParams p = {}) {
+        return IndexHNSW(Metric::euclidean, dim, p);
     }
 };
 
@@ -94,8 +94,8 @@ TEST_F(HnswEdgeTest, HighDimensionalSingleInsert) {
     EXPECT_EQ(hits.size(), 1U);
 }
 
-TEST_F(HnswEdgeTest, CustomGraphParamsAffectSearch) {
-    GraphParams tight{4, 50, 20};
+TEST_F(HnswEdgeTest, CustomHnswParamsAffectSearch) {
+    HnswParams tight{4, 50, 20};
     auto idx = make_index(8, tight);
     for (int i = 0; i < 50; ++i) {
         std::vector<float> v(8);
@@ -113,7 +113,7 @@ TEST_F(HnswEdgeTest, TypeNameIsGraph) {
 
 TEST_F(HnswEdgeTest, AllMetricsWork) {
     for (auto m : {Metric::cosine, Metric::euclidean, Metric::dot_product}) {
-        HierarchicalGraphIndex idx(m, 2, GraphParams{});
+        IndexHNSW idx(m, 2, HnswParams{});
         RecordID id = r();
         idx.insert(id, std::vector<float>{1.0F, 0.0F});
         auto hits = idx.search(std::vector<float>{1.0F, 0.0F}, 1);

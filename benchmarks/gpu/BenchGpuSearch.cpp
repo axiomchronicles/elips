@@ -9,7 +9,7 @@
 #include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 using namespace elips;
@@ -35,7 +35,7 @@ BenchResult bench_search(size_t n_vectors, size_t dim, Metric metric, size_t n_q
     std::vector<RecordID> ids;
     for (size_t i = 0; i < n_vectors; ++i) ids.push_back(RecordID::generate());
 
-    auto cpu_idx = std::make_unique<ExactIndex>(metric, static_cast<uint16_t>(dim));
+    auto cpu_idx = std::make_unique<IndexFlat>(metric, static_cast<uint16_t>(dim));
     for (size_t i = 0; i < n_vectors; ++i) {
         cpu_idx->insert(ids[i], {db_vecs.data() + i * dim, dim});
     }

@@ -3,7 +3,7 @@
 
 #ifdef ELIPS_METAL_ENABLED
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include <memory>
 
 #ifdef __OBJC__
@@ -18,7 +18,7 @@ using MTLLibrary = void;
 
 namespace elips::gpu::metal {
 
-class MetalBackend final : public GpuPort {
+class MetalBackend final : public GpuBackend {
 public:
     MetalBackend();
     ~MetalBackend() override;

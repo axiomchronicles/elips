@@ -8,14 +8,14 @@
 #include "elips/Config.hpp"
 #include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/gpu_engine/GpuIndexPort.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuIndex.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
-class GpuBruteForceIndex final : public GpuIndexPort {
+class GpuBruteForceIndex final : public GpuIndex {
 public:
-    GpuBruteForceIndex(GpuPort& backend, elips::Metric metric, uint16_t dimension,
+    GpuBruteForceIndex(GpuBackend& backend, elips::Metric metric, uint16_t dimension,
                        const GpuConfig& config);
     ~GpuBruteForceIndex() override;
 
@@ -34,10 +34,10 @@ public:
     search_batch(std::span<const float> queries, size_t k, size_t ef_search) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    export_to_cpu_index(elips::IndexPort& cpu_index_out) const override;
+    export_to_cpu_index(elips::Index& cpu_index_out) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    import_from_cpu_index(const elips::IndexPort& cpu_index) override;
+    import_from_cpu_index(const elips::Index& cpu_index) override;
 
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
@@ -54,7 +54,7 @@ private:
     [[nodiscard]] std::expected<GpuBuffer, GpuError>
     create_device_buffer_from_host(std::span<const float> vectors);
 
-    GpuPort& backend_;
+    GpuBackend& backend_;
     elips::Metric metric_;
     uint16_t dimension_;
     GpuBuffer database_buffer_;

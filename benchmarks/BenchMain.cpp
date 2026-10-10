@@ -1,5 +1,5 @@
 // ELIPS benchmark suite. Measures insert throughput, search latency
-// percentiles, recall@10 vs the ExactIndex ground truth, and crash-recovery
+// percentiles, recall@10 vs the IndexFlat ground truth, and crash-recovery
 // time. Self-contained (no dependency beyond the ELIPS library).
 //
 //   elips_bench [--count N] [--dim D] [--queries Q]
@@ -15,13 +15,13 @@
 #include <vector>
 
 #include "elips/elips.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace {
 
 using clock_type = std::chrono::steady_clock;
-using elips::GraphParams;
+using elips::HnswParams;
 using elips::Metric;
 using elips::RecordID;
 
@@ -48,8 +48,8 @@ void bench_insert_and_search(std::size_t count, std::uint16_t dim,
     const auto data = random_dataset(count, dim, rng);
     const auto probes = random_dataset(queries, dim, rng);
 
-    elips::HierarchicalGraphIndex graph(Metric::euclidean, dim, GraphParams{});
-    elips::ExactIndex exact(Metric::euclidean, dim);
+    elips::IndexHNSW graph(Metric::euclidean, dim, HnswParams{});
+    elips::IndexFlat exact(Metric::euclidean, dim);
     std::vector<RecordID> ids(count);
 
     const auto t_insert = clock_type::now();

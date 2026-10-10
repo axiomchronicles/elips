@@ -13,7 +13,7 @@ int BackendSelector::rank_backend(std::string_view backend) const noexcept {
     return 0;
 }
 
-std::optional<std::unique_ptr<GpuPort>>
+std::optional<std::unique_ptr<GpuBackend>>
 BackendSelector::select(const GpuConfig& config,
                     const std::vector<GpuDeviceInfo>& devices) const {
     if (config.policy == GpuPolicy::CpuOnly) return std::nullopt;

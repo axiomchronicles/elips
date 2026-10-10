@@ -28,7 +28,7 @@ enum class CodecId : std::uint8_t {
 [[nodiscard]] const char* to_string(CodecId codec) noexcept;
 [[nodiscard]] CodecId codec_from_string(const char* name);
 
-// Tunable parameters for the quantizers. Mirrors GraphParams: a plain struct of
+// Tunable parameters for the quantizers. Mirrors HnswParams: a plain struct of
 // defaults that a caller overrides selectively.
 struct QuantParams {
     CodecId codec{CodecId::none};

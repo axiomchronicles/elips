@@ -21,7 +21,7 @@ void validate_dimension(std::span<const float> vector, uint16_t dimension,
 
 }  // namespace
 
-GpuIVFFlatIndex::GpuIVFFlatIndex(GpuPort& backend, elips::Metric metric,
+GpuIVFFlatIndex::GpuIVFFlatIndex(GpuBackend& backend, elips::Metric metric,
                                  uint16_t dimension, const GpuConfig& config)
     : backend_(backend),
       metric_(metric),
@@ -41,7 +41,7 @@ void GpuIVFFlatIndex::remove(const RecordID& id) {
     state_->remove(backend_, id);
 }
 
-std::vector<IndexPort::Hit> GpuIVFFlatIndex::rank_candidates(
+std::vector<Index::Hit> GpuIVFFlatIndex::rank_candidates(
     std::span<const float> query, std::size_t k,
     const std::vector<RecordID>& candidate_ids,
     const std::vector<float>& candidate_vectors) const {
@@ -81,7 +81,7 @@ std::vector<IndexPort::Hit> GpuIVFFlatIndex::rank_candidates(
     return hits;
 }
 
-std::vector<IndexPort::Hit> GpuIVFFlatIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuIVFFlatIndex::search(std::span<const float> query,
                                                      std::size_t k) const {
     validate_dimension(query, dimension_, "query");
     if (state_->size() == 0 || k == 0) {
@@ -164,7 +164,7 @@ GpuIVFFlatIndex::search_batch(std::span<const float> queries, size_t k,
 }
 
 std::expected<void, GpuError>
-GpuIVFFlatIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuIVFFlatIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -177,7 +177,7 @@ GpuIVFFlatIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
 }
 
 std::expected<void, GpuError>
-GpuIVFFlatIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuIVFFlatIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     if (!transfer) {

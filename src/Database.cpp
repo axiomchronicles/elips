@@ -679,7 +679,7 @@ std::vector<SegmentManifestEntry> read_manifest_file(const fs::path& file) {
     return entries;
 }
 
-void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
+void load_snapshot_file(const fs::path& file, Database& instance) {
     std::ifstream in(file, std::ios::binary);
     if (!in) {
         throw StorageError{"cannot open snapshot for reading"};
@@ -716,7 +716,7 @@ void load_snapshot_file(const fs::path& file, ElipsInstance& instance) {
     }
 }
 
-void load_segmented_state(const fs::path& root, ElipsInstance& instance) {
+void load_segmented_state(const fs::path& root, Database& instance) {
     const auto entries = read_manifest_file(root / manifest_file);
     for (const auto& entry : entries) {
         const fs::path segment_path = root / segment_dir / entry.file_name;
@@ -750,7 +750,7 @@ void load_segmented_state(const fs::path& root, ElipsInstance& instance) {
     }
 }
 
-void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
+void configure_gpu_backend(Database& instance, const Config& config) {
 #ifdef ELIPS_GPU_ENABLED
     gpu::GpuDeviceManager manager;
     instance.set_gpu_info(manager.cpu_fallback_info());
@@ -789,7 +789,7 @@ void configure_gpu_backend(ElipsInstance& instance, const Config& config) {
 #endif
 }
 
-void apply_read_only_mode(ElipsInstance& instance) {
+void apply_read_only_mode(Database& instance) {
     for (const auto& name : instance.list_vaults()) {
         instance.vault(name).set_read_only(true);
     }
@@ -802,7 +802,7 @@ void apply_read_only_mode(ElipsInstance& instance) {
 Vault::Vault(std::string name, const Config& config
 #ifdef ELIPS_GPU_ENABLED
              ,
-             gpu::GpuPort* gpu_backend
+             gpu::GpuBackend* gpu_backend
 #endif
              )
     : name_(std::move(name)),
@@ -1526,7 +1526,7 @@ void Vault::quantize() {
     rebuild_index_locked();
 }
 
-void ElipsInstance::quantize(const std::string& vault_name) {
+void Database::quantize(const std::string& vault_name) {
     const std::lock_guard lock(mutex_);
     if (closed_) {
         throw StorageError{"database is closed"};
@@ -1544,7 +1544,7 @@ void ElipsInstance::quantize(const std::string& vault_name) {
     }
 }
 
-void ElipsInstance::quantize_all() {
+void Database::quantize_all() {
     for (const auto& name : list_vaults()) {
         quantize(name);
     }
@@ -1569,16 +1569,16 @@ VaultInfo Vault::info() const noexcept {
                      codec != nullptr ? codec->code_bytes() : 0};
 }
 
-// ----------------------------- ElipsInstance -----------------------------
+// ----------------------------- Database -----------------------------
 
-ElipsInstance::ElipsInstance(std::string path, Config config, bool persistent,
+Database::Database(std::string path, Config config, bool persistent,
                              std::optional<LockManager> lock)
     : path_(std::move(path)),
       config_(std::move(config)),
       persistent_(persistent),
       lock_(std::move(lock)) {}
 
-ElipsInstance::~ElipsInstance() {
+Database::~Database() {
     const std::lock_guard lock(mutex_);
     if (persistent_ && !closed_ && config_.access_mode() != AccessMode::read_only) {
         try {
@@ -1594,17 +1594,17 @@ ElipsInstance::~ElipsInstance() {
     vaults_.clear();
 }
 
-void ElipsInstance::abandon() noexcept {
+void Database::abandon() noexcept {
     const std::lock_guard lock(mutex_);
     closed_ = true;
 }
 
-Vault& ElipsInstance::vault(const std::string& name) {
+Vault& Database::vault(const std::string& name) {
     const std::lock_guard lock(mutex_);
     return vault_locked(name);
 }
 
-Vault& ElipsInstance::vault_locked(const std::string& name) {
+Vault& Database::vault_locked(const std::string& name) {
     const auto it = vaults_.find(name);
     if (it != vaults_.end()) {
         return *it->second;
@@ -1628,7 +1628,7 @@ Vault& ElipsInstance::vault_locked(const std::string& name) {
     return ref;
 }
 
-Vault& ElipsInstance::adopt_vault(std::unique_ptr<Vault> vault) {
+Vault& Database::adopt_vault(std::unique_ptr<Vault> vault) {
     const std::lock_guard lock(mutex_);
     vault->set_wal(wal_.get());
     if (config_.access_mode() == AccessMode::read_only) {
@@ -1639,7 +1639,7 @@ Vault& ElipsInstance::adopt_vault(std::unique_ptr<Vault> vault) {
     return ref;
 }
 
-void ElipsInstance::attach_wal(std::unique_ptr<WAL> wal) {
+void Database::attach_wal(std::unique_ptr<WAL> wal) {
     const std::lock_guard lock(mutex_);
     wal_ = std::move(wal);
     for (auto& [name, vault] : vaults_) {
@@ -1648,7 +1648,7 @@ void ElipsInstance::attach_wal(std::unique_ptr<WAL> wal) {
     }
 }
 
-std::vector<std::string> ElipsInstance::list_vaults() const {
+std::vector<std::string> Database::list_vaults() const {
     const std::lock_guard lock(mutex_);
     std::vector<std::string> names;
     names.reserve(vaults_.size());
@@ -1659,12 +1659,12 @@ std::vector<std::string> ElipsInstance::list_vaults() const {
     return names;
 }
 
-void ElipsInstance::checkpoint() {
+void Database::checkpoint() {
     const std::lock_guard lock(mutex_);
     checkpoint_locked();
 }
 
-void ElipsInstance::checkpoint_locked() {
+void Database::checkpoint_locked() {
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
     }
@@ -1728,7 +1728,7 @@ void ElipsInstance::checkpoint_locked() {
     }
 }
 
-void ElipsInstance::compact() {
+void Database::compact() {
     const std::lock_guard lock(mutex_);
     if (!persistent_ || config_.access_mode() == AccessMode::read_only) {
         return;
@@ -1740,7 +1740,7 @@ void ElipsInstance::compact() {
     checkpoint_locked();
 }
 
-void ElipsInstance::vacuum() {
+void Database::vacuum() {
     const std::lock_guard lock(mutex_);
     if (config_.access_mode() == AccessMode::read_only) {
         return;
@@ -1751,7 +1751,7 @@ void ElipsInstance::vacuum() {
     }
 }
 
-void ElipsInstance::close() {
+void Database::close() {
     const std::lock_guard lock(mutex_);
     if (closed_) {
         return;
@@ -1772,7 +1772,7 @@ void ElipsInstance::close() {
 
 // --------------------------------- open ----------------------------------
 
-std::unique_ptr<ElipsInstance> open(const std::string& path,
+std::unique_ptr<Database> open(const std::string& path,
                                     const Config& config) {
     if (path == ":memory:") {
         if (config.dimension() == 0) {
@@ -1783,7 +1783,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
         (void)resolve_text_embedder_for_open(fs::path{}, /*persistent=*/false,
                                              /*new_database=*/true, effective);
         auto instance =
-            std::make_unique<ElipsInstance>(path, effective, /*persistent=*/false);
+            std::make_unique<Database>(path, effective, /*persistent=*/false);
         configure_gpu_backend(*instance, effective);
         if (effective.access_mode() == AccessMode::read_only) {
             apply_read_only_mode(*instance);
@@ -1825,7 +1825,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
         write_text_embedder_manifest(fs::path(path), *embedder_manifest);
     }
 
-    auto instance = std::make_unique<ElipsInstance>(path, effective,
+    auto instance = std::make_unique<Database>(path, effective,
                                                     /*persistent=*/true,
                                                     std::move(lock));
     configure_gpu_backend(*instance, effective);
@@ -1872,7 +1872,7 @@ std::unique_ptr<ElipsInstance> open(const std::string& path,
 
 // ------------------------------ Transaction ------------------------------
 
-Transaction ElipsInstance::begin_transaction() { return Transaction{*this}; }
+Transaction Database::begin_transaction() { return Transaction{*this}; }
 
 Transaction::~Transaction() {
     if (!done_) {
@@ -1975,9 +1975,9 @@ void TransactionVault::erase(const RecordID& id) {
 }
 
 #ifdef ELIPS_GPU_ENABLED
-gpu::GpuDeviceInfo ElipsInstance::gpu_info() const { return gpu_info_; }
+gpu::GpuDeviceInfo Database::gpu_info() const { return gpu_info_; }
 
-gpu::GpuMetricsSnapshot ElipsInstance::gpu_stats() const { return gpu_stats_; }
+gpu::GpuMetricsSnapshot Database::gpu_stats() const { return gpu_stats_; }
 #endif
 
 }  // namespace elips

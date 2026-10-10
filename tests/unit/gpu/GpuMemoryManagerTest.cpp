@@ -25,7 +25,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
     std::unique_ptr<GpuMemoryManager> memory_;
 };
 
@@ -106,7 +106,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
     std::unique_ptr<GpuMemoryPool> pool_;
 };
 

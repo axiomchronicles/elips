@@ -1,5 +1,5 @@
-#ifndef ELIPS_INDEX_ENGINE_EXACT_INDEX_HPP
-#define ELIPS_INDEX_ENGINE_EXACT_INDEX_HPP
+#ifndef ELIPS_INDEX_ENGINE_INDEX_FLAT_HPP
+#define ELIPS_INDEX_ENGINE_INDEX_FLAT_HPP
 
 #include <cstddef>
 #include "elips/domain/Expected.hpp"
@@ -9,7 +9,7 @@
 
 #include "elips/Config.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/Index.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
 #include "elips/quant_engine/Quantizer.hpp"
 
@@ -21,11 +21,11 @@ namespace elips {
 // When a trained quantizer is supplied, rows are stored as codes rather than
 // fp32 and search computes distances by asymmetric lookup, which makes the scan
 // both smaller and faster. Note that "exact" then refers to the scan being
-// exhaustive, not to the distances being exact -- a quantized ExactIndex is no
+// exhaustive, not to the distances being exact -- a quantized IndexFlat is no
 // longer a ground-truth oracle.
-class ExactIndex final : public IndexPort, public IndexTransferPort {
+class IndexFlat final : public Index, public IndexTransferPort {
 public:
-    ExactIndex(Metric metric, std::uint16_t dimension,
+    IndexFlat(Metric metric, std::uint16_t dimension,
                quant::QuantizerPtr quantizer = {}) noexcept
         : metric_(metric),
           dimension_(dimension),
@@ -65,6 +65,8 @@ private:
     std::vector<std::uint8_t> codes_;   // used when compressed
 };
 
+using ExactIndex [[deprecated("renamed to IndexFlat")]] = IndexFlat;
+
 }  // namespace elips
 
-#endif  // ELIPS_INDEX_ENGINE_EXACT_INDEX_HPP
+#endif  // ELIPS_INDEX_ENGINE_INDEX_FLAT_HPP

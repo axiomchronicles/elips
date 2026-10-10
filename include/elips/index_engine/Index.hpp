@@ -1,5 +1,5 @@
-#ifndef ELIPS_INDEX_ENGINE_INDEX_PORT_HPP
-#define ELIPS_INDEX_ENGINE_INDEX_PORT_HPP
+#ifndef ELIPS_INDEX_ENGINE_INDEX_HPP
+#define ELIPS_INDEX_ENGINE_INDEX_HPP
 
 #include <cstddef>
 #include <span>
@@ -11,18 +11,18 @@
 
 namespace elips {
 
-// Port for pluggable index implementations (DIP). ExactIndex ships in v1.0;
-// HierarchicalGraphIndex (HNSW) plugs in behind the same interface later.
-class IndexPort {
+// Port for pluggable index implementations (DIP). IndexFlat ships in v1.0;
+// IndexHNSW (HNSW) plugs in behind the same interface later.
+class Index {
 public:
     using Hit = std::pair<RecordID, float>;  // (id, ordering-normalized distance)
 
-    IndexPort() = default;
-    virtual ~IndexPort() = default;
-    IndexPort(const IndexPort&) = delete;
-    IndexPort& operator=(const IndexPort&) = delete;
-    IndexPort(IndexPort&&) = delete;
-    IndexPort& operator=(IndexPort&&) = delete;
+    Index() = default;
+    virtual ~Index() = default;
+    Index(const Index&) = delete;
+    Index& operator=(const Index&) = delete;
+    Index(Index&&) = delete;
+    Index& operator=(Index&&) = delete;
 
     // Write path. Vectors are pre-validated/normalized by the vector engine.
     virtual void insert(const RecordID& id, std::span<const float> vector) = 0;
@@ -45,6 +45,8 @@ public:
     }
 };
 
+using IndexPort [[deprecated("renamed to Index")]] = Index;
+
 }  // namespace elips
 
-#endif  // ELIPS_INDEX_ENGINE_INDEX_PORT_HPP
+#endif  // ELIPS_INDEX_ENGINE_INDEX_HPP

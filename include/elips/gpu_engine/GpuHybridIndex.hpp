@@ -8,15 +8,15 @@
 #include "elips/Config.hpp"
 #include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/gpu_engine/GpuIndexPort.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
-#include "elips/index_engine/IndexPort.hpp"
+#include "elips/gpu_engine/GpuIndex.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
+#include "elips/index_engine/Index.hpp"
 
 namespace elips::gpu {
 
-class GpuHybridIndex final : public GpuIndexPort {
+class GpuHybridIndex final : public GpuIndex {
 public:
-    GpuHybridIndex(GpuPort& backend, std::unique_ptr<elips::IndexPort> cpu_index,
+    GpuHybridIndex(GpuBackend& backend, std::unique_ptr<elips::Index> cpu_index,
                    elips::Metric metric, uint16_t dimension, const GpuConfig& config);
 
     void insert(const RecordID& id, std::span<const float> vector) override;
@@ -38,10 +38,10 @@ public:
     search_batch(std::span<const float> queries, size_t k, size_t ef_search) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    export_to_cpu_index(elips::IndexPort& cpu_index_out) const override;
+    export_to_cpu_index(elips::Index& cpu_index_out) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    import_from_cpu_index(const elips::IndexPort& cpu_index) override;
+    import_from_cpu_index(const elips::Index& cpu_index) override;
 
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
@@ -53,8 +53,8 @@ public:
     import_snapshot(const elips::IndexSnapshot& snapshot) override;
 
 private:
-    std::unique_ptr<elips::IndexPort> cpu_index_;
-    std::unique_ptr<GpuIndexPort> gpu_index_;
+    std::unique_ptr<elips::Index> cpu_index_;
+    std::unique_ptr<GpuIndex> gpu_index_;
 };
 
 } // namespace elips::gpu

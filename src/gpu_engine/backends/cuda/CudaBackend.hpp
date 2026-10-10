@@ -3,13 +3,13 @@
 
 #ifdef ELIPS_CUDA_ENABLED
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include <cuda_runtime.h>
 #include <vector>
 
 namespace elips::gpu::cuda {
 
-class CudaBackend final : public GpuPort {
+class CudaBackend final : public GpuBackend {
 public:
     CudaBackend();
     ~CudaBackend() override;

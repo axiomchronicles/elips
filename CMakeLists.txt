@@ -67,8 +67,8 @@ add_library(elips_core
     src/LocalTextEmbedder.cpp
     src/RecordID.cpp
     src/Metrics.cpp
-    src/ExactIndex.cpp
-    src/HierarchicalGraphIndex.cpp
+    src/IndexFlat.cpp
+    src/IndexHNSW.cpp
     src/IndexFactory.cpp
     src/quant_engine/KMeans.cpp
     src/quant_engine/Quantizer.cpp
@@ -153,14 +153,14 @@ if(ELIPS_BUILD_TESTS)
 
     add_executable(elips_tests
         tests/unit/metrics_test.cpp
-        tests/unit/exact_index_test.cpp
+        tests/unit/index_flat_test.cpp
         tests/unit/record_id_test.cpp
         tests/unit/hnsw_recall_test.cpp
         tests/unit/eql_test.cpp
         tests/unit/vector_test.cpp
         tests/unit/config_test.cpp
         tests/unit/metadata_filter_index_test.cpp
-        tests/unit/exact_edge_cases_test.cpp
+        tests/unit/index_flat_edge_cases_test.cpp
         tests/unit/hnsw_edge_cases_test.cpp
         tests/unit/filter_edge_test.cpp
         tests/unit/scan_test.cpp

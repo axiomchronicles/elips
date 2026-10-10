@@ -1,7 +1,7 @@
 #include "elips/index_engine/IndexFactory.hpp"
 
-#include "elips/index_engine/ExactIndex.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
@@ -12,28 +12,28 @@
 namespace elips {
 namespace {
 
-std::unique_ptr<IndexPort> make_cpu_index(const Config& config,
+std::unique_ptr<Index> make_cpu_index(const Config& config,
                                           std::uint16_t dimension) {
     // A quantizer is only handed over once one has been trained; until then the
     // index stores full fp32 even when a codec is configured.
     const quant::QuantizerPtr& quantizer = config.quantizer();
     switch (config.index()) {
         case IndexType::exact:
-            return std::make_unique<ExactIndex>(config.metric(), dimension,
+            return std::make_unique<IndexFlat>(config.metric(), dimension,
                                                 quantizer);
         case IndexType::graph:
-            return std::make_unique<HierarchicalGraphIndex>(
+            return std::make_unique<IndexHNSW>(
                 config.metric(), dimension, config.graph_params(), quantizer);
     }
-    return std::make_unique<ExactIndex>(config.metric(), dimension, quantizer);
+    return std::make_unique<IndexFlat>(config.metric(), dimension, quantizer);
 }
 
 }  // namespace
 
-std::unique_ptr<IndexPort> make_index(const Config& config,
+std::unique_ptr<Index> make_index(const Config& config,
                                       std::uint16_t dimension
 #ifdef ELIPS_GPU_ENABLED
-                                      , gpu::GpuPort* gpu_backend
+                                      , gpu::GpuBackend* gpu_backend
 #endif
 ) {
 #ifdef ELIPS_GPU_ENABLED

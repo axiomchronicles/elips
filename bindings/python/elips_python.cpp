@@ -29,7 +29,7 @@
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/gpu_engine/GpuProfiler.hpp"
 #include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #endif
@@ -111,20 +111,20 @@ std::optional<elips::RecordID> to_optional_id(const py::object& id) {
 }
 
 // RAII holder for Transaction that keeps the Database alive.
-// The C++ Transaction holds a raw pointer to ElipsInstance; we must ensure
+// The C++ Transaction holds a raw pointer to Database; we must ensure
 // the owning Python Database object outlives it.
 struct TransactionHolder {
     py::object db_ref;
     elips::Transaction txn;
 
-    TransactionHolder(py::object db, elips::ElipsInstance& instance)
+    TransactionHolder(py::object db, elips::Database& instance)
         : db_ref(std::move(db)), txn(instance) {}
 };
 
 #ifdef ELIPS_GPU_ENABLED
 // Owning Python-facing handle for a selected GPU backend.
 //
-// Deliberately narrower than the C++ GpuPort: the raw allocate/upload/download
+// Deliberately narrower than the C++ GpuBackend: the raw allocate/upload/download
 // methods traffic in void* plus a caller-supplied byte count, where a wrong
 // size is an out-of-bounds device write rather than an exception. Those stay
 // C++-only. What is exposed here -- device metadata, stream synchronization,
@@ -132,11 +132,11 @@ struct TransactionHolder {
 // bounds-checked against the array shapes the caller passes in.
 class GpuDeviceHandle {
 public:
-    explicit GpuDeviceHandle(std::unique_ptr<elips::gpu::GpuPort> port)
+    explicit GpuDeviceHandle(std::unique_ptr<elips::gpu::GpuBackend> port)
         : port_(std::move(port)),
           memory_(std::make_unique<elips::gpu::GpuMemoryManager>(*port_)) {}
 
-    [[nodiscard]] elips::gpu::GpuPort& port() {
+    [[nodiscard]] elips::gpu::GpuBackend& port() {
         if (closed_) {
             throw elips::StorageError{"GPU device handle is closed"};
         }
@@ -173,7 +173,7 @@ public:
     GpuDeviceHandle& operator=(GpuDeviceHandle&&) = delete;
 
 private:
-    std::unique_ptr<elips::gpu::GpuPort> port_;
+    std::unique_ptr<elips::gpu::GpuBackend> port_;
     std::unique_ptr<elips::gpu::GpuMemoryManager> memory_;
     elips::gpu::GpuProfiler profiler_;
     bool closed_{false};
@@ -649,11 +649,11 @@ parsed tree so callers can build query linters, rewriters, or builders.
 
     // =====================  GraphParams  =====================
 
-    py::class_<elips::GraphParams>(m, "GraphParams")
+    py::class_<elips::HnswParams>(m, "GraphParams")
         .def(py::init<>())
         .def(py::init([](std::size_t max_connections, std::size_t ef_construction,
                          std::size_t ef_search, float compaction_ratio) {
-                 return elips::GraphParams{max_connections, ef_construction,
+                 return elips::HnswParams{max_connections, ef_construction,
                                            ef_search, compaction_ratio};
              }),
              py::arg("max_connections") = 16,
@@ -673,18 +673,18 @@ Args:
         which case call :meth:`Vault.vacuum` explicitly.
 )doc")
         .def_readwrite("max_connections",
-                        &elips::GraphParams::max_connections,
+                        &elips::HnswParams::max_connections,
                         "HNSW ``M``: neighbours kept per node per layer.")
         .def_readwrite("ef_construction",
-                        &elips::GraphParams::ef_construction,
+                        &elips::HnswParams::ef_construction,
                         "Beam width used while building the graph.")
-        .def_readwrite("ef_search", &elips::GraphParams::ef_search,
+        .def_readwrite("ef_search", &elips::HnswParams::ef_search,
                         "Beam width used while searching the graph.")
         .def_readwrite("compaction_ratio",
-                        &elips::GraphParams::compaction_ratio,
+                        &elips::HnswParams::compaction_ratio,
                         "Tombstone fraction that triggers automatic compaction; "
                         "0.0 disables it.")
-        .def("__repr__", [](const elips::GraphParams& p) {
+        .def("__repr__", [](const elips::HnswParams& p) {
             return "<GraphParams M=" + std::to_string(p.max_connections) +
                    " ef_c=" + std::to_string(p.ef_construction) +
                    " ef_s=" + std::to_string(p.ef_search) +
@@ -1068,7 +1068,7 @@ Example:
              py::return_value_policy::reference_internal)
         .def("graph_params",
              [](elips::Config& c,
-                const elips::GraphParams& params) -> elips::Config& {
+                const elips::HnswParams& params) -> elips::Config& {
                  return c.graph_params(params);
              },
              py::arg("params"),
@@ -2679,7 +2679,7 @@ Returns a list of record dicts. This copies the whole vault, so prefer
 
     // =====================  Database  =====================
 
-    py::class_<elips::ElipsInstance>(m, "Database", R"doc(A database handle: one per directory, owning every vault and all persistence.
+    py::class_<elips::Database>(m, "Database", R"doc(A database handle: one per directory, owning every vault and all persistence.
 
 Durability model: writes are appended to a write-ahead log and ``fsync``'d
 before :meth:`Vault.place` returns, so an acknowledged write survives an OS
@@ -2729,43 +2729,43 @@ Example:
         db = elips.open("/data/catalog")
         print(db.vault("products").count())
 )doc")
-        .def("vault", &elips::ElipsInstance::vault,
+        .def("vault", &elips::Database::vault,
              py::return_value_policy::reference_internal)
-        .def("list_vaults", &elips::ElipsInstance::list_vaults)
+        .def("list_vaults", &elips::Database::list_vaults)
         .def("begin_transaction",
              [](py::object db_ref) {
-                 auto& db = db_ref.cast<elips::ElipsInstance&>();
+                 auto& db = db_ref.cast<elips::Database&>();
                  return std::make_unique<TransactionHolder>(
                      std::move(db_ref), db);
              })
-        .def("checkpoint", &elips::ElipsInstance::checkpoint,
+        .def("checkpoint", &elips::Database::checkpoint,
              py::call_guard<py::gil_scoped_release>())
-        .def("compact", &elips::ElipsInstance::compact,
+        .def("compact", &elips::Database::compact,
              py::call_guard<py::gil_scoped_release>())
-        .def("vacuum", &elips::ElipsInstance::vacuum,
+        .def("vacuum", &elips::Database::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim tombstoned index space across every vault.")
-        .def("quantize", &elips::ElipsInstance::quantize, py::arg("vault"),
+        .def("quantize", &elips::Database::quantize, py::arg("vault"),
              py::call_guard<py::gil_scoped_release>(),
              "Compress one vault (see :meth:`Vault.quantize`), then checkpoint "
              "so the codebook and encoded records are durable before the WAL is "
              "truncated.")
-        .def("quantize_all", &elips::ElipsInstance::quantize_all,
+        .def("quantize_all", &elips::Database::quantize_all,
              py::call_guard<py::gil_scoped_release>(),
              "Compress every vault in this database.")
-        .def("close", &elips::ElipsInstance::close)
-        .def("abandon", &elips::ElipsInstance::abandon)
+        .def("close", &elips::Database::close)
+        .def("abandon", &elips::Database::abandon)
         .def_property_readonly(
-            "path", &elips::ElipsInstance::path,
+            "path", &elips::Database::path,
             "The directory this database was opened from, or ``\":memory:\"``.")
         .def_property_readonly(
-            "persistent", &elips::ElipsInstance::persistent,
+            "persistent", &elips::Database::persistent,
             "False for in-memory databases, which have no WAL or snapshot.")
         .def_property_readonly(
-            "closed", &elips::ElipsInstance::closed,
+            "closed", &elips::Database::closed,
             "True once :meth:`close` or :meth:`abandon` has run.")
         .def("query",
-             [](elips::ElipsInstance& db, const std::string& eql,
+             [](elips::Database& db, const std::string& eql,
                 const py::dict& bindings) {
                  std::map<std::string, elips::Vector> binds;
                  for (const auto& [k, v] : bindings) {
@@ -2777,20 +2777,20 @@ Example:
              },
              py::arg("eql"), py::arg("bindings") = py::dict())
 #ifdef ELIPS_GPU_ENABLED
-        .def("gpu_info", [](const elips::ElipsInstance& db) { return db.gpu_info(); })
-        .def("gpu_stats", [](const elips::ElipsInstance& db) { return db.gpu_stats(); })
+        .def("gpu_info", [](const elips::Database& db) { return db.gpu_info(); })
+        .def("gpu_stats", [](const elips::Database& db) { return db.gpu_stats(); })
 #endif
         .def_property_readonly(
             "config",
-            [](const elips::ElipsInstance& db) -> elips::Config {
+            [](const elips::Database& db) -> elips::Config {
                 return db.config();
             })
         .def("__enter__",
-             [](elips::ElipsInstance& db) { return &db; })
+             [](elips::Database& db) { return &db; })
         .def("__exit__",
-             [](elips::ElipsInstance& db, const py::object&,
+             [](elips::Database& db, const py::object&,
                 const py::object&, const py::object&) { db.close(); })
-        .def("__repr__", [](const elips::ElipsInstance& db) {
+        .def("__repr__", [](const elips::Database& db) {
             auto vaults = db.list_vaults();
             return "<Database vaults=" +
                    std::to_string(vaults.size()) + ">";

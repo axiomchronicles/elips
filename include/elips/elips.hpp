@@ -16,7 +16,7 @@
 #include "elips/domain/RecordID.hpp"
 #include "elips/domain/SearchResult.hpp"
 #include "elips/domain/Vector.hpp"
-#include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/Index.hpp"
 #include "elips/kernel/LockManager.hpp"
 #include "elips/metadata/Filter.hpp"
 #include "elips/metadata/MetadataFilterIndex.hpp"
@@ -24,7 +24,7 @@
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #endif
 
 #if defined(_WIN32) && defined(__MINGW32__)
@@ -123,7 +123,7 @@ class Vault {
 public:
     Vault(std::string name, const Config& config
 #ifdef ELIPS_GPU_ENABLED
-          , gpu::GpuPort* gpu_backend = nullptr
+          , gpu::GpuBackend* gpu_backend = nullptr
 #endif
     );
 
@@ -184,7 +184,7 @@ public:
 
     // Reclaim index space held by deleted records. Cheap no-op when there is
     // nothing tombstoned; the graph index also self-compacts once tombstones
-    // pass GraphParams::compaction_ratio.
+    // pass HnswParams::compaction_ratio.
     void vacuum();
     // Records deleted from the index but not yet reclaimed.
     [[nodiscard]] std::size_t pending_removals() const noexcept;
@@ -268,14 +268,14 @@ private:
 
     std::string name_;
     Config config_;
-    std::unique_ptr<IndexPort> index_;
+    std::unique_ptr<Index> index_;
     std::map<RecordID, Record> records_;
     MetadataFilterIndex metadata_index_;
     WAL* wal_{nullptr};
     bool read_only_{false};
     bool sealed_{false};
 #ifdef ELIPS_GPU_ENABLED
-    gpu::GpuPort* gpu_backend_{nullptr};
+    gpu::GpuBackend* gpu_backend_{nullptr};
 #endif
     // Guards every member above. Mutable so const (read) methods can share-lock.
     mutable SharedMutex mutex_;
@@ -287,16 +287,16 @@ private:
 // Thread safety: safe to share across threads. The instance mutex guards the
 // vault registry and lifecycle state; each Vault carries its own reader/writer
 // lock, so concurrent searches on the same vault do not serialize.
-class ElipsInstance {
+class Database {
 public:
-    ElipsInstance(std::string path, Config config, bool persistent,
+    Database(std::string path, Config config, bool persistent,
                   std::optional<LockManager> lock = std::nullopt);
-    ~ElipsInstance();
+    ~Database();
 
-    ElipsInstance(const ElipsInstance&) = delete;
-    ElipsInstance& operator=(const ElipsInstance&) = delete;
-    ElipsInstance(ElipsInstance&&) = delete;
-    ElipsInstance& operator=(ElipsInstance&&) = delete;
+    Database(const Database&) = delete;
+    Database& operator=(const Database&) = delete;
+    Database(Database&&) = delete;
+    Database& operator=(Database&&) = delete;
 
     Vault& vault(const std::string& name);
     [[nodiscard]] std::vector<std::string> list_vaults() const;
@@ -333,7 +333,7 @@ public:
     [[nodiscard]] gpu::GpuMetricsSnapshot gpu_stats() const;
     void set_gpu_available(bool available) noexcept { gpu_available_ = available; }
     void set_gpu_info(gpu::GpuDeviceInfo info) noexcept { gpu_info_ = info; }
-    void set_gpu_backend(std::unique_ptr<gpu::GpuPort> backend) noexcept {
+    void set_gpu_backend(std::unique_ptr<gpu::GpuBackend> backend) noexcept {
         gpu_backend_ = std::move(backend);
     }
 #endif
@@ -359,7 +359,7 @@ private:
     bool gpu_available_{false};
     // Vaults and GPU indexes only observe the backend, so the owner must
     // outlive every vault teardown path.
-    std::unique_ptr<gpu::GpuPort> gpu_backend_;
+    std::unique_ptr<gpu::GpuBackend> gpu_backend_;
 #endif
     std::map<std::string, std::unique_ptr<Vault>> vaults_;
     // Guards the vault registry, the WAL handle, and lifecycle flags. Vault
@@ -367,7 +367,7 @@ private:
     mutable std::recursive_mutex mutex_;
 };
 
-[[nodiscard]] std::unique_ptr<ElipsInstance> open(const std::string& path,
+[[nodiscard]] std::unique_ptr<Database> open(const std::string& path,
                                                   const Config& config = {});
 
 class Transaction;
@@ -388,7 +388,7 @@ private:
 
 class Transaction {
 public:
-    explicit Transaction(ElipsInstance& db) : db_(&db) {}
+    explicit Transaction(Database& db) : db_(&db) {}
     ~Transaction();
 
     Transaction(const Transaction&) = delete;
@@ -427,10 +427,12 @@ private:
     void enqueue_erase(std::string vault, const RecordID& id);
     void undo(const std::vector<UndoEntry>& entries) noexcept;
 
-    ElipsInstance* db_;
+    Database* db_;
     std::vector<PendingOp> ops_;
     bool done_{false};
 };
+
+using ElipsInstance [[deprecated("renamed to Database")]] = Database;
 
 }  // namespace elips
 
