@@ -9,8 +9,8 @@ Running checklist. Update at every gate. Dates are absolute (today: 2026-10-10).
 | 1 | Inventory & baseline | DONE (2026-10-10) | ☑ |
 | 2 | Prune GPU backends (SYCL, Vulkan) | DONE (2026-10-10) | ☑ |
 | 3 | Study FAISS | DONE (2026-10-10) | ☑ |
-| 4 | Gap analysis | IN PROGRESS (2026-10-10) | ☐ |
-| 5 | Naming & public API redesign | not started | ☐ |
+| 4 | Gap analysis | DONE (2026-10-10) | ☑ |
+| 5 | Naming & public API redesign | IN PROGRESS (2026-10-10) | ☐ |
 | 6 | Core engine maturity | not started | ☐ |
 | 7 | GPU acceleration redesign | not started | ☐ |
 | 8 | Build / packaging / test infra | not started | ☐ |
@@ -45,3 +45,4 @@ pending the commit. Recommended re-scoping to feed later phases (does not change
 - NOTE for Phase 8: latent build issues left untouched (out of Phase 2 scope): `src/gpu_engine/CMakeLists.txt` `ELIPS_GPU_TESTS` adds a missing `tests/` subdir (gated OFF); CUDA/HIP `CMakeLists` name nonexistent `.cu`/`.hip` sources (actual files `.cpp`); linker "ignoring duplicate libraries" (elips_core/elips_gpu linked twice).
 - 2026-10-10: Phase 3 started. Cloned facebookresearch/faiss @ v1.15.1 (`75c755c5`) to /tmp/faiss. Fanned out 3A–3H study agents. **MAJOR CORRECTION (overrides mission ground rule #8):** upstream FAISS v1.15.1 now has a REAL Metal backend (`faiss/gpu_metal/`, ~7700 LOC, incl. GPU top-k `topk_threadgroup_2048`). Added agent 3I to study it; recorded as ADR-R1 in `04_architecture.md`. Phase 7 Metal work is now adapt-a-precedent, not greenfield.
 - 2026-10-10: Phase 3 DONE. All 9 section reports written (`_faiss_3A..3H.md` + `_faiss_3I_metal.md`); synthesized into `01_faiss_study.md` with 8 reality-corrections + adopt/adapt/skip per section + consolidated decisions feeding Phases 5–8. Gate MET (study non-destructive, nothing built). Next: Phase 4 gap analysis.
+- 2026-10-10: Phase 4 DONE. 3 gap agents (4A index/search/CRUD/persistence, 4B GPU/Metal, 4C API/build/concurrency/docs) → merged into `02_gap_analysis.md`. 7 blockers identified; every gap carries an owner phase (gate MET). Headlines: 3 live vocabularies (B1), no index_factory (B2), no Client/PersistentClient (B3), GPU top-k on CPU + naive kernel + no real-kernel test (B4-6), docs actively wrong (B7). ELIPS has NO CPU IVF (GPU-only) — biggest core gap. ELIPS ahead on durability/hybrid/batcher/unified-memory. Committed `02_gap_analysis.md`.
