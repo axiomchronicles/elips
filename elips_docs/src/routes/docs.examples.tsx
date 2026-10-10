@@ -31,14 +31,14 @@ function Page() {
       <CodeBlock lang="python" filename="examples/python/01_getting_started.py">
         {`import elips
 
-engine = elips.connect(":memory:", dimension=128)
-arena = engine.arena("documents")
-arena.ingest(
-    texts=["alpha design note", "beta incident runbook"],
-    meta=[{"kind": "design"}, {"kind": "ops"}],
+client = elips.Client(dimension=128)
+docs = client.get_or_create_collection("documents")
+docs.add(
+    documents=["alpha design note", "beta incident runbook"],
+    metadatas=[{"kind": "design"}, {"kind": "ops"}],
 )
 
-for hit in arena.probe_text("alpha", top=2):
+for hit in docs.query(query_texts=["alpha"], n_results=2):
     print(hit.key, hit.distance, hit.text, hit.meta)`}
       </CodeBlock>
 
@@ -52,12 +52,12 @@ int main() {
         ":memory:",
         elips::Config{}.dimension(128).metric(elips::Metric::cosine));
 
-    auto& docs = db->vault("documents");
-    docs.place_document("alpha design note", {{"kind", std::string{"design"}}});
-    docs.place_document("beta incident runbook", {{"kind", std::string{"ops"}}});
+    auto& docs = db->collection("documents");
+    docs.add_document("alpha design note", {{"kind", std::string{"design"}}});
+    docs.add_document("beta incident runbook", {{"kind", std::string{"ops"}}});
 
-    for (auto const& hit : docs.seek_text("alpha", 2)) {
-        std::println("{} {} {}", hit.id.to_string(), hit.distance,
+    for (auto const& hit : docs.search_text("alpha", 2)) {
+        std::println("{} {} {}", hit.key.to_string(), hit.distance,
                      hit.document->text);
     }
 }`}
@@ -65,20 +65,19 @@ int main() {
 
       <h2>EQL from the SDK</h2>
       <CodeBlock lang="python">
-        {`rows = db.query(
-    "seek in documents nearest $q top 10 "
-    "where kind = \\"design\\" project kind yield",
-    bindings={"q": query_vector},
+        {`rows = client.query_eql(
+    'search in documents nearest $q k 10 where kind = "design" project kind yield',
+    {"q": query_vector},
 )`}
       </CodeBlock>
 
       <h2>Hybrid retrieval</h2>
       <CodeBlock lang="python">
-        {`hits = docs.seek_hybrid(
-    vector=query_vector,
-    text="rotate KMS keys",
-    top=5,
-    where=elips.Filter().field("kind").equals("runbook"),
+        {`hits = docs.query(
+    query_embeddings=[query_vector],
+    query_texts=["rotate KMS keys"],
+    n_results=5,
+    where={"kind": "runbook"},
 )`}
       </CodeBlock>
     </DocsShell>

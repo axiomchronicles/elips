@@ -1,5 +1,13 @@
 # ELIPS Runtime Flow
 
+> **Name update.** This internal-flow doc predates the public rename and still
+> uses old spellings. Current names: `Database` (was `ElipsInstance`),
+> `Collection` (was `Vault`), `add`/`search`/`get`/`remove` (was
+> `place`/`seek`/`fetch`/`erase`), `Index`/`IndexFlat`/`IndexHNSW` (was
+> `IndexPort`/`ExactIndex`/`HierarchicalGraphIndex`). The flow itself is
+> unchanged; see the [architecture overview](../architecture.md) for the
+> current layering.
+
 This document describes the complete runtime lifecycle of an ELIPS database instance, from `open()` through writes, reads, transactions, checkpointing, and shutdown.
 
 ## 1. open() Sequence

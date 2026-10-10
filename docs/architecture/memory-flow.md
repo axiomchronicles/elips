@@ -1,5 +1,11 @@
 # ELIPS Memory Flow
 
+> **Name update.** Current names: `Database` (was `ElipsInstance`), `Collection`
+> (was `Vault`), `GpuBackend` (was `GpuPort`), `QueryBatcher` (was
+> `DynamicBatcher`). GPU memory specifics (unified-memory zero-copy on Metal,
+> best-fit pool for discrete backends) are authoritatively covered in the
+> [GPU guide](../gpu/index.md). The flow itself is unchanged.
+
 This document describes how data flows through ELIPS memory structures: vector storage, index data, WAL, snapshots, record storage, and GPU memory management.
 
 ## Memory Architecture Overview

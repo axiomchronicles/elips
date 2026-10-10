@@ -68,12 +68,12 @@ const KEYWORD_MAP: Array<{ keys: RegExp; path: string }> = [
   { keys: /\b(wal|recovery|crash|checkpoint|snapshot|segment)\b/i, path: "/docs/storage" },
   { keys: /\b(hnsw|ann|graph|ef_search|recall|hybrid|metric)\b/i, path: "/docs/algorithms" },
   { keys: /\b(gpu|cuda|hip|metal|cagra|ivf|pq|batcher)\b/i, path: "/docs/gpu-engine" },
-  { keys: /\b(eql|seek|query language|grammar|where|nearest)\b/i, path: "/docs/eql" },
-  { keys: /\b(python|engine|arena|pybind)\b/i, path: "/docs/python-sdk" },
-  { keys: /\b(c\+\+|cpp|elipsinstance|vault|cmake)\b/i, path: "/docs/cpp-sdk" },
+  { keys: /\b(eql|search|seek|query language|grammar|where|nearest)\b/i, path: "/docs/eql" },
+  { keys: /\b(python|client|collection|engine|arena|pybind)\b/i, path: "/docs/python-sdk" },
+  { keys: /\b(c\+\+|cpp|database|elipsinstance|collection|vault|cmake)\b/i, path: "/docs/cpp-sdk" },
   { keys: /\b(lock|flock|writer|reader|concurrency)\b/i, path: "/docs/internals/lock-manager" },
   { keys: /\b(transaction|commit|rollback|atomic)\b/i, path: "/docs/internals/transaction-engine" },
-  { keys: /\b(planner|plan_seek|strategy|candidate)\b/i, path: "/docs/core-concepts" },
+  { keys: /\b(planner|explain|strategy|candidate)\b/i, path: "/docs/core-concepts" },
   { keys: /\b(cli|elips command|repl)\b/i, path: "/docs/cli" },
 ];
 
@@ -374,7 +374,7 @@ function ChatPage() {
                   submit();
                 }
               }}
-              placeholder="Ask about ELIPS — vaults, planner, EQL, persistence, GPU…"
+              placeholder="Ask about ELIPS — collections, planner, EQL, persistence, GPU…"
               rows={1}
               autoFocus
               aria-label="Message"

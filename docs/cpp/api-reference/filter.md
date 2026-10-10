@@ -1,6 +1,8 @@
 # API Reference: Filter
 
-Namespace `elips`. A metadata predicate over a record's `Payload`. Declaration at `include/elips/metadata/Filter.hpp:22`.
+**Maturity:** stable (v1.0+).
+
+Namespace `elips`. A metadata predicate over a record's `Payload`. Declaration at `include/elips/metadata/Filter.hpp:23`.
 
 A default-constructed `Filter` matches everything (`matches_all()` returns `true`). Filters are immutable value types - composable via combinators that return new `Filter` objects.
 
@@ -311,7 +313,7 @@ Evaluates the filter tree against a record's payload.
 bool matches_all() const noexcept;
 ```
 
-Returns `true` if the filter has no predicate tree (`root_ == nullptr`), meaning it matches every record. Used as an optimization in `Vault::seek()` to skip post-filtering when no filter is applied.
+Returns `true` if the filter has no predicate tree (`root_ == nullptr`), meaning it matches every record. Used as an optimization in `Collection::search()` to skip post-filtering when no filter is applied.
 
 ---
 
@@ -361,17 +363,17 @@ auto f = Filter().field("description").contains(std::string{"important"});
 // => description contains "important"
 ```
 
-**Using with Vault methods**:
+**Using with Collection methods**:
 
 ```cpp
 // Filtered vector search
-auto results = vault.seek(query, 10, filter);
+auto results = docs.search(query, 10, filter);
 
 // Filtered metadata scan
-auto records = vault.scan(filter, 0, 50);
+auto records = docs.scan(filter, 0, 50);
 
 // Combined: filter + threshold search
-auto results = vault.seek(query, 100, filter, 0.5f);
+auto results = docs.search(query, 100, filter, 0.5f);
 ```
 
 ## Thread Safety

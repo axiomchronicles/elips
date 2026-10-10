@@ -15,13 +15,13 @@ export const Route = createFileRoute("/docs/architecture")({
       {
         name: "description",
         content:
-          "How ElipsInstance, Vault, the planner, and the persistence layer fit together in ELIPS.",
+          "How Database, Collection, the planner, and the persistence layer fit together in ELIPS.",
       },
       { property: "og:title", content: "Architecture — ELIPS" },
       {
         property: "og:description",
         content:
-          "A tour of the ELIPS runtime — engines, vaults, planner, indexes, persistence, and locking.",
+          "A tour of the ELIPS runtime — databases, collections, planner, indexes, persistence, and locking.",
       },
       { property: "og:url", content: "/docs/architecture" },
     ],
@@ -46,13 +46,13 @@ function Page() {
     >
       <p className="text-[18px] text-ink">
         ELIPS is a small core with sharp seams. Domain code talks to abstractions —{" "}
-        <code>IndexPort</code>, <code>GpuPort</code>, <code>TextEmbedderPort</code>,{" "}
+        <code>Index</code>, <code>GpuBackend</code>, <code>TextEmbedderPort</code>,{" "}
         <code>WAL</code> — never to concrete engines. This is the lever that lets HNSW, exact
         search, GPU indexes, and future quantized variants compose behind one runtime.
       </p>
 
       <h2 id="shape">System shape</h2>
-      <SketchCard caption="Vertical slice. SDK surfaces sit above the instance; storage and locking sit beneath every vault.">
+      <SketchCard caption="Vertical slice. SDK surfaces sit above the database; storage and locking sit beneath every collection.">
         <SystemShapeDiagram />
       </SketchCard>
 
@@ -64,12 +64,12 @@ function Page() {
         <code> IndexFactory::make_index()</code>.
       </p>
       <CodeBlock lang="cpp">
-        {`class Vault {
-  std::unique_ptr<IndexPort> index_;   // abstract
-  WAL*                       wal_;     // non-owning
+        {`class Collection {
+  std::unique_ptr<Index> index_;   // abstract FAISS-style base
+  WAL*                   wal_;     // non-owning
 };
 
-auto index = make_index(config, dimension);   // returns unique_ptr<IndexPort>`}
+auto index = make_index(config, dimension);   // returns unique_ptr<Index>`}
       </CodeBlock>
 
       <h2 id="query">Query path</h2>
@@ -80,7 +80,7 @@ auto index = make_index(config, dimension);   // returns unique_ptr<IndexPort>`}
         Strategies emitted by the planner: <code>ann_index</code>, <code>exact_candidates</code>,{" "}
         <code>full_scan</code>, <code>text_probe</code>, <code>hybrid_fusion</code>. The strategy is
         the single source of truth for "what actually ran" — exposed through{" "}
-        <code>explain_seek</code> and through EQL.
+        <code>explain_query</code> and through EQL.
       </p>
 
       <h2 id="persistence">Persistence path</h2>
@@ -106,19 +106,19 @@ auto index = make_index(config, dimension);   // returns unique_ptr<IndexPort>`}
       <ul>
         <li>
           <strong>Low-level bindings</strong> mirror the C++ surface: <code>open</code>,{" "}
-          <code>Database</code>, <code>Vault</code>, <code>Config</code>, <code>Filter</code>,{" "}
+          <code>Database</code>, <code>Collection</code>, <code>Config</code>, <code>Filter</code>,{" "}
           <code>QueryPlan</code>.
         </li>
         <li>
-          <strong>Modern wrapper</strong> adds typed text-first ergonomics: <code>connect</code>,{" "}
-          <code>Engine</code>, <code>Arena</code>, <code>RecordInput</code>, <code>Row</code>,{" "}
-          <code>Hit</code>.
+          <strong>Modern wrapper</strong> adds typed text-first ergonomics: <code>Client</code> /{" "}
+          <code>PersistentClient</code>, <code>Collection</code>, <code>RecordInput</code>,{" "}
+          <code>Row</code>, <code>Hit</code>.
         </li>
       </ul>
       <p>
         The wrapper prefers native core text APIs when the database has a resolved embedder. If only
         a Python callable is provided, it falls back to Python-side embedding plus{" "}
-        <code>seek_hybrid</code>. If neither exists, text-first calls raise <code>ConfigError</code>{" "}
+        <code>hybrid_search</code>. If neither exists, text-first calls raise <code>ConfigError</code>{" "}
         — ELIPS never silently degrades to lexical-only behaviour.
       </p>
     </DocsShell>

@@ -36,29 +36,32 @@ function Page() {
       ]}
     >
       <p className="lede handwritten-lede">
-        Indexes plug in behind <code>IndexPort</code>. Two ship in v1.0 — graph (HNSW) and exact —
-        and an optional GPU family lives under <code>src/gpu_engine/</code> behind{" "}
-        <code>GpuPort</code>.
+        Indexes plug in behind the FAISS-style <code>Index</code> base. ELIPS ships a familiar
+        family — <code>IndexFlat</code>, <code>IndexHNSW</code>, <code>IndexIVFFlat</code>,{" "}
+        <code>IndexIVFPQ</code>, and <code>IndexIVFScalarQuantizer</code> — built directly or via{" "}
+        <code>index_factory</code>. An optional GPU path lives under <code>src/gpu_engine/</code>{" "}
+        behind <code>GpuBackend</code>.
       </p>
 
       <h2 id="metrics">Distance metrics</h2>
       <p>
-        Three metrics: <code>cosine</code>, <code>euclidean</code>, and <code>dot</code>. Distance
-        kernels are dispatched through a function pointer in <code>Metrics</code> so AVX2 / AVX-512
-        / NEON variants can slot in without touching call sites. By convention, smaller distance
-        always means more similar.
+        Three metrics: <code>cosine</code>, <code>euclidean</code>, and <code>dot_product</code>.
+        The native FAISS surface spells these FAISS-style — <code>metric="l2"</code> is euclidean.
+        Distance kernels are dispatched through a function pointer in <code>Metrics</code> so AVX2 /
+        AVX-512 / NEON variants can slot in without touching call sites. By convention, smaller
+        distance always means more similar.
       </p>
 
       <h2 id="hnsw">HNSW (graph)</h2>
       <p>
-        <code>HierarchicalGraphIndex</code> implements Hierarchical Navigable Small World — a
-        multi-layer proximity graph that gives sub-linear ANN with strong recall. Three parameters
-        matter:
+        <code>IndexHNSW</code> implements Hierarchical Navigable Small World — a multi-layer
+        proximity graph that gives sub-linear ANN with strong recall. Its knobs live on{" "}
+        <code>HnswParams</code>:
       </p>
       <ul>
         <li>
-          <code>M</code> / <code>max_connections</code> — outgoing neighbours per node. Higher =
-          better recall, more memory.
+          <code>M</code> — outgoing neighbours per node (default 32). Higher = better recall, more
+          memory.
         </li>
         <li>
           <code>ef_construction</code> — candidate pool during insertion. Higher = better graph,
@@ -75,9 +78,12 @@ function Page() {
 
       <h2 id="exact">Exact</h2>
       <p>
-        <code>ExactIndex</code> performs a brute-force scan. Use it for small vaults, ground-truth
-        measurement when tuning recall, and unit tests. It implements the same{" "}
-        <code>IndexPort</code> contract, so switching is a configuration change.
+        <code>IndexFlat</code> performs a brute-force scan. Use it for small collections,
+        ground-truth measurement when tuning recall, and unit tests. It implements the same{" "}
+        <code>Index</code> contract, so switching is a configuration change. The IVF variants —{" "}
+        <code>IndexIVFFlat</code>, <code>IndexIVFPQ</code>, and{" "}
+        <code>IndexIVFScalarQuantizer</code> — add an inverted-file coarse quantiser on top, tuned by{" "}
+        <code>nlist</code> at build time and <code>nprobe</code> at query time.
       </p>
 
       <h2 id="metadata">Metadata acceleration</h2>
@@ -88,30 +94,31 @@ function Page() {
         instead of running ANN over the full population.
       </p>
       <CodeBlock lang="python">
-        {`plan = docs.explain_seek(
+        {`plan = docs.explain(
     [1.0, 0.0],
-    top=5,
-    where=elips.Filter().field("kind").equals("design"),
+    n_results=5,
+    where={"kind": "design"},
 )
 print(plan.strategy, plan.metadata_accelerated, plan.candidate_count)`}
       </CodeBlock>
 
       <h2 id="hybrid">Hybrid fusion</h2>
       <p>
-        <code>seek_hybrid()</code> combines vector distance with lexical overlap on attached{" "}
-        <code>DocumentAttachment</code> text. The planner emits the <code>hybrid_fusion</code>{" "}
-        strategy; fusion is score-level, not retrieval-level, so a record only needs to surface in
-        one stage to be considered.
+        Passing both <code>query_embeddings</code> and <code>query_texts</code> to{" "}
+        <code>collection.query()</code> combines vector distance with lexical overlap on attached{" "}
+        <code>DocumentAttachment</code> text (tune the blend with <code>lexical_weight</code>). The
+        planner emits the <code>hybrid_fusion</code> strategy; fusion is score-level, not
+        retrieval-level, so a record only needs to surface in one stage to be considered.
       </p>
 
       <h2 id="gpu">GPU family</h2>
       <p>
-        When built with <code>-DELIPS_GPU_ENABLED=ON</code>, ELIPS exposes several GPU index types
-        behind <code>GpuPort</code>:<code>GpuBruteForceIndex</code>, <code>GpuGraphIndex</code>,{" "}
-        <code>GpuIVFFlatIndex</code>, <code>GpuIVFPQIndex</code>, <code>GpuHybridIndex</code>, and a
-        distributed variant. Selection runs through <code>GpuSelector</code> and{" "}
-        <code>GpuDeviceManager</code> at startup; domain code never sees a backend type. For the
-        full engine architecture, see <Link to="/docs/gpu-engine">GPU engine</Link>.
+        When built with <code>-DELIPS_GPU_ENABLED=ON</code>, ELIPS accelerates the distance and
+        top-k stage on the GPU behind <code>GpuBackend</code>. The exact brute-force path is exposed
+        directly as <code>elips.bf_knn(xq, xb, k, device=&quot;metal&quot;)</code> — no index build.
+        Metal is the production path on Apple Silicon; CUDA and HIP/ROCm are experimental. Selection
+        runs through <code>BackendSelector</code> at startup; domain code never sees a backend type.
+        For the full engine architecture, see <Link to="/docs/gpu-engine">GPU engine</Link>.
       </p>
     </DocsShell>
   );

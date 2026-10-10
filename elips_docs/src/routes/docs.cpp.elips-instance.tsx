@@ -5,11 +5,11 @@ import { CodeBlock } from "../components/Code";
 export const Route = createFileRoute("/docs/cpp/elips-instance")({
   head: () => ({
     meta: [
-      { title: "ElipsInstance — C++ Core API Reference" },
+      { title: "Database — C++ Core API Reference" },
       {
         name: "description",
         content:
-          "Detailed reference for elips::ElipsInstance: database handle lifecycle, factory functions, vault management, checkpoints, compaction, and WAL recovery.",
+          "Detailed reference for elips::Database: database handle lifecycle, factory functions, collection management, checkpoints, compaction, and WAL recovery.",
       },
     ],
   }),
@@ -20,11 +20,11 @@ function Page() {
   return (
     <DocsShell
       eyebrow="C++ API"
-      title="ElipsInstance"
+      title="Database"
       toc={[
         { id: "overview", label: "Overview" },
         { id: "factory-open", label: "open() & Constructor" },
-        { id: "vault-management", label: "Vault Management" },
+        { id: "vault-management", label: "Collection Management" },
         { id: "transactions", label: "Transactions" },
         { id: "query-eql", label: "query() (EQL)" },
         { id: "maintenance", label: "Maintenance & Checkpoints" },
@@ -33,21 +33,21 @@ function Page() {
       ]}
     >
       <p className="text-[18px] text-ink">
-        <code>elips::ElipsInstance</code> is the primary database class in the ELIPS engine.
+        <code>elips::Database</code> is the primary database class in the ELIPS engine.
         It manages persistent file descriptors, write-ahead logs (WAL), advisory file locking,
-        and vault collection life-cycles.
+        and collection life-cycles.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        An <code>ElipsInstance</code> represents one open database instance bound to a directory path
+        A <code>Database</code> represents one open database instance bound to a directory path
         (or <code>":memory:"</code>). It acts as the container and coordinator for all named{" "}
-        <Link to="/docs/cpp/vault"><code>Vault</code></Link> partitions within the database.
+        <Link to="/docs/cpp/vault"><code>Collection</code></Link> partitions within the database.
       </p>
 
       <h2 id="factory-open">open() & Constructor</h2>
       <CodeBlock lang="cpp">{`namespace elips {
-    std::unique_ptr<ElipsInstance> open(
+    std::unique_ptr<Database> open(
         const std::string& path,
         const Config& config = Config{}
     );
@@ -61,31 +61,31 @@ function Page() {
           <code>path</code> — File system directory path for disk-backed persistence, or <code>":memory:"</code> for volatile in-memory operation.
         </li>
         <li>
-          <code>config</code> — Default <Link to="/docs/cpp/config"><code>Config</code></Link> applied to newly spawned vaults.
+          <code>config</code> — Default <Link to="/docs/cpp/config"><code>Config</code></Link> applied to newly spawned collections.
         </li>
       </ul>
 
       <h3 id="direct-constructor">Direct Constructor</h3>
-      <CodeBlock lang="cpp">{`ElipsInstance(
+      <CodeBlock lang="cpp">{`Database(
     std::string path,
     Config config,
     bool persistent,
     std::optional<LockManager> lock = std::nullopt
 );`}</CodeBlock>
 
-      <h2 id="vault-management">Vault Management</h2>
-      <CodeBlock lang="cpp">{`Vault& vault(const std::string& name);
-std::vector<std::string> list_vaults() const;
-Vault& adopt_vault(std::unique_ptr<Vault> vault);`}</CodeBlock>
+      <h2 id="vault-management">Collection Management</h2>
+      <CodeBlock lang="cpp">{`Collection& collection(const std::string& name);
+std::vector<std::string> list_collections() const;
+Collection& adopt_collection(std::unique_ptr<Collection> collection);`}</CodeBlock>
       <ul>
         <li>
-          <code>vault(name)</code> — Gets a reference to an existing vault or lazily creates a new vault with the instance's default <code>Config</code>.
+          <code>collection(name)</code> — Gets a reference to an existing collection or lazily creates a new collection with the instance's default <code>Config</code>.
         </li>
         <li>
-          <code>list_vaults()</code> — Returns a vector containing the names of all active vaults.
+          <code>list_collections()</code> — Returns a vector containing the names of all active collections.
         </li>
         <li>
-          <code>adopt_vault(vault)</code> — Attaches a custom initialized <code>Vault</code> to the instance registry.
+          <code>adopt_collection(collection)</code> — Attaches a custom initialized <code>Collection</code> to the instance registry.
         </li>
       </ul>
 
@@ -118,10 +118,10 @@ void abandon() noexcept;`}</CodeBlock>
           <code>compact()</code> — Rewrites storage segment files on disk to eliminate unreferenced tombstones and shrink file sizes.
         </li>
         <li>
-          <code>vacuum()</code> — Reclaims deleted vector nodes within HNSW graph indices across all open vaults.
+          <code>vacuum()</code> — Reclaims deleted vector nodes within HNSW graph indices across all open collections.
         </li>
         <li>
-          <code>close()</code> — Safely seals all vaults, flushes WAL, and releases process lock handlers.
+          <code>close()</code> — Safely seals all collections, flushes WAL, and releases process lock handlers.
         </li>
       </ul>
 
@@ -139,7 +139,7 @@ gpu::GpuMetricsSnapshot gpu_stats() const;
 
       <h2 id="thread-safety">Thread Safety & Concurrency</h2>
       <p>
-        <code>ElipsInstance</code> is completely thread-safe. Concurrent calls to <code>vault()</code>, <code>list_vaults()</code>, and <code>checkpoint()</code> across threads are serialized via internal recursive locks.
+        <code>Database</code> is completely thread-safe. Concurrent calls to <code>collection()</code>, <code>list_collections()</code>, and <code>checkpoint()</code> across threads are serialized via internal recursive locks.
       </p>
     </DocsShell>
   );

@@ -18,8 +18,8 @@ single-process APIs, and test environments.
 
 ## Mental Model
 
-An ELIPS database is a directory. A vault is a named partition inside that
-database. Each record can carry:
+An ELIPS database is a directory. A collection is a named partition inside that
+database, built on a FAISS-recognizable `Index`. Each record can carry:
 
 - a vector
 - metadata
@@ -29,12 +29,16 @@ database. Each record can carry:
 
 The core APIs are:
 
-- `place()` for explicit vectors
-- `place_document()` for text ingestion through a configured or auto-attached
+- `add()` for explicit vectors (upsert semantics)
+- `add_document()` for text ingestion through a configured or auto-attached
   text embedder
-- `seek()`, `seek_text()`, and `seek_hybrid()`
-- `fetch()` and `scan()`
+- `search()`, `search_text()`, and `hybrid_search()`
+- `get()` and `scan()`
 - `checkpoint()` and `compact()`
+
+The index types themselves (`IndexFlat`, `IndexHNSW`, `IndexIVFFlat`,
+`IndexIVFPQ`) and `index_factory` are exposed directly for FAISS-style use. See
+[Which index should I use?](choosing-an-index.md).
 
 ## Example
 
@@ -42,10 +46,13 @@ The core APIs are:
 import elips
 
 db = elips.open(":memory:", dimension=128, metric="cosine")
-docs = db.vault("documents")
-docs.place_document("alpha design note", {"kind": "design"})
-print(docs.seek_text("alpha", top=1)[0].document.text)
+docs = db.collection("documents")
+docs.add_document("alpha design note", {"kind": "design"})
+print(docs.search_text("alpha", top=1)[0].document.text)
 ```
+
+The older `place`/`seek`/`vault`/`top=` spellings still work as deprecation
+shims for one minor version.
 
 ## Read More
 

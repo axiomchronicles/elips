@@ -16,7 +16,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(elips_tests
     tests/unit/metrics_test.cpp
-    tests/unit/exact_index_test.cpp
+    tests/unit/index_flat_test.cpp
     # ... all test files
     tests/concurrency/multi_reader_test.cpp
 )
@@ -62,7 +62,7 @@ ctest --test-dir build -R "Eql"
 
 ```bash
 # Run specific test suite
-./build/elips_tests --gtest_filter='ExactIndexTest.*'
+./build/elips_tests --gtest_filter='IndexFlatTest.*'
 
 # Run specific test case
 ./build/elips_tests --gtest_filter='MetricsTest.CosineIdenticalNormalizedVectorsZeroDistance'
@@ -81,7 +81,7 @@ ctest --test-dir build -R "Eql"
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+    -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
 cmake --build build --target elips_pymodule -j
 PYTHONPATH=bindings/python python3 tests/python/test_bindings.py
 ```
@@ -92,24 +92,24 @@ PYTHONPATH=bindings/python python3 tests/python/test_bindings.py
 tests/
 ├── unit/                          # Isolated component tests
 │   ├── metrics_test.cpp           # Distance functions
-│   ├── exact_index_test.cpp       # ExactIndex (brute-force)
-│   ├── exact_edge_cases_test.cpp  # ExactIndex edge cases
+│   ├── index_flat_test.cpp        # IndexFlat (brute-force)
+│   ├── index_flat_edge_cases_test.cpp  # IndexFlat edge cases
 │   ├── record_id_test.cpp         # UUIDv7 RecordID
 │   ├── vector_test.cpp            # Vector value type
 │   ├── config_test.cpp            # Config builder
 │   ├── eql_test.cpp               # EQL parsing and execution
 │   ├── eql_edge_test.cpp          # EQL edge cases
 │   ├── filter_edge_test.cpp       # Filter predicate engine
-│   ├── scan_test.cpp              # Vault::scan()
+│   ├── scan_test.cpp              # Collection::scan()
 │   ├── durability_test.cpp        # Durability levels
 │   ├── hnsw_recall_test.cpp       # HNSW recall vs. ground truth
 │   ├── hnsw_edge_cases_test.cpp   # HNSW edge cases
 │   └── gpu/                       # GPU unit tests (conditional)
 │       ├── GpuDeviceManagerTest.cpp
 │       ├── GpuMemoryManagerTest.cpp
-│       └── DynamicBatcherTest.cpp
+│       └── QueryBatcherTest.cpp
 ├── integration/                   # Cross-component tests
-│   ├── roundtrip_test.cpp         # Place → fetch → seek → erase
+│   ├── roundtrip_test.cpp         # add → get → search → remove
 │   ├── transaction_filter_test.cpp # Transactions + filtering
 │   └── gpu/                       # GPU integration tests (conditional)
 │       └── MetalBackendTest.cpp
@@ -140,7 +140,7 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 | `DotProductIsNegatedForAscendingSort` | dot=6 → distance=-6 so larger dots sort first |
 | `OnlyCosineRequiresNormalization` | `requires_normalization()` returns true only for cosine |
 
-#### `tests/unit/exact_index_test.cpp` — 4 tests
+#### `tests/unit/index_flat_test.cpp` — 4 tests
 
 | Test | Description |
 |---|---|
@@ -149,7 +149,7 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 | `RemoveDropsRecordFromResults` | `remove()` excludes the deleted record from search |
 | `TypeNameIsExact` | `type_name()` returns `"exact"` |
 
-#### `tests/unit/exact_edge_cases_test.cpp` — 9 tests
+#### `tests/unit/index_flat_edge_cases_test.cpp` — 9 tests
 
 | Test | Description |
 |---|---|
@@ -208,7 +208,7 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 
 | Test | Description |
 |---|---|
-| `ParsesSearchStatement` | Parser extracts vault, binding, top, projection from seek |
+| `ParsesSearchStatement` | Parser extracts collection, binding, k, projection from seek |
 | `PlaceThenSeekViaEql` | Place 2 vectors, seek returns correct nearest match |
 | `FilteredScanViaEql` | `scan where tier = "pro"` returns 2 of 3 rows |
 | `FetchAndEraseViaEql` | Place → fetch by id → erase → verify count=0 |
@@ -318,7 +318,7 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 | `pinned_allocation_works` | Pinned (host-accessible) memory allocation |
 | `acquire_and_release` | **Disabled** — skipped due to Metal backend issue |
 
-#### `tests/unit/gpu/DynamicBatcherTest.cpp` — 3 tests
+#### `tests/unit/gpu/QueryBatcherTest.cpp` — 3 tests
 
 | Test | Description |
 |---|---|
@@ -456,7 +456,7 @@ Uses Ninja generator. All 4 jobs run independently (fail-fast: false). `--output
 | Job | Platform | Details |
 |---|---|---|
 | ASan + UBSan | ubuntu-latest | Debug build with `-fsanitize=address,undefined -fno-omit-frame-pointer`, then ctest |
-| Python bindings | ubuntu-latest | Release build with `-DELIPS_BUILD_PYTHON=ON`, builds `elips_pymodule`, runs `examples/python/01_getting_started.py` smoke test |
+| Python bindings | ubuntu-latest | Release build with `-DELIPS_ENABLE_PYTHON=ON`, builds `elips_pymodule`, runs `examples/python/01_getting_started.py` smoke test |
 
 ## Writing New Tests
 

@@ -20,11 +20,23 @@ All notable changes to ELIPS are documented here. Format follows
 - FAISS-style **Index API in Python** (`elips.IndexFlat/IndexIVFFlat/IndexIVFPQ/
   IndexIVFScalarQuantizer/IndexHNSW`, `index_factory`) with numpy float32/C-contiguous
   I/O and `search → (D float32, I int64)` (k>ntotal padded with -1).
-- `range_search(query, radius)` on `IndexFlat` and `IndexIVFFlat`.
+- `range_search(query, radius)` on C++ `IndexFlat` and `IndexIVFFlat`.
+- Standalone `bf_knn(xq, xb, k, metric='l2', device='auto')` — brute-force exact k-NN
+  over raw numpy arrays with no index build, returning `(D, I)`.
+- **Metal GPU backend** validated on Apple Silicon (Apple M4): real brute-force and
+  IVF kernels replacing the former CPU-emulated path, with real-kernel parity tests.
+- **Device selection**: `elips.has_gpu`, `elips.accelerators()` /
+  `elips.accelerator()` to enumerate drivable GPUs, and a `device` argument
+  (`'auto'`/`'cpu'`/`'metal'`) on `bf_knn` with logged CPU fallback.
 - Typed exceptions `DimensionMismatchError`, `NotTrainedError`, `CollectionNotFoundError`,
   `BackendUnavailableError`.
 - EQL now accepts the new verbs `add/search/get/delete` (plus `metadata`, `k`).
-- FAISS-aligned CMake options `ELIPS_ENABLE_METAL/CUDA/ROCM/PYTHON` and `BUILD_TESTING`.
+- FAISS-aligned CMake options `ELIPS_ENABLE_METAL/CUDA/ROCM/PYTHON` and `BUILD_TESTING`,
+  plus `ELIPS_OPT_LEVEL` (generic/neon/avx2/avx512), `ELIPS_ENABLE_C_API`, and
+  `BUILD_SHARED_LIBS`.
+- **Build & packaging**: `install(EXPORT)` + generated config package so downstream
+  projects can `find_package(elips)` and link `elips::elips_core`; scikit-build-core
+  Python packaging; CI matrix with CUDA/HIP compile-check jobs and a docs-snippet runner.
 
 ### Changed (BREAKING — old names deprecated this release, removed next minor)
 - Public API renamed to FAISS/Chroma vocabulary across C++, Python, EQL, and CMake

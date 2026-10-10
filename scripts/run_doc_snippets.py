@@ -81,7 +81,9 @@ def find_markdown(roots: list[str]) -> list[str]:
             files.extend(
                 sorted(glob.glob(os.path.join(root, "**", "*.md"), recursive=True))
             )
-    return files
+    # docs/_redesign/ is the internal redesign working log, not shipped docs —
+    # its study-note snippets need uninstalled third-party packages. Skip it.
+    return [f for f in files if "/_redesign/" not in f.replace(os.sep, "/")]
 
 
 def run(roots: list[str], *, list_only: bool = False, allow_fail: bool = False) -> int:

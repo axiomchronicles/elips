@@ -62,15 +62,15 @@ export PYTHONPATH=$PWD/bindings/python`}
 
       <h2 id="first-db">Your first database</h2>
       <p>
-        An ELIPS database is identified by a path. Pass <code>":memory:"</code> for an ephemeral
-        database, or a directory path for a persistent one. The first argument to{" "}
-        <code>connect</code> is the path; <code>dimension</code> is the embedding width.
+        An ELIPS database is identified by a path. Use <code>elips.Client</code> for an ephemeral
+        in-memory database, or <code>elips.PersistentClient(path)</code> for a persistent one.{" "}
+        <code>dimension</code> is the embedding width.
       </p>
       <CodeBlock lang="python">
         {`import elips
 
-engine = elips.connect(":memory:", dimension=128)
-arena = engine.arena("documents")`}
+client = elips.Client(dimension=128)
+docs = client.get_or_create_collection("documents")`}
       </CodeBlock>
       <p>
         New databases attach the built-in local text embedder automatically. Disable that with{" "}
@@ -79,25 +79,26 @@ arena = engine.arena("documents")`}
 
       <h2 id="ingest">Ingest documents</h2>
       <p>
-        Use <code>RecordInput</code> with the modern wrapper, or call
-        <code>place_document()</code> on a vault for the low-level API. Both accept text plus typed
-        metadata.
+        Call <code>add()</code> with Chroma-style columns (<code>documents</code>,{" "}
+        <code>metadatas</code>, <code>ids</code>), or pass <code>RecordInput</code> objects. Both
+        accept text plus typed metadata.
       </p>
       <CodeBlock lang="python">
-        {`arena.write_many([
-    elips.RecordInput(text="alpha design note", meta={"kind": "design"}),
-    elips.RecordInput(text="beta incident runbook", meta={"kind": "ops"}),
-])`}
+        {`docs.add(
+    documents=["alpha design note", "beta incident runbook"],
+    metadatas=[{"kind": "design"}, {"kind": "ops"}],
+)`}
       </CodeBlock>
 
       <h2 id="query">Query</h2>
       <p>
-        <code>probe_text</code> runs a text-first search; <code>probe_hybrid</code> fuses a vector
-        with text; <code>probe</code> takes a raw vector. Each returns typed <code>Hit</code> rows
-        with distance, payload, and the original document.
+        <code>query(query_texts=...)</code> runs a text-first search; passing both{" "}
+        <code>query_embeddings</code> and <code>query_texts</code> fuses vector and text;{" "}
+        <code>query(query_embeddings=...)</code> takes a raw vector. Each returns typed{" "}
+        <code>Hit</code> rows with distance, metadata, and the original document.
       </p>
       <CodeBlock lang="python">
-        {`for hit in arena.probe_text("alpha", top=2):
+        {`for hit in docs.query(query_texts="alpha", n_results=2):
     print(hit.key, hit.distance, hit.text, hit.meta)`}
       </CodeBlock>
 
@@ -108,8 +109,8 @@ arena = engine.arena("documents")`}
           embedders.
         </li>
         <li>
-          <Link to="/docs/core-concepts">Core concepts</Link> — the mental model behind vaults,
-          records, and lineage.
+          <Link to="/docs/core-concepts">Core concepts</Link> — the mental model behind
+          collections, records, and lineage.
         </li>
         <li>
           <Link to="/docs/architecture">Architecture</Link> — how the planner, indexes, and

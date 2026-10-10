@@ -1,5 +1,16 @@
 # ELIPS Build System
 
+> **Option names updated.** The canonical CMake options are now
+> `ELIPS_ENABLE_METAL` / `ELIPS_ENABLE_CUDA` / `ELIPS_ENABLE_ROCM` (under the
+> `ELIPS_ENABLE_GPU` umbrella), `ELIPS_ENABLE_PYTHON`, `BUILD_TESTING`, plus
+> `ELIPS_ENABLE_C_API`, `ELIPS_ENABLE_BLAS`, and `ELIPS_OPT_LEVEL`
+> (generic/neon/avx2/avx512). The older `ELIPS_GPU_METAL/CUDA/HIP`,
+> `ELIPS_BUILD_PYTHON`, and `ELIPS_BUILD_TESTS` names in the tables below are
+> **honored as deprecation aliases** (they emit a CMake deprecation message and
+> set the new option). `ELIPS_GPU_ENABLED` remains the internal umbrella flag.
+> GPU maturity (Metal validated; CUDA/HIP experimental, compile-check only) is
+> in the [GPU guide](../gpu/index.md#building-the-experimental-backends).
+
 This document describes the CMake build architecture for the ELIPS project, including all targets, dependencies, and build configuration options.
 
 ## Build System Overview

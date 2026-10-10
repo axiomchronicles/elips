@@ -1,32 +1,42 @@
 # ADR-GPU-003: GPU Build / CPU Serve Mode
 
-**Status:** Accepted
+**Status:** Superseded (2026-10-11) — depended on CAGRA, which was never built
 **Date:** 2026-05-31
 **Deciders:** ELIPS Engineering
 
 ## Context
 
-GPU index construction (CAGRA) is 8-12x faster than CPU HNSW build. However, online search queries are I/O-bound and single-threaded, where CPU HNSW already delivers sub-200µs latency. Requiring a GPU for every query adds cost and complexity.
+GPU index construction (CAGRA) was projected to be far faster than CPU HNSW
+build, while online queries are cheap on CPU HNSW. A "build on GPU, serve on CPU"
+mode was proposed to get fast builds without requiring a GPU at query time.
 
-## Decision
+## Original Decision (not realized)
 
-The `GpuBuild_CpuServe` mode builds the index on GPU, exports it to HNSW format, then serves all queries via the existing CPU `HierarchicalGraphIndex`.
+`GpuBuild_CpuServe` would build a CAGRA graph on GPU, export it to HNSW format,
+and serve queries from the existing CPU index.
 
-Flow:
-1. Batch of vectors → GPU CAGRA build → fast index construction
-2. CAGRA graph → export to HNSW format (node vectors + neighbor edges)
-3. Store as `index.hnsw` in segment directory (existing format)
-4. CPU `HierarchicalGraphIndex` reads it normally for queries
+## Reality Update (2026-10-11) — this ADR is superseded
 
-## Rationale
+The `IndexBuildMode` enum (`GpuBuild_CpuServe`, `GpuBuild_GpuServe`, `Hybrid`)
+still exists in `GpuConfig`, and the **default is `GpuBuild_GpuServe`**, not
+`GpuBuild_CpuServe`. But the mode as described hinged on **CAGRA build + CAGRA→HNSW
+export, which were never implemented** (see ADR-GPU-002). There is therefore no
+validated "8–12x GPU build then CPU serve" path.
 
-- Index build: 8-12x faster (GPU)
-- Search: unaffected (existing CPU HNSW path)
-- GPU not required at query time — lower infrastructure cost
-- Compatible with existing storage format — zero migration
+What is real today:
+
+- **Metal (validated):** GPU distance + GPU top-k + GPU IVF scan run at *query*
+  time; `bf_knn` does exact GPU k-NN with no index build. The validated win is
+  on the serve side (batched search), not a CAGRA build export.
+- **CPU:** the CPU `IndexHNSW` / IVF family builds and serves on CPU as always,
+  independent of any GPU.
+
+The CAGRA-export mode remains unimplemented scaffolding. If a GPU-build path is
+ever shipped, it will get a fresh ADR.
 
 ## Consequences
 
-- `GpuIndexPort::export_to_cpu_index()` must convert CAGRA graph → HNSW edges
-- `GpuHybridIndex` wraps both GPU and CPU indexes, routing batch ops to GPU
-- User selects mode via `GpuConfig::index_build_mode`
+- Do not rely on `GpuBuild_CpuServe` / CAGRA export — it is not implemented.
+- `GpuHybridIndex` wraps a GPU index with a CPU fallback for the paths that are real.
+- The honest GPU story is query-time acceleration (Metal); see the
+  [GPU guide](../gpu/index.md) and [benchmarks](../overview/choosing-an-index.md).

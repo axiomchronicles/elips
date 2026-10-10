@@ -5,6 +5,7 @@ Module-level utility functions for distance computation, metric introspection, a
 ## `elips.distance()`
 
 ```python
+# no-exec — signature
 def distance(
     metric: Union[str, Metric],
     a: Vector,
@@ -25,8 +26,9 @@ Compute the ordering-normalized distance between two vectors. The result is the 
 **Returns:** A float distance value. Smaller = more similar for all metrics.
 
 **Raises:**
-- `ValueError` — vectors have different lengths
-- `ValueError` — unrecognized metric string
+- `ConfigError` — unrecognized metric string
+
+Pass vectors of equal length; mismatched lengths are not validated here.
 
 **Metric-specific formulas:**
 
@@ -41,6 +43,8 @@ For cosine: `0.0` = identical, `1.0` = orthogonal, `2.0` = opposite direction.
 **Examples:**
 
 ```python
+import elips
+
 # String argument
 d = elips.distance("cosine", [1.0, 0.0], [0.0, 1.0])
 print(d)  # 1.0 (orthogonal vectors)
@@ -58,11 +62,12 @@ d = elips.distance("dot_product", [1.0, 2.0], [1.0, 1.0])
 print(d)  # -3.0 (negative of inner product)
 ```
 
-The `distance()` function computes the same value as `Vault.seek()` would return for a query vector. You can use it to pre-compute distances, verify results, or implement custom ranking logic.
+The `distance()` function computes the same value a `Collection.query()` hit would report for a query vector. You can use it to pre-compute distances, verify results, or implement custom ranking logic.
 
 ## `elips.requires_normalization()`
 
 ```python
+# no-exec — signature
 def requires_normalization(
     metric: Union[str, Metric],
 ) -> bool
@@ -79,7 +84,7 @@ Return `True` if vectors should be L2-normalized before use with this metric.
 **Returns:** `True` for `cosine`, `False` for `euclidean` and `dot_product`.
 
 **Raises:**
-- `ValueError` — unrecognized metric string
+- `ConfigError` — unrecognized metric string
 
 **Why this matters:**
 
@@ -100,6 +105,7 @@ elips.requires_normalization(elips.Metric.euclidean)  # False
 ## `elips.metric_to_string()`
 
 ```python
+# no-exec — signature
 def metric_to_string(metric: Metric) -> str
 ```
 
@@ -124,6 +130,7 @@ elips.metric_to_string(elips.Metric.dot_product)  # "dot_product"
 ## `elips.metric_from_string()`
 
 ```python
+# no-exec — signature
 def metric_from_string(name: str) -> Metric
 ```
 
@@ -138,7 +145,7 @@ Parse a string into a `Metric` enum value.
 **Returns:** The corresponding `Metric` enum value.
 
 **Raises:**
-- `ValueError` — the string is not a recognized metric name
+- `ConfigError` — the string is not a recognized metric name
 
 **Examples:**
 
@@ -150,14 +157,44 @@ print(int(m) == int(elips.Metric.cosine))  # True
 elips.metric_from_string("euclidean")  # Metric.euclidean
 elips.metric_from_string("dot_product")  # Metric.dot_product
 
-elips.metric_from_string("unknown")  # ValueError
+try:
+    elips.metric_from_string("unknown")
+except elips.ConfigError:
+    print("unknown metric name")  # raises ConfigError
 ```
+
+## Record IDs and Vector Helpers
+
+Module-level helpers for generating record ids and normalizing vectors.
+
+```python
+import elips
+
+rid = elips.generate_id()          # fresh UUIDv7-style id string
+print(elips.is_valid_id(rid))      # True
+
+print(elips.magnitude([3.0, 4.0]))        # 5.0
+print(elips.normalize([3.0, 4.0]))        # (0.6, 0.8) tuple, L2-normalized
+```
+
+| Function | Returns |
+|---|---|
+| `generate_id()` | A new unique id string. |
+| `is_valid_id(id)` | `True` if `id` is a well-formed ELIPS id. |
+| `magnitude(vector)` | L2 norm of the vector (`float`). |
+| `normalize(vector)` | L2-normalized copy as a `tuple[float, ...]`. |
+
+Collections accept arbitrary string ids directly, so `generate_id()` is only
+needed when you want ELIPS-shaped ids. Normalize vectors yourself before
+inserting when you use the cosine metric with your own embeddings.
 
 ## String/Enum Dual Overloads
 
 The `distance()` and `requires_normalization()` functions accept both string and enum arguments. The implementation dispatches based on argument type:
 
 ```python
+a, b = [1.0, 0.0], [0.0, 1.0]
+
 # Equivalent calls
 elips.distance("cosine", a, b)
 elips.distance(elips.Metric.cosine, a, b)
@@ -214,11 +251,11 @@ The `Vector` and `Metric` types are available for annotation:
 ```python
 from typing import Union
 from elips import Metric
-from elips.types import Vector
+from elips.typing import Vector
 
 
 def my_distance(metric: Union[str, Metric], a: Vector, b: Vector) -> float:
     return elips.distance(metric, a, b)
 ```
 
-Type checkers (MyPy, Pyright) can validate these annotations using the `_core.pyi` stub.
+Type checkers (MyPy, Pyright) can validate these annotations using the `_core.pyi` stub. (The runtime alias module is `elips.typing`, not `elips.types`.)

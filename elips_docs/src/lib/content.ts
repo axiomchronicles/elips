@@ -21,7 +21,7 @@ export const docs: DocEntry[] = [
     title: "Quick start",
     group: "Start",
     description:
-      "In-memory hello world, persistent DB, embedders, filtering, hybrid search — complete runnable examples.",
+      "In-memory hello world, persistent client, embedders, filtering, hybrid search — complete runnable examples.",
     keywords: ["tutorial", "quickstart", "hello world", "first steps"],
   },
   {
@@ -35,7 +35,7 @@ export const docs: DocEntry[] = [
     title: "Configuration",
     group: "Start",
     description:
-      "Configure dimension, metric, index type, durability, segmented storage, and the text embedder.",
+      "Configure dimension, metric, index, durability, segmented storage, and the text embedder.",
   },
 
   // ── Concepts ─────────────────────────────────────────────────────────────
@@ -50,13 +50,13 @@ export const docs: DocEntry[] = [
     title: "Core concepts",
     group: "Concepts",
     description:
-      "Engines, vaults, records, documents, chunks, lineage — the mental model behind ELIPS.",
+      "Clients, collections, records, documents, chunks, lineage — the mental model behind ELIPS.",
   },
   {
     path: "/docs/architecture",
     title: "Architecture",
     group: "Concepts",
-    description: "How ElipsInstance, Vault, the planner, and the persistence layer fit together.",
+    description: "How the Database, Collection, the planner, and the persistence layer fit together.",
   },
   {
     path: "/docs/storage",
@@ -70,8 +70,8 @@ export const docs: DocEntry[] = [
     title: "Algorithms",
     group: "Concepts",
     description:
-      "HNSW, exact search, metadata acceleration, hybrid fusion, GPU index family, and the query planner.",
-    keywords: ["hnsw", "ivf", "pq", "brute force", "cosine", "euclidean", "dot product"],
+      "HNSW, flat/exact search, IVF, PQ, metadata acceleration, hybrid fusion, bf_knn, and the query planner.",
+    keywords: ["hnsw", "ivf", "pq", "brute force", "bf_knn", "cosine", "euclidean", "dot product"],
   },
   {
     path: "/docs/design-decisions",
@@ -86,39 +86,39 @@ export const docs: DocEntry[] = [
     title: "Python SDK overview",
     group: "Python API",
     description:
-      "Two-surface architecture: low-level bindings (Database/Vault/Config) and the modern wrapper (Engine/Arena).",
-    keywords: ["python", "sdk", "bindings", "pybind11"],
+      "Two surfaces: the Chroma-style Client/Collection API and the FAISS-style Index API (IndexFlat/IVF/HNSW, bf_knn).",
+    keywords: ["python", "sdk", "bindings", "pybind11", "chroma", "faiss"],
   },
   {
     path: "/docs/python/connect",
-    title: "elips.connect()",
+    title: "Client & PersistentClient",
     group: "Python API",
     description:
-      "Modern initialization factory: path, dimension, metric, index_type, embedder, durability, and access modes.",
-    keywords: ["connect", "initialize", "factory", "in-memory"],
+      "Open a database: Client() (in-memory) and PersistentClient(path) — dimension, metric, index, embedder, device, access modes. connect() is the deprecated shim.",
+    keywords: ["client", "persistentclient", "connect", "initialize", "in-memory"],
   },
   {
     path: "/docs/python/engine",
-    title: "Engine",
+    title: "Engine (client base)",
     group: "Python API",
     description:
-      "High-level Engine wrapper: arena(), checkpoint(), compact(), vacuum(), vault_names(), pending_writes(), close().",
-    keywords: ["engine", "database handle", "context manager"],
+      "The client base class: create_collection(), get_or_create_collection(), list_collections(), checkpoint(), compact(), vacuum(), pending_writes(), close().",
+    keywords: ["engine", "client", "database handle", "context manager"],
   },
   {
     path: "/docs/python/arena",
-    title: "Arena",
+    title: "Collection",
     group: "Python API",
     description:
-      "Typed collection wrapper: write(), write_many(), ingest(), probe(), probe_text(), probe_hybrid(), pull(), sweep(), discard(), health().",
-    keywords: ["arena", "collection", "vault wrapper", "write", "search", "probe"],
+      "Chroma-style collection: add(), upsert(), get(), update(), delete(), query(), count(), peek(), plus explain()/health()/compress().",
+    keywords: ["collection", "add", "query", "get", "delete", "upsert", "chroma"],
   },
   {
     path: "/docs/python/models",
     title: "Data models",
     group: "Python API",
     description:
-      "RecordInput, Row, Hit, WalRecord, ArenaHealth, DocumentAttachment, ChunkInfo, EmbeddingLineage.",
+      "RecordInput, Row, Hit, WalRecord, CollectionHealth, DocumentAttachment, ChunkInfo, EmbeddingLineage.",
     keywords: ["record input", "hit", "row", "data model", "typed"],
   },
   {
@@ -126,31 +126,31 @@ export const docs: DocEntry[] = [
     title: "Database (low-level)",
     group: "Python API",
     description:
-      "Low-level Database class: vault(), list_vaults(), begin_transaction(), query(), checkpoint(), compact(), close().",
-    keywords: ["database", "low-level", "elipsinstance"],
+      "Low-level native Database handle: vault(), list_vaults(), begin_transaction(), query() (EQL), checkpoint(), compact(), close().",
+    keywords: ["database", "low-level", "native"],
   },
   {
     path: "/docs/python/vault",
-    title: "Vault (low-level)",
+    title: "Native handle (low-level)",
     group: "Python API",
     description:
-      "Low-level Vault: place(), place_document(), place_many(), seek(), seek_text(), seek_hybrid(), explain_seek(), scan(), fetch(), erase().",
-    keywords: ["vault", "place", "seek", "search", "collection", "low-level"],
+      "The native escape hatch reached via collection.native / client.native: the low-level place/seek/fetch/erase/scan runtime surface.",
+    keywords: ["native", "vault", "low-level", "escape hatch"],
   },
   {
     path: "/docs/python/config",
-    title: "Config & GraphParams",
+    title: "Config & HnswParams",
     group: "Python API",
     description:
-      "Config fluent builder, GraphParams HNSW tuning, LocalEmbedderConfig, durability levels, access modes.",
-    keywords: ["config", "configuration", "graph params", "hnsw", "durability"],
+      "Config fluent builder, HnswParams HNSW tuning, LocalEmbedderConfig, durability levels, access modes.",
+    keywords: ["config", "configuration", "hnsw params", "hnswparams", "durability"],
   },
   {
     path: "/docs/python/transaction",
     title: "Transactions",
     group: "Python API",
     description:
-      "Atomic batched writes: begin_transaction(), TransactionVault.place/erase, commit(), rollback(), context manager.",
+      "Atomic batched writes on the native handle: client.native.begin_transaction(), commit(), rollback(), context manager.",
     keywords: ["transaction", "atomic", "commit", "rollback"],
   },
   {
@@ -158,7 +158,7 @@ export const docs: DocEntry[] = [
     title: "Filtering",
     group: "Python API",
     description:
-      "Filter fluent builder, static factories, boolean combinators, metadata acceleration, seek integration.",
+      "Filter fluent builder, static factories, boolean combinators, metadata acceleration, and where= in query/get/delete.",
     keywords: ["filter", "metadata", "where", "comparator", "in_set", "contains"],
   },
   {
@@ -173,22 +173,22 @@ export const docs: DocEntry[] = [
     title: "Recovery & introspection",
     group: "Python API",
     description:
-      "WAL replay, crash forensics, EQL AST, index snapshots, embedder introspection, and vector utilities.",
+      "WAL replay via pending_writes(), crash forensics, the EQL AST (under elips.query), embedder introspection, and vector utilities.",
   },
   {
     path: "/docs/python/maintenance",
     title: "Index maintenance",
     group: "Python API",
     description:
-      "vacuum(), pending_removals, rebuild_index, records snapshot, sealed, read-only toggle, and database lifecycle.",
+      "vacuum(), pending_removals, rebuild(), health(), sealed, read-only toggle via freeze(), and database lifecycle.",
   },
   {
     path: "/docs/python/errors",
     title: "Exceptions & errors",
     group: "Python API",
     description:
-      "ElipsError hierarchy: LockConflictError, ValidationError, TransactionError, DiskError, and GpuError handling.",
-    keywords: ["error", "exception", "lockconflict", "validationerror", "try except"],
+      "ElipsError hierarchy: ConfigError, DimensionMismatch, InvalidVector, LockConflict, NotFound, CollectionNotFoundError, NotTrainedError, BackendUnavailableError, ParseError, StorageError.",
+    keywords: ["error", "exception", "lockconflict", "configerror", "try except"],
   },
   {
     path: "/docs/python/utilities",
@@ -203,8 +203,8 @@ export const docs: DocEntry[] = [
     title: "Python EQL",
     group: "Python API",
     description:
-      "Execute EQL statements in Python via db.query() and engine.query() with parameterized vector bindings.",
-    keywords: ["eql", "query", "sql", "bindings", "search"],
+      "Execute EQL from Python via client.query_eql() and client.native.query() with $-bound vector placeholders.",
+    keywords: ["eql", "query", "dsl", "bindings", "search"],
   },
   {
     path: "/docs/python/gpu",
@@ -221,7 +221,7 @@ export const docs: DocEntry[] = [
     title: "C++ SDK overview",
     group: "C++ API",
     description:
-      "C++23 surface — Config, ElipsInstance, Vault, transactions, embedders, query plans, locking, and GPU.",
+      "C++23 surface — Config, Database, Collection, the FAISS-style Index API, transactions, embedders, query plans, locking, and GPU.",
     keywords: ["c++", "cpp", "sdk", "c++23"],
   },
   {
@@ -234,19 +234,19 @@ export const docs: DocEntry[] = [
   },
   {
     path: "/docs/cpp/elips-instance",
-    title: "ElipsInstance",
+    title: "Database",
     group: "C++ API",
     description:
-      "Top-level database handle: open(), vault(), checkpoints, WAL management, compaction, and process locking.",
-    keywords: ["elipsinstance", "open", "checkpoint", "vacuum", "close"],
+      "Top-level database handle: open(), collection(), checkpoints, WAL management, compaction, and process locking.",
+    keywords: ["database", "elipsinstance", "open", "checkpoint", "vacuum", "close"],
   },
   {
     path: "/docs/cpp/vault",
-    title: "Vault",
+    title: "Collection",
     group: "C++ API",
     description:
-      "Vector & payload collection: place(), seek(), seek_hybrid(), explain_seek(), scan(), fetch(), erase(), vacuum().",
-    keywords: ["vault", "place", "seek", "hybrid", "explain_seek", "vacuum"],
+      "Vector & payload collection: add(), search(), hybrid_search(), explain_query(), scan(), get(), remove(), vacuum().",
+    keywords: ["collection", "add", "search", "hybrid", "explain_query", "vacuum"],
   },
   {
     path: "/docs/cpp/domain",
@@ -258,18 +258,18 @@ export const docs: DocEntry[] = [
   },
   {
     path: "/docs/cpp/config",
-    title: "Config & GraphParams",
+    title: "Config & HnswParams",
     group: "C++ API",
     description:
-      "Config struct, GraphParams HNSW parameters, Metric enums, Durability policies, and performance tuning recipes.",
-    keywords: ["config", "graphparams", "metric", "durability", "tuning"],
+      "Config struct, HnswParams HNSW parameters, Metric enums, Durability policies, and performance tuning recipes.",
+    keywords: ["config", "hnswparams", "graphparams", "metric", "durability", "tuning"],
   },
   {
     path: "/docs/cpp/transaction",
     title: "C++ Transactions",
     group: "C++ API",
     description:
-      "Atomic multi-vault write transactions: PendingOp buffer, two-phase commit, undo log, and exception safety.",
+      "Atomic multi-collection write transactions: PendingOp buffer, two-phase commit, undo log, and exception safety.",
     keywords: ["transaction", "commit", "rollback", "atomic", "undo"],
   },
 
@@ -279,16 +279,16 @@ export const docs: DocEntry[] = [
     title: "GPU Engine Overview",
     group: "GPU",
     description:
-      "Hardware-accelerated vector search — CUDA, HIP, Metal backends, memory pools, dynamic batching, and GPU index family.",
-    keywords: ["gpu", "cuda", "hip", "metal", "acceleration"],
+      "Hardware-accelerated vector search — Metal (real) plus experimental CUDA/HIP, memory pools, query batching, and bf_knn.",
+    keywords: ["gpu", "metal", "cuda", "hip", "acceleration", "bf_knn"],
   },
   {
     path: "/docs/gpu/overview",
     title: "GPU Architecture & Pipelines",
     group: "GPU",
     description:
-      "GpuPort abstractions, dynamic batcher, memory allocators (PinnedBuffer/UnifiedBuffer), and search pipelines.",
-    keywords: ["gpu architecture", "gpuport", "batcher", "pinnedbuffer", "pipeline"],
+      "GpuBackend abstraction, BackendSelector, QueryBatcher, memory allocators (PinnedBuffer/UnifiedBuffer), and backend maturity.",
+    keywords: ["gpu architecture", "gpubackend", "querybatcher", "pinnedbuffer", "pipeline"],
   },
 
   // ── Reference ────────────────────────────────────────────────────────────
@@ -297,21 +297,21 @@ export const docs: DocEntry[] = [
     title: "API reference",
     group: "Reference",
     description:
-      "Complete Python and C++ API surface — Database, Vault, Config, Filter, query plan, and EQL.",
+      "Complete Python and C++ API surface — Client, Collection, the FAISS Index API, Config, Filter, query plan, and EQL.",
   },
   {
     path: "/docs/eql",
     title: "EQL language",
     group: "Reference",
-    description: "ELIPS Query Language — grammar, SEARCH/FETCH/SCAN/INSERT/DELETE, filters, projections, and bindings.",
-    keywords: ["eql", "query language", "grammar", "sql-like"],
+    description: "ELIPS Query Language — a small lowercase DSL: search/get/scan/add/delete, filters, projections, and $-bindings.",
+    keywords: ["eql", "query language", "grammar", "dsl"],
   },
   {
     path: "/docs/cli",
     title: "CLI",
     group: "Reference",
     description:
-      "The elips command — info, vaults, stats, verify, query, checkpoint, import, export, bench.",
+      "The elips command — info, collections, stats, verify, query, checkpoint, import, export, bench, quantize.",
     keywords: ["cli", "command line", "elips bench"],
   },
   {

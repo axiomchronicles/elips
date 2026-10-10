@@ -70,7 +70,7 @@ const beginner: Lesson[] = [
       {
         kind: "ul",
         items: [
-          "ANN and exact vector search over the same vault",
+          "ANN and exact vector search over the same collection",
           "First-class documents with chunk coordinates and embedding lineage",
           "Native text-first and hybrid query APIs",
           "Metadata filters with planner-side candidate narrowing",
@@ -85,7 +85,7 @@ const beginner: Lesson[] = [
         items: [
           "Not a distributed database. No replication protocol, no sharding service.",
           "Not a SaaS. Nothing to deploy. Your process opens a directory.",
-          "Not a vector-only store. Documents, payloads, lineage are first-class.",
+          "Not a vector-only store. Documents, metadata, lineage are first-class.",
         ],
       },
     ],
@@ -127,12 +127,12 @@ cmake --build build -j`,
         kind: "code",
         lang: "python",
         code: `import elips
-db = elips.open(":memory:", dimension=4, metric="cosine")
-print(db.vaults())   # ["default"]`,
+client = elips.Client(dimension=4, metric="cosine")
+print(client.list_collections())   # []`,
       },
       {
         kind: "note",
-        text: `":memory:" databases never touch the disk. Perfect for tests and tutorials.`,
+        text: `elips.Client() is an in-memory database — it never touches the disk. Perfect for tests and tutorials. Use elips.PersistentClient(path, ...) to persist to a directory.`,
       },
     ],
   },
@@ -160,14 +160,14 @@ print(db.vaults())   # ["default"]`,
         filename: "first_db.py",
         code: `import elips
 
-db = elips.open("/tmp/my_first_elips", dimension=4, metric="cosine")
-notes = db.vault("notes")
+client = elips.PersistentClient("/tmp/my_first_elips", dimension=4, metric="cosine")
+notes = client.get_or_create_collection("notes")
 
-rid = notes.place([0.1, 0.2, 0.3, 0.4], {"tag": "hello"})
-print(rid)
+key = notes.add(embedding=[0.1, 0.2, 0.3, 0.4], metadata={"tag": "hello"})
+print(key)
 
-hit = notes.seek([0.1, 0.2, 0.3, 0.4], top=1)[0]
-print(hit.id, hit.distance, hit.payload)`,
+hit = notes.query(query_embeddings=[0.1, 0.2, 0.3, 0.4], n_results=1)[0]
+print(hit.key, hit.distance, hit.meta)`,
       },
       {
         kind: "p",
@@ -179,39 +179,39 @@ print(hit.id, hit.distance, hit.payload)`,
     slug: "04-records-vectors-payloads",
     number: 4,
     level: "Beginner",
-    title: "Records, vectors, payloads",
+    title: "Rows, vectors, metadata",
     eyebrow: "Chapter II · first contact",
-    oneLiner: "The Record is the atom. Everything else hangs off it.",
+    oneLiner: "The Row is the atom. Everything else hangs off it.",
     blocks: [
       {
         kind: "lede",
-        text: "A Record is id + vector + optional payload + optional document attachment + optional lineage.",
+        text: "A Row is key + vector + optional metadata + optional document attachment + optional lineage.",
       },
       {
         kind: "diagram",
         name: "ObjectModel",
-        caption: "Instance → vaults → records. Records are the only objects the index sees.",
+        caption: "Client → collections → rows. Rows are the only objects the index sees.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `notes.place(
-    vector=[0.1] * 128,
-    payload={"author": "ann", "kind": "design"},
+        code: `notes.add(
+    embedding=[0.1] * 128,
+    metadata={"author": "ann", "kind": "design"},
 )`,
       },
       {
         kind: "ul",
         items: [
-          "vector — fixed dimension per database; set at open(), immutable after",
-          "payload — arbitrary dict-shaped metadata, JSON-compatible values",
-          "id — UUIDv7 RecordID, auto-generated unless you pass one",
-          "document, chunk, lineage — optional, populated by place_document()",
+          "embedding — fixed dimension per database; set when you create the Client, immutable after",
+          "metadata — arbitrary dict-shaped values, JSON-compatible",
+          "key — string id, auto-generated unless you pass id=",
+          "document, chunk, lineage — optional, populated by add(documents=...)",
         ],
       },
       {
         kind: "note",
-        text: "Payloads are read back with every hit. Don't put megabytes there; that's what document attachments are for.",
+        text: "Metadata is read back with every hit. Don't put megabytes there; that's what document attachments are for.",
       },
     ],
   },
@@ -219,7 +219,7 @@ print(hit.id, hit.distance, hit.payload)`,
     slug: "05-place-and-erase",
     number: 5,
     level: "Beginner",
-    title: "place and erase",
+    title: "add and delete",
     eyebrow: "Chapter II · first contact",
     oneLiner: "Two mutation verbs. Both go through the WAL before touching memory.",
     blocks: [
@@ -227,49 +227,49 @@ print(hit.id, hit.distance, hit.payload)`,
       {
         kind: "diagram",
         name: "Persistence",
-        caption: "place / erase append to the WAL first, then mutate the in-memory store.",
+        caption: "add / delete append to the WAL first, then mutate the in-memory store.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `rid = notes.place([0.1, 0.2, 0.3, 0.4], {"tag": "a"})
-notes.erase(rid)   # marks tombstone; checkpoint/compact reclaims space`,
+        code: `key = notes.add(embedding=[0.1, 0.2, 0.3, 0.4], metadata={"tag": "a"})
+notes.delete(ids=key)   # marks tombstone; checkpoint/compact reclaims space`,
       },
       {
         kind: "p",
         text: "From docs/storage.md: the WAL supports insert, erase, and insert_ex (for records carrying DocumentAttachment, ChunkInfo, or EmbeddingLineage). Crash recovery restores full record state, not only vectors.",
       },
-      { kind: "note", text: "Updates are place(id=existing, …). Same id, new vector or payload." },
+      { kind: "note", text: "Updates are upsert(...) or update(ids=..., embeddings=...). Re-adding the same id overwrites it." },
     ],
   },
   {
     slug: "06-seek-basics",
     number: 6,
     level: "Beginner",
-    title: "seek — nearest neighbors",
+    title: "query — nearest neighbors",
     eyebrow: "Chapter III · retrieval",
-    oneLiner: "Top-k nearest vectors, optionally with a distance threshold.",
+    oneLiner: "Top-k nearest vectors, optionally with a distance cutoff.",
     blocks: [
-      { kind: "lede", text: "seek() is the bread-and-butter call. Vector in, ranked hits out." },
+      { kind: "lede", text: "query() is the bread-and-butter call. Vector in, ranked hits out." },
       {
         kind: "diagram",
         name: "QueryPath",
-        caption: "App → vault → planner → metadata → index → ranked hits.",
+        caption: "App → collection → planner → metadata → index → ranked hits.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `hits = notes.seek(
-    query=[0.1, 0.2, 0.3, 0.4],
-    top=5,
-    threshold=0.3,
+        code: `hits = notes.query(
+    query_embeddings=[0.1, 0.2, 0.3, 0.4],
+    n_results=5,
+    max_distance=0.3,
 )
 for h in hits:
-    print(h.id, h.distance, h.payload)`,
+    print(h.key, h.distance, h.meta)`,
       },
       {
         kind: "p",
-        text: "From docs/cpp/api-reference/vault.md: SearchResult carries id, distance, data, document, chunk, lineage — all hydrated from the authoritative record store.",
+        text: "From docs/cpp/api-reference/collection.md: each Hit carries key, distance, meta, document, vector — all hydrated from the authoritative record store.",
       },
     ],
   },
@@ -277,7 +277,7 @@ for h in hits:
     slug: "07-filters",
     number: 7,
     level: "Beginner",
-    title: "Filters and payload search",
+    title: "Filters and metadata search",
     eyebrow: "Chapter III · retrieval",
     oneLiner: "Narrow candidates with equality, ranges, IN, contains, AND/OR/NOT.",
     blocks: [
@@ -288,10 +288,10 @@ for h in hits:
       {
         kind: "code",
         lang: "python",
-        code: `hits = docs.seek(
-    query=embed("alpha"),
-    top=10,
-    filter={
+        code: `hits = docs.query(
+    query_embeddings=embed("alpha"),
+    n_results=10,
+    where={
         "kind": "design",
         "year": {"$gte": 2023},
         "tags": {"$in": ["draft", "review"]},
@@ -311,22 +311,21 @@ for h in hits:
     blocks: [
       {
         kind: "lede",
-        text: "place_document() embeds, chunks, and stores in one call — and records exactly which model produced each vector.",
+        text: "add(text=...) embeds, chunks, and stores in one call — and records exactly which model produced each vector. Column form uses documents=/metadatas= for batches.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `docs = db.vault("documents")
-docs.place_document(
-    "Long markdown article ...",
-    {"kind": "design"},
+        code: `docs = client.get_or_create_collection("documents")
+docs.add(
+    text="Long markdown article ...",
+    metadata={"kind": "design"},
 )
 
-for hit in docs.seek_text("alpha", top=3):
-    print(hit.document.text[:80])
-    print(hit.chunk.start, hit.chunk.end)
-    print(hit.lineage.provider, hit.lineage.model, hit.lineage.revision)`,
-      },
+for hit in docs.query(query_texts="alpha", n_results=3):
+    print(hit.text[:80])
+    print(hit.meta)
+    print(hit.document.uri if hit.document else None)`,      },
       {
         kind: "p",
         text: "Lineage is what lets you re-embed only the records produced by a stale model. It's also what powers exact citations.",
@@ -348,16 +347,16 @@ for hit in docs.seek_text("alpha", top=3):
       {
         kind: "code",
         lang: "python",
-        code: `hits = docs.seek_hybrid(
-    query=embed("alpha design note"),
-    text="alpha design note",
-    top=5,
-    lexical_weight=0.25,   # default per docs/cpp/api-reference/vault.md
+        code: `hits = docs.query(
+    query_embeddings=embed("alpha design note"),
+    query_texts="alpha design note",
+    n_results=5,
+    lexical_weight=0.25,   # default; pass both to fuse vector + lexical
 )`,
       },
       {
         kind: "p",
-        text: "lexical_weight ∈ [0, 1]. 0 means pure vector; 1 means pure lexical. The fused score is on each SearchResult.",
+        text: "lexical_weight ∈ [0, 1]. 0 means pure vector; 1 means pure lexical. The fused score is on each Hit's distance.",
       },
     ],
   },
@@ -377,12 +376,12 @@ for hit in docs.seek_text("alpha", top=3):
         kind: "code",
         lang: "bash",
         code: `elips info /my_db
-elips vaults /my_db
+elips collections /my_db
 elips stats /my_db
 elips verify /my_db                # replays WAL, prints OK / CORRUPT
 elips checkpoint /my_db
-elips export /my_db --vault docs --output docs.jsonl
-elips import /my_db --vault docs --input docs.jsonl --dimension 768
+elips export /my_db --collection docs --output docs.jsonl
+elips import /my_db --collection docs --input docs.jsonl --dimension 768
 elips bench /tmp/bench_db --count 100000 --dim 768`,
       },
       {
@@ -412,19 +411,19 @@ const intermediate: Lesson[] = [
       {
         kind: "code",
         lang: "text",
-        code: `seek in <vault>
+        code: `search in <collection>
     nearest <[literal] | $binding>
-    [top <int>]
+    [k <int>]
     [threshold <number>]
     [where <filter>]
     [rank_by <distance | field>]
     [project <* | f1, f2, ...>]
     yield
 
-fetch from <vault> id "<uuid>" yield
-scan in <vault> [where ...] [offset N] [limit N] yield
-place in <vault> vector [...] [data {...}]
-erase from <vault> id "<uuid>"`,
+get from <collection> id "<string-id>" yield
+scan in <collection> [where ...] [offset N] [limit N] yield
+add in <collection> vector [...] [metadata {...}]
+delete from <collection> id "<string-id>"`,
       },
       { kind: "h", text: "Filter grammar" },
       {
@@ -440,20 +439,20 @@ comparator := = | != | < | <= | > | >=`,
       {
         kind: "code",
         lang: "python",
-        code: `db.query("""
-  seek in articles
+        code: `client.query_eql("""
+  search in articles
     nearest $embedding
-    top 10
+    k 10
     where category = "technology" and published_year >= 2023
     project title, author
     yield
-""", bindings={"embedding": embed(query)})`,
+""", {"embedding": embed(query)})`,
       },
       { kind: "h", text: "Run from the CLI" },
       {
         kind: "code",
         lang: "bash",
-        code: `elips query /my_db --eql 'seek in docs nearest [0.1,0.2,0.3] top 5 yield'
+        code: `elips query /my_db --eql 'search in docs nearest [0.1,0.2,0.3] k 5 yield'
 elips query /my_db --file ranking.eql`,
       },
     ],
@@ -478,15 +477,15 @@ elips query /my_db --file ranking.eql`,
       },
       {
         kind: "p",
-        text: "From docs/cpp/api-reference/transaction.md: TransactionVault::place() validates dimension and finiteness at enqueue, throwing DimensionMismatch or InvalidVector. If enqueue succeeds for every op, commit() cannot fail validation.",
+        text: "From docs/cpp/api-reference/transaction.md: the transactional collection's add() validates dimension and finiteness at enqueue, throwing DimensionMismatch or InvalidVector. If enqueue succeeds for every op, commit() cannot fail validation.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `with db.begin_transaction() as txn:
-    v = txn.vault("notes")
-    v.place(vector1, {"tag": "a"})
-    v.place(vector2, {"tag": "b"})
+        code: `with client.begin_transaction() as txn:
+    c = txn.collection("notes")
+    c.add(embedding=vector1, metadata={"tag": "a"})
+    c.add(embedding=vector2, metadata={"tag": "b"})
     # clean exit -> commit
     # exception  -> rollback (destructor)`,
       },
@@ -494,14 +493,14 @@ elips query /my_db --file ranking.eql`,
         kind: "code",
         lang: "cpp",
         code: `auto txn = db->begin_transaction();
-auto& tv = txn.vault("notes");
-tv.place(vector1, {{"tag", std::string{"a"}}});
-tv.place(vector2, {{"tag", std::string{"b"}}});
+auto& tc = txn.collection("notes");
+tc.add(vector1, {{"tag", std::string{"a"}}});
+tc.add(vector2, {{"tag", std::string{"b"}}});
 txn.commit();   // or txn.rollback();`,
       },
       {
         kind: "note",
-        text: "Unlike Vault::place(), TransactionVault::place() does not normalize the vector at enqueue — normalization happens inside the per-op place() during commit.",
+        text: "Unlike Collection::add(), the transactional add() does not normalize the vector at enqueue — normalization happens inside the per-op add() during commit.",
       },
     ],
   },
@@ -522,7 +521,7 @@ txn.commit();   // or txn.rollback();`,
         kind: "code",
         lang: "cpp",
         code: `enum class Metric      { cosine, euclidean, dot_product };
-enum class IndexType   { graph, exact };
+enum class IndexType   { hnsw, flat };
 enum class Durability  { paranoid, standard, relaxed, ephemeral };
 enum class AccessMode  { read_write, read_only };`,
       },
@@ -542,8 +541,8 @@ enum class AccessMode  { read_write, read_only };`,
         code: `elips::Config{}
     .dimension(768)
     .metric(elips::Metric::cosine)
-    .index(elips::IndexType::graph)
-    .graph_params({.max_connections = 32, .ef_construction = 400, .ef_search = 100})
+    .index(elips::IndexType::hnsw)
+    .hnsw_params({.max_connections = 32, .ef_construction = 400, .ef_search = 100})
     .durability(elips::Durability::standard)
     .access_mode(elips::AccessMode::read_write)
     .segmented_storage(true)
@@ -578,11 +577,11 @@ enum class AccessMode  { read_write, read_only };`,
 ├── IDENTITY                          # dimension, metric, index type
 ├── TEXT_EMBEDDER.manifest            # embedder identity (provider/model/revision)
 ├── wal.log                           # append-only write-ahead log
-├── elips.manifest                    # segmented mode: per-vault segment list
+├── elips.manifest                    # segmented mode: per-collection segment list
 ├── text_embedder/
 │   └── default_v1_<dim>.localembed   # built-in local embedder artifact
 ├── segments/
-│   └── vault_<n>_<epoch>.segment     # one fresh segment per vault per checkpoint
+│   └── collection_<n>_<epoch>.segment # one fresh segment per collection per checkpoint
 └── elips.snapshot                    # snapshot mode (older / opt-in)`,
       },
       {
@@ -607,18 +606,18 @@ enum class AccessMode  { read_write, read_only };`,
         kind: "ul",
         items: [
           "checkpoint() — writes the current logical state to disk and truncates the WAL",
-          "compact() — rebuilds each vault index from the record store, then checkpoints",
+          "compact() — rebuilds each collection index from the record store, then checkpoints",
         ],
       },
       {
         kind: "p",
-        text: "Segmented mode writes one fresh segment per vault, rewrites elips.manifest, and removes obsolete segment files. Snapshot mode writes elips.snapshot.tmp, atomic-renames to elips.snapshot, removes segmented artifacts.",
+        text: "Segmented mode writes one fresh segment per collection, rewrites elips.manifest, and removes obsolete segment files. Snapshot mode writes elips.snapshot.tmp, atomic-renames to elips.snapshot, removes segmented artifacts.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `db.checkpoint()   # flush + truncate WAL
-db.compact()      # rebuild indexes + checkpoint`,
+        code: `client.checkpoint()   # flush + truncate WAL
+client.compact()      # rebuild indexes + checkpoint`,
       },
       {
         kind: "note",
@@ -641,8 +640,8 @@ db.compact()      # rebuild indexes + checkpoint`,
       {
         kind: "code",
         lang: "python",
-        code: `replica = elips.open("/var/data/elips", read_only=True)
-for hit in replica.vault("docs").seek(q, top=10):
+        code: `replica = elips.PersistentClient("/var/data/elips", access_mode="read_only")
+for hit in replica.get_collection("docs").query(query_embeddings=q, n_results=10):
     ...`,
       },
       {
@@ -650,7 +649,7 @@ for hit in replica.vault("docs").seek(q, top=10):
         items: [
           "One read_write opener via exclusive lock",
           "Many read_only openers via shared lock",
-          "Read-only vaults reject place/erase/checkpoint with StorageError",
+          "Read-only collections reject add/delete/checkpoint with StorageError",
         ],
       },
       {
@@ -675,7 +674,7 @@ for hit in replica.vault("docs").seek(q, top=10):
       {
         kind: "code",
         lang: "python",
-        code: `db = elips.open("/data/db", dimension=128, auto_text_embedder=True)`,
+        code: `client = elips.PersistentClient("/data/db", dimension=128, use_default_text_embedder=True)`,
       },
       { kind: "h", text: "Custom embedder" },
       {
@@ -689,7 +688,7 @@ for hit in replica.vault("docs").seek(q, top=10):
     def embed(self, texts):
         return model.encode(texts)
 
-db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
+client = elips.PersistentClient("/data/db", dimension=768, embedder=MyEmbedder())`,
       },
       {
         kind: "p",
@@ -697,7 +696,7 @@ db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
       },
       {
         kind: "note",
-        text: "Non-rehydratable external embedders store metadata only. Reopening without the same embedder fails seek_text() with an actionable ConfigError.",
+        text: "Non-rehydratable external embedders store metadata only. Reopening without the same embedder fails query(query_texts=...) with an actionable ConfigError.",
       },
     ],
   },
@@ -705,15 +704,15 @@ db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
     slug: "18-planner-explain",
     number: 18,
     level: "Intermediate",
-    title: "The planner and explain_seek()",
+    title: "The planner and explain()",
     eyebrow: "Chapter IX · observability",
     oneLiner: "Ask the engine what it's about to do before it does it.",
     blocks: [
-      { kind: "lede", text: "explain_seek() is your single best window into runtime behavior." },
+      { kind: "lede", text: "explain() is your single best window into runtime behavior." },
       {
         kind: "code",
         lang: "cpp",
-        code: `auto plan = vault.explain_seek(query, /*top=*/10, filter);
+        code: `auto plan = collection.explain_query(query, /*k=*/10, filter);
 // plan.strategy           — QueryStrategy enum
 // plan.candidate_count    — narrowed candidate set size
 // plan.metadata_accelerated
@@ -724,8 +723,8 @@ db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
         kind: "ul",
         items: [
           "Selective filter + accelerated metadata → candidate_count drops by orders of magnitude",
-          "GPU built in → gpu_index = true; the dispatch goes through GpuPort",
-          "No accelerator, exact index → planner picks brute-force; expect linear-in-N latency",
+          "GPU built in → gpu_index = true; the dispatch goes through GpuBackend",
+          "No accelerator, flat index → planner picks brute-force; expect linear-in-N latency",
         ],
       },
       {
@@ -740,7 +739,7 @@ db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
     level: "Intermediate",
     title: "Error model",
     eyebrow: "Chapter IX · observability",
-    oneLiner: "Six typed C++ exceptions with a parallel Python hierarchy.",
+    oneLiner: "Typed C++ exceptions with a parallel Python hierarchy.",
     blocks: [
       { kind: "lede", text: "Errors are typed. Catch them with intent." },
       {
@@ -748,18 +747,22 @@ db = elips.open("/data/db", dimension=768, embedder=MyEmbedder())`,
         lang: "text",
         code: `std::runtime_error
 └── elips::ElipsError
-    ├── ConfigError          // identity / dimension / embedder mismatch
-    ├── StorageError         // WAL / segments / lock / read-only writes
-    ├── DimensionMismatch    // wrong-shape vector
-    ├── InvalidVector        // NaN / Inf
-    ├── NotFound             // unknown id, missing vault
-    └── EmbedderError        // text embedding failure`,
+    ├── ConfigError              // identity / dimension / embedder mismatch
+    ├── StorageError             // WAL / segments / lock / read-only writes
+    ├── DimensionMismatch        // wrong-shape vector
+    ├── InvalidVector            // NaN / Inf
+    ├── NotFound                 // unknown id
+    ├── CollectionNotFoundError  // missing collection
+    ├── LockConflict             // writer-lock contention
+    ├── NotTrainedError          // query before train / compress
+    ├── BackendUnavailableError  // requested GPU backend absent
+    └── ParseError               // malformed EQL`,
       },
       {
         kind: "code",
         lang: "python",
         code: `try:
-    vault.place([float("nan")] * 4)
+    notes.add(embedding=[float("nan")] * 4)
 except elips.InvalidVector as e:
     log.warning("rejected: %s", e)`,
       },
@@ -775,28 +778,28 @@ except elips.InvalidVector as e:
     blocks: [
       {
         kind: "lede",
-        text: "Python doesn't reimplement anything. It binds the same ElipsInstance and Vault that C++ users hold.",
+        text: "Python doesn't reimplement anything. It binds the same Database and Collection that C++ users hold.",
       },
       {
         kind: "p",
-        text: "From docs/python/bindings/pybind11-architecture.md: there is a low-level surface (elips.open, Database, Vault — direct binding mirrors) and a modern surface (connect(), Engine, Arena — opinionated Pythonic wrappers).",
+        text: "From docs/python/bindings/pybind11-architecture.md: there is a low-level surface (elips.open, Database, Collection — direct binding mirrors, kept as legacy shims) and the modern Chroma-style surface (Client / PersistentClient / Collection) that most code should use.",
       },
       {
         kind: "code",
         lang: "python",
-        code: `# low-level — mirrors C++ shapes
+        code: `# legacy shim — mirrors C++ shapes
 db = elips.open("/data/db", dimension=384)
-docs = db.vault("documents")
+docs = db.collection("documents")
 
-# modern — opinionated
-eng = elips.connect("/data/db", dimension=384)
-arena = eng.arena("documents")`,
+# modern — Chroma-style, recommended
+client = elips.PersistentClient("/data/db", dimension=384)
+docs = client.get_or_create_collection("documents")`,
       },
       {
         kind: "ul",
         items: [
           "Vectors cross the boundary as zero-copy float buffers when possible",
-          "Payload dicts are converted via pybind11's std::variant binding",
+          "Metadata dicts are converted via pybind11's std::variant binding",
           "Errors are translated to elips.ConfigError / StorageError / … on the Python side",
         ],
       },
@@ -813,7 +816,7 @@ const advanced: Lesson[] = [
     level: "Advanced",
     title: "Architecture — the whole stack",
     eyebrow: "Chapter XI · internals",
-    oneLiner: "SDKs, instance, vaults, ports, engines, storage. Five layers.",
+    oneLiner: "SDKs, database, collections, ports, engines, storage. Five layers.",
     blocks: [
       {
         kind: "lede",
@@ -823,7 +826,7 @@ const advanced: Lesson[] = [
         kind: "diagram",
         name: "SystemShape",
         caption:
-          "SDKs → ElipsInstance → Vault → planner + ports (index/metadata/text/GPU) → storage (WAL + segments).",
+          "SDKs → Database → Collection → planner + ports (index/metadata/text/GPU) → storage (WAL + segments).",
       },
       {
         kind: "p",
@@ -833,7 +836,7 @@ const advanced: Lesson[] = [
         kind: "diagram",
         name: "AlgorithmPorts",
         caption:
-          "Ports & adapters: the planner sees IndexPort, MetadataIndex, TextEmbedderPort, GpuPort — not concrete classes.",
+          "Ports & adapters: the planner sees Index, MetadataIndex, TextEmbedderPort, GpuBackend — not concrete classes.",
       },
     ],
   },
@@ -862,7 +865,7 @@ const advanced: Lesson[] = [
       { kind: "h", text: "Segments" },
       {
         kind: "p",
-        text: "checkpoint() writes one segment per vault: vault_<n>_<epoch>.segment. The new elips.manifest references the new epoch. Old segment files are unlinked only after the manifest has been atomically replaced.",
+        text: "checkpoint() writes one segment per collection: collection_<n>_<epoch>.segment. The new elips.manifest references the new epoch. Old segment files are unlinked only after the manifest has been atomically replaced.",
       },
       { kind: "h", text: "Snapshot mode (legacy / opt-in)" },
       {
@@ -910,7 +913,7 @@ const advanced: Lesson[] = [
     slug: "24-hnsw",
     number: 24,
     level: "Advanced",
-    title: "HierarchicalGraphIndex — HNSW in ELIPS",
+    title: "IndexHNSW — HNSW in ELIPS",
     eyebrow: "Chapter XII · algorithms",
     oneLiner:
       "Multi-layer skip-list-shaped proximity graph. Log-time approximate nearest neighbors.",
@@ -938,6 +941,28 @@ const advanced: Lesson[] = [
         kind: "p",
         text: "Increase ef_search to trade latency for recall at query time without rebuilding. Increase ef_construction or max_connections only at build time — and only if your recall plateau is below target.",
       },
+      { kind: "h", text: "The FAISS-style native index API" },
+      {
+        kind: "p",
+        text: "Below the collection layer, ELIPS exposes a FAISS-shaped index family: IndexFlat, IndexIVFFlat, IndexIVFPQ, IndexIVFScalarQuantizer, IndexHNSW, plus index_factory. Metric strings are FAISS-style ('l2' for euclidean).",
+      },
+      {
+        kind: "code",
+        lang: "python",
+        code: `import numpy as np, elips
+xb = np.random.rand(100000, 128).astype("float32")
+xq = np.random.rand(1000, 128).astype("float32")
+
+index = elips.IndexHNSW(128, 32, "l2")   # d, M, metric
+index.add(xb)
+D, I = index.search(xq, 10)
+print(index.ntotal, index.d, index.is_trained)
+
+# or an IVF index via the factory, with a probe sweep:
+ivf = elips.index_factory(128, "IVF316,Flat", "l2")
+ivf.train(xb); ivf.add(xb); ivf.nprobe = 128
+D, I = ivf.search(xq, 10)`,
+      },
     ],
   },
   {
@@ -954,7 +979,7 @@ const advanced: Lesson[] = [
       },
       {
         kind: "p",
-        text: "From docs/internals/lock-manager.md: locks are acquired in a fixed hierarchical order (database → vault → record). Acquiring out of order is a programmer error and is asserted in debug builds.",
+        text: "From docs/internals/lock-manager.md: locks are acquired in a fixed hierarchical order (database → collection → record). Acquiring out of order is a programmer error and is asserted in debug builds.",
       },
       {
         kind: "ul",
@@ -986,14 +1011,14 @@ const advanced: Lesson[] = [
       },
       {
         kind: "p",
-        text: "From docs/internals/transaction-engine.md: TransactionVault holds a non-owning pointer to its parent Transaction. Validation runs at enqueue time. commit() walks the op list under the database write lock and applies via per-vault place() / erase(). The destructor rolls back if neither commit nor rollback was called.",
+        text: "From docs/internals/transaction-engine.md: the transactional collection holds a non-owning pointer to its parent Transaction. Validation runs at enqueue time. commit() walks the op list under the database write lock and applies via per-collection add() / remove(). The destructor rolls back if neither commit nor rollback was called.",
       },
       {
         kind: "code",
         lang: "cpp",
         code: `class Transaction {
 public:
-    TransactionVault vault(std::string name);
+    TransactionCollection collection(std::string name);
     void commit();
     void rollback();
     ~Transaction();   // rollback() if !done_
@@ -1027,7 +1052,7 @@ private:
       },
       {
         kind: "p",
-        text: "Bindings ($name) are typed at runtime — the executor checks that a $vector binding is the right dimension before the plan ever reaches a Vault.",
+        text: "Bindings ($name) are typed at runtime — the executor checks that a $vector binding is the right dimension before the plan ever reaches a Collection.",
       },
     ],
   },
@@ -1037,7 +1062,7 @@ private:
     level: "Advanced",
     title: "GPU engine architecture",
     eyebrow: "Chapter XV · GPU",
-    oneLiner: "Ports & adapters at the device boundary. Five backends, one selector.",
+    oneLiner: "Ports & adapters at the device boundary. Metal, CUDA, HIP, CPU — one backend contract.",
     blocks: [
       {
         kind: "lede",
@@ -1047,13 +1072,13 @@ private:
         kind: "diagram",
         name: "GpuEngine",
         caption:
-          "GpuPort + GpuMemoryPort + GpuKernelPort + GpuStreamPort + GpuIndexPort. Backends fulfill the contract.",
+          "GpuBackend + GpuMemoryPort + GpuKernelPort + GpuStreamPort + GpuIndexPort. Backends fulfill the contract.",
       },
-      { kind: "h", text: "The 13-method GpuPort (include/elips/gpu_engine/GpuPort.hpp)" },
+      { kind: "h", text: "The 13-method GpuBackend (include/elips/gpu_engine/GpuBackend.hpp)" },
       {
         kind: "code",
         lang: "cpp",
-        code: `class GpuPort {
+        code: `class GpuBackend {
 public:
     [[nodiscard]] virtual std::expected<void, GpuError>
         initialize(const GpuConfig&) = 0;
@@ -1098,28 +1123,51 @@ public:
     level: "Advanced",
     title: "Backends, device probe, selection",
     eyebrow: "Chapter XV · GPU",
-    oneLiner: "Metal, CUDA, HIP — each behind a compile-time flag.",
+    oneLiner: "Metal, CUDA, HIP, CPU — each behind a compile-time flag.",
     blocks: [
       {
         kind: "lede",
-        text: "GpuDeviceManager probes whatever was compiled in. GpuSelector picks the best device that matches policy.",
+        text: "GpuDeviceManager probes whatever was compiled in. BackendSelector picks the best device that matches policy.",
       },
       {
         kind: "p",
-        text: "Probe order (docs/internals/gpu-engine.md): Metal (Apple), CUDA, HIP. Each probe init+inspect+shutdowns the backend inside a try/catch. Devices are then sorted by CAGRA support, then by total device memory descending.",
+        text: "Probe order (docs/internals/gpu-engine.md): Metal (Apple), CUDA, HIP. Each probe init+inspect+shutdowns the backend inside a try/catch. Devices are then sorted by total device memory descending.",
+      },
+      { kind: "h", text: "Backend maturity" },
+      {
+        kind: "ul",
+        items: [
+          "Metal — production, default ON on Apple; distance + top-k kernels",
+          "CUDA — experimental",
+          "HIP / ROCm — experimental",
+          "CPU — always available; the fallback path",
+        ],
+      },
+      { kind: "h", text: "Select a device from Python" },
+      {
+        kind: "code",
+        lang: "python",
+        code: `import elips
+
+for acc in elips.accelerators():
+    print(acc.name, acc.backend, acc.memory_bytes, acc.unified_memory)
+
+# device=: "cpu" | "auto" | "metal" | "cuda:N" | "hip:N"  (NOT gpu=True)
+client = elips.Client(dimension=128, device="metal", fallback=True)
+print(client.native.gpu_info())`,
       },
       {
         kind: "ul",
         items: [
-          "GpuPolicy::CpuOnly — selector returns nullopt; never touches GPU",
-          "GpuPolicy::PreferGpu — uses best probed device or falls back to CPU",
-          "GpuPolicy::RequireGpu — returns nullopt (fatal) if no enabled backend matches",
+          "device='auto' — best probed device, else CPU",
+          "device='cpu' — never touches the GPU",
+          "device='cuda:0'/'hip:0'/'metal' — a named backend; raises BackendUnavailableError if absent unless fallback=True",
         ],
       },
       {
         kind: "diagram",
         name: "GpuAccelGlance",
-        caption: "Probe → sort → select → initialize. Falls back per GpuPolicy.",
+        caption: "Probe → sort → select → initialize. Falls back when fallback=True.",
       },
     ],
   },
@@ -1127,13 +1175,13 @@ public:
     slug: "30-dynamic-batcher-pipelines",
     number: 30,
     level: "Advanced",
-    title: "DynamicBatcher and the GPU pipelines",
+    title: "QueryBatcher and the GPU pipelines",
     eyebrow: "Chapter XV · GPU",
     oneLiner: "Coalesce concurrent queries into one launch; ingest and quantize on the device.",
     blocks: [
       {
         kind: "lede",
-        text: "GPUs hate small launches. The DynamicBatcher exists to make them stop being small.",
+        text: "GPUs hate small launches. The QueryBatcher exists to make them stop being small.",
       },
       {
         kind: "diagram",
@@ -1147,7 +1195,7 @@ public:
         items: [
           "window_us — how long to wait for stragglers (microseconds)",
           "max_batch — hard cap on coalesced queries per launch",
-          "algorithm — brute-force, IVF-Flat, IVF-PQ, graph (CAGRA), hybrid",
+          "algorithm — brute-force, IVF-Flat, IVF-PQ, HNSW, hybrid",
         ],
       },
       {
@@ -1162,7 +1210,7 @@ public:
     .metric(elips::Metric::cosine)
     .gpu(elips::gpu::GpuConfig{}
         .policy(elips::gpu::GpuPolicy::PreferGpu)
-        .algorithm(elips::gpu::Algorithm::cagra)
+        .algorithm(elips::gpu::Algorithm::ivf_flat)
         .window_us(500)
         .max_batch(64));`,
       },
@@ -1182,7 +1230,7 @@ public:
         items: [
           "Query latency — p50 / p95 / p99 per vault, per index type",
           "Recall@k — measured against an exact-search ground truth on a sampled subset",
-          "Candidate-set size — emit from explain_seek(); spikes here predict tail latency",
+          "Candidate-set size — emit from explain(); spikes here predict tail latency",
           "WAL flush time — paranoid/standard durability shifts cost into commit",
         ],
       },
@@ -1198,6 +1246,10 @@ public:
       {
         kind: "p",
         text: "The elips bench command builds a synthetic database at a given dimension and count, then runs warm-cache queries — use it as a sanity floor when comparing hardware or builds.",
+      },
+      {
+        kind: "note",
+        text: "Real numbers (ELIPS 1.1.0, Apple M4, dim=128, 100k vectors, 1k queries, k=10, L2): IndexFlat on CPU reaches recall 1.000 at ~489 QPS; bf_knn on Metal (batched) recall 1.000 at ~914 QPS (and ~24 QPS for one-query-at-a-time); IVFFlat nlist=316 nprobe=128 recall 0.801 at ~1616 QPS, trading down to recall 0.152 at ~14123 QPS with nprobe=8.",
       },
     ],
   },
@@ -1221,11 +1273,11 @@ public:
       {
         kind: "ul",
         items: [
-          "Durability: paranoid on durable storage, fsync_on_checkpoint on ephemeral disks",
-          "Replicas: open with read_only=True from N readers; shared flock coordinates",
+          "Durability: paranoid on durable storage, relaxed with scheduled checkpoints on ephemeral disks",
+          "Replicas: open with access_mode='read_only' from N readers; shared flock coordinates",
           "Checkpoint: schedule elips checkpoint via cron/systemd-timer; tune cadence to recovery time",
           "Backups: snapshot the directory while it is closed, or while only read-only openers hold it",
-          "Telemetry: emit explain_seek().strategy and candidate_count per query",
+          "Telemetry: emit explain().strategy and candidate_count per query",
           "Compaction: run elips compact after large delete bursts to reclaim tombstones",
         ],
       },

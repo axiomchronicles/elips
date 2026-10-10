@@ -138,9 +138,9 @@ PYTHONPATH=bindings/python python3 tests/python/test_bindings.py`}
       <p>
         The GPU index family lives under <code>src/gpu_engine/</code> and is compiled when{" "}
         <code>-DELIPS_GPU_ENABLED=ON</code> is set. Backend selection happens at runtime via the
-        device manager; CUDA, Metal, and a portable fallback are supported. Domain code only ever
-        talks to <code>GpuPort</code>, so the runtime falls back to CPU indexes when no GPU is
-        available.
+        backend selector; Metal (production on Apple), CUDA (experimental), HIP/ROCm (experimental),
+        and a CPU fallback are supported. Domain code only ever talks to <code>GpuBackend</code>, so
+        the runtime falls back to CPU indexes when no GPU is available.
       </p>
     </DocsShell>
   );

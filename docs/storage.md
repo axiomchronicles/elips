@@ -19,6 +19,10 @@ storage and the original snapshot format.
 └── elips.snapshot        # snapshot mode or older databases
 ```
 
+The `vault_<n>_<epoch>.segment` prefix is a **legacy on-disk name** retained for
+backward compatibility (renaming the collection vocabulary did not touch the
+persisted format, so existing databases open unmodified).
+
 ## Identity
 
 `IDENTITY` is the durable source of truth for:
@@ -57,6 +61,10 @@ Supported WAL operations:
 - `erase`
 - `insert_ex` for records carrying `DocumentAttachment`, `ChunkInfo`, or
   `EmbeddingLineage`
+- `insert_q` for a quantized insert (the body carries the code, not fp32
+  components; the codebook is checkpointed durably before any `insert_q` is logged)
+- `txn_begin` / `txn_commit` bracket a batched transaction; replay discards records
+  inside an unterminated window, so a crash mid-commit recovers to the pre-batch state
 
 This means crash recovery restores full record state, not only vectors and
 payloads.

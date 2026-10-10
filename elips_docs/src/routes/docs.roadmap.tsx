@@ -24,9 +24,9 @@ export const Route = createFileRoute("/docs/roadmap")({
 });
 
 const DEFERRED: Array<[string, string]> = [
-  ["Per-segment indexes + compaction", "IndexPort; snapshot/WAL split per vault"],
+  ["Per-segment indexes + compaction", "Index; snapshot/WAL split per collection"],
   ["Full MVCC version chains / Snapshot Isolation", "Single-writer model + transaction buffer"],
-  ["Quantized indexes (PQ / OPQ / SQ), DiskANN", "IndexPort + make_index factory"],
+  ["Quantized indexes (PQ / OPQ / SQ), DiskANN", "Index + make_index factory"],
   ["AVX2 / AVX-512 distance kernels", "Function-pointer dispatch seam in Metrics"],
   ["Columnar metadata, attribute B-trees, inverted / bloom", "Filter over Payload today"],
   ["Multi-reader shared locks beyond current model", "LockManager seam"],
@@ -58,8 +58,8 @@ function Page() {
         <li>C++23 core with hexagonal layering and explicit C++ Core Guidelines alignment.</li>
         <li>Metrics — cosine, euclidean, dot product — with NEON SIMD plus scalar dispatch.</li>
         <li>
-          Indexes — <code>HierarchicalGraphIndex</code> (HNSW) and <code>ExactIndex</code> — behind
-          a single <code>IndexPort</code>.
+          Indexes — <code>IndexHNSW</code> (HNSW) and <code>IndexFlat</code> (exact) — behind a
+          single <code>Index</code> base.
         </li>
         <li>
           Durable storage: <code>IDENTITY</code>, atomic snapshot, record-based WAL with CRC32C,
@@ -73,15 +73,15 @@ function Page() {
           <code>EmbeddingLineage</code> — persisted through <code>WAL::insert_ex</code>.
         </li>
         <li>
-          Native <code>place_document</code>, <code>seek_text</code>, <code>seek_hybrid</code>,{" "}
-          <code>explain_seek</code>.
+          Native <code>add_document</code>, <code>search_text</code>, <code>hybrid_search</code>,{" "}
+          <code>explain_query</code>.
         </li>
         <li>Built-in local text embedder with automatic default provisioning for new databases.</li>
         <li>
           <code>MetadataIndex</code> acceleration for equality and set-membership filters.
         </li>
         <li>
-          Segmented persistence with <code>elips.manifest</code> plus per-vault segment files;{" "}
+          Segmented persistence with <code>elips.manifest</code> plus per-collection segment files;{" "}
           <code>compact()</code> rebuilds indexes and rewrites segments.
         </li>
         <li>
@@ -90,16 +90,16 @@ function Page() {
         </li>
         <li>Atomic batched transactions with eager validation and RAII rollback.</li>
         <li>
-          EQL — lexer, recursive-descent parser, AST, executor — covering <code>seek</code> /{" "}
-          <code>fetch</code> / <code>scan</code> / <code>place</code> / <code>erase</code>.
+          EQL — lexer, recursive-descent parser, AST, executor — covering <code>search</code> /{" "}
+          <code>get</code> / <code>scan</code> / <code>add</code> / <code>delete</code>.
         </li>
         <li>
           <code>elips</code> CLI; PyBind11 Python bindings with <code>py.typed</code>; benchmark
           suite.
         </li>
         <li>
-          Optional GPU index family behind <code>GpuPort</code> with a documented backend fallback
-          chain.
+          Optional GPU index family behind <code>GpuBackend</code> with a documented backend
+          fallback chain.
         </li>
       </ul>
 

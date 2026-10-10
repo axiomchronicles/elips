@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/python/config")({
       {
         name: "description",
         content:
-          "Complete reference for the ELIPS Python Config fluent builder, GraphParams, LocalEmbedderConfig, and GpuConfig — including the persisted identity concept and ConfigError.",
+          "Complete reference for the ELIPS Python Config fluent builder, HnswParams, LocalEmbedderConfig, and GpuConfig — including the persisted identity concept and ConfigError.",
       },
     ],
   }),
@@ -28,13 +28,13 @@ function Page() {
         { id: "dimension", label: ".dimension()" },
         { id: "metric", label: ".metric()" },
         { id: "index", label: ".index()" },
-        { id: "graph-params", label: ".graph_params() & GraphParams" },
-        { id: "durability", label: ".durability()" },
+        { id: "graph-params", label: ".graph_params() & HnswParams" },
         { id: "access-mode", label: ".access_mode()" },
         { id: "storage", label: "Storage Options" },
+        { id: "quantization", label: "Quantization" },
         { id: "embedder", label: "Text Embedder" },
         { id: "local-embedder", label: "LocalEmbedderConfig" },
-        { id: "gpu", label: "GPU Config" },
+        { id: "gpu", label: "GPU Selection" },
         { id: "read-properties", label: "Read Properties" },
         { id: "config-error", label: "ConfigError" },
         { id: "ingest-serve", label: "Two-Phase Ingest/Serve" },
@@ -45,30 +45,40 @@ function Page() {
       <h2 id="overview">Overview</h2>
       <p>
         <code>Config</code> is a fluent (method-chaining) builder that
-        collects all settings for a database before it is opened. You can pass
-        a <code>Config</code> directly to{" "}
+        collects all settings for a database before it is opened. In most code
+        you pass settings directly as keyword arguments to{" "}
         <a href="/docs/python/database">
-          <code>elips.open_with_config()</code>
-        </a>
-        , or use the convenience keyword arguments on{" "}
-        <code>elips.open()</code> which constructs a <code>Config</code>{" "}
-        internally.
+          <code>elips.Client</code>
+        </a>{" "}
+        (in-memory) or <code>elips.PersistentClient</code> (on disk). A{" "}
+        <code>Config</code> object is useful when you want to assemble and reuse
+        a configuration programmatically; the legacy{" "}
+        <code>elips.connect_with_config(path, config)</code> entry point accepts
+        one directly.
       </p>
 
-      <CodeBlock lang="python">{`from elips import Config, GraphParams
+      <CodeBlock lang="python">{`import elips
+from elips import Config, HnswParams
 
+# Primary: settings as keyword arguments
+client = elips.PersistentClient(
+    "/data/vectors.elips",
+    dimension=768,
+    metric="cosine",
+    index="graph",
+    metadata_acceleration=True,
+)
+
+# Or build a Config and open with the legacy config entry point
 cfg = (
     Config()
     .dimension(768)
     .metric("cosine")
     .index("graph")
-    .graph_params(GraphParams(max_connections=32, ef_construction=300))
-    .durability("standard")
+    .graph_params(HnswParams(max_connections=32, ef_construction=300))
     .metadata_acceleration(True)
 )
-
-import elips
-db = elips.open_with_config("/data/vectors.elips", cfg)
+client = elips.connect_with_config("/data/vectors.elips", cfg)  # legacy
 `}</CodeBlock>
 
       {/* ── Persisted Identity ─────────────────────────────────── */}
@@ -97,21 +107,26 @@ db = elips.open_with_config("/data/vectors.elips", cfg)
         data files. This prevents silent data corruption.
       </p>
       <p>
-        Non-identity fields (<code>durability</code>, <code>access_mode</code>,{" "}
+        Non-identity fields (<code>access_mode</code>,{" "}
         <code>graph_params</code>, <code>metadata_acceleration</code>,{" "}
         <code>embedder</code>) can be changed between opens.
       </p>
 
-      <CodeBlock lang="python">{`# First open — establishes identity
-db = elips.open("/data/v.elips", dimension=768, metric="cosine", index="graph")
-db.close()
+      <CodeBlock lang="python">{`import elips
 
-# Reopen with different durability — fine
-db = elips.open("/data/v.elips", durability="relaxed")
+# First open — establishes identity
+client = elips.PersistentClient(
+    "/data/v.elips", dimension=768, metric="cosine", index="graph"
+)
+client.close()
 
-# Reopen with different dimension — ConfigError
+# Reopen read-only — fine (non-identity change)
+client = elips.PersistentClient("/data/v.elips", access_mode="read_only")
+client.close()
+
+# Reopen with a different dimension — ConfigError
 try:
-    db = elips.open("/data/v.elips", dimension=512)
+    client = elips.PersistentClient("/data/v.elips", dimension=512)
 except elips.ConfigError as e:
     print(e)  # Dimension mismatch: expected 768, got 512
 `}</CodeBlock>
@@ -227,17 +242,17 @@ cfg = Config()
 
       {/* ── graph_params() ─────────────────────────────────────── */}
       <h2 id="graph-params">
-        <code>Config.graph_params()</code> &amp; <code>GraphParams</code>
+        <code>Config.graph_params()</code> &amp; <code>HnswParams</code>
       </h2>
-      <CodeBlock lang="python">{`Config.graph_params(params: GraphParams) -> Config
+      <CodeBlock lang="python">{`Config.graph_params(params: HnswParams) -> Config
 `}</CodeBlock>
 
       <h3>
-        <code>GraphParams</code>
+        <code>HnswParams</code>
       </h3>
-      <CodeBlock lang="python">{`from elips import GraphParams
+      <CodeBlock lang="python">{`from elips import HnswParams
 
-params = GraphParams(
+params = HnswParams(
     max_connections:  int   = 16,
     ef_construction:  int   = 200,
     ef_search:        int   = 50,
@@ -276,12 +291,12 @@ params = GraphParams(
             <code>ef_search</code>
           </strong>{" "}
           — Beam width during query. Controls the search-time recall/latency
-          trade-off. Can be tuned at runtime by changing <code>GraphParams</code>{" "}
+          trade-off. Can be tuned at runtime by changing <code>HnswParams</code>{" "}
           without rebuilding the graph (unlike <code>max_connections</code> and{" "}
           <code>ef_construction</code>).
           <br />
-          Must satisfy <code>ef_search</code> &ge; <code>top</code> (number of
-          results requested). Default: <code>50</code>.
+          Must satisfy <code>ef_search</code> &ge; <code>n_results</code>{" "}
+          (number of results requested). Default: <code>50</code>.
         </li>
         <li>
           <strong>
@@ -295,14 +310,14 @@ params = GraphParams(
       </ul>
 
       <CodeBlock lang="python">{`# High-recall configuration (favours quality over speed)
-high_recall = GraphParams(
+high_recall = HnswParams(
     max_connections=32,
     ef_construction=400,
     ef_search=200,
 )
 
 # Low-latency configuration (favours speed, slight recall trade-off)
-low_latency = GraphParams(
+low_latency = HnswParams(
     max_connections=16,
     ef_construction=100,
     ef_search=25,
@@ -311,53 +326,17 @@ low_latency = GraphParams(
 cfg = Config().dimension(768).metric("cosine").graph_params(high_recall)
 `}</CodeBlock>
 
-      {/* ── durability() ───────────────────────────────────────── */}
-      <h2 id="durability">
-        <code>{"Config.durability(level_str) -> Config"}</code>
-      </h2>
-      <CodeBlock lang="python">{`Config.durability(level_str: str) -> Config
-# level_str ∈ {"paranoid", "standard", "relaxed", "ephemeral"}
-`}</CodeBlock>
       <p>
-        Controls how aggressively the WAL is flushed to disk after each write.
-        Higher durability = lower write throughput = stronger crash safety.
+        <strong>Note on durability:</strong> durability levels (
+        <code>paranoid</code>, <code>standard</code>, <code>relaxed</code>,{" "}
+        <code>ephemeral</code>) are a native <code>Config</code>/
+        <code>Durability</code> concept — not a <code>Client</code> keyword
+        argument. See the{" "}
+        <a href="/docs/python/durability">
+          <code>Durability</code>
+        </a>{" "}
+        reference for details.
       </p>
-
-      <ul>
-        <li>
-          <strong>
-            <code>"paranoid"</code>
-          </strong>{" "}
-          — <code>fsync</code> after every write. Maximum durability. Use
-          when data loss is unacceptable (financial records, embeddings that
-          are expensive to regenerate).
-        </li>
-        <li>
-          <strong>
-            <code>"standard"</code>
-          </strong>{" "}
-          (default) — Buffered WAL writes with periodic <code>fsync</code>.
-          Good balance of throughput and durability. May lose up to ~1 s of
-          writes on a power failure.
-        </li>
-        <li>
-          <strong>
-            <code>"relaxed"</code>
-          </strong>{" "}
-          — OS page-cache backed writes, <code>fsync</code> only on
-          checkpoint. High throughput. May lose several seconds of writes on
-          crash.
-        </li>
-        <li>
-          <strong>
-            <code>"ephemeral"</code>
-          </strong>{" "}
-          — No WAL, no persistence. Data is kept in memory only and is lost
-          when the process exits. Equivalent to{" "}
-          <code>path=":memory:"</code> but can be used with a path argument
-          (which is then ignored for storage purposes).
-        </li>
-      </ul>
 
       {/* ── access_mode() ──────────────────────────────────────── */}
       <h2 id="access-mode">
@@ -380,7 +359,7 @@ cfg = Config().dimension(768).metric("cosine").graph_params(high_recall)
           </strong>{" "}
           — Allows concurrent read access without an exclusive lock. Multiple
           processes can open the same database read-only simultaneously.
-          Attempting any write operation raises <code>PermissionError</code>.
+          Attempting any write operation raises <code>StorageError</code>.
         </li>
       </ul>
 
@@ -413,6 +392,28 @@ cfg = Config().dimension(768).metric("cosine").graph_params(high_recall)
         per record. Disable only if you are operating under severe memory
         constraints and primarily use full-scan workloads.
       </p>
+
+      <h2 id="quantization">
+        <code>{"Config.quantization(spec) -> Config"}</code>
+      </h2>
+      <p>
+        Compresses stored vectors to reduce memory and disk footprint. Accepts
+        a <code>QuantParams</code> object or one of the shorthand strings{" "}
+        <code>"sq8"</code>, <code>"pq"</code>, <code>"opq"</code>, or{" "}
+        <code>"none"</code> (default). The same value may also be passed as the{" "}
+        <code>quantization=</code> keyword argument to <code>Client</code> /
+        <code>PersistentClient</code>.
+      </p>
+      <CodeBlock lang="python">{`import elips
+
+# Scalar quantization (8-bit) via the keyword argument
+client = elips.PersistentClient(
+    "/data/v.elips", dimension=768, quantization="sq8"
+)
+
+# Or on a Config builder
+cfg = elips.Config().dimension(768).metric("cosine").quantization("sq8")
+`}</CodeBlock>
 
       {/* ── Text Embedder ──────────────────────────────────────── */}
       <h2 id="embedder">Text Embedder</h2>
@@ -542,41 +543,44 @@ cfg = (
 `}</CodeBlock>
 
       {/* ── GPU ────────────────────────────────────────────────── */}
-      <h2 id="gpu">
-        <code>{"Config.gpu(GpuConfig) -> Config"}</code>
-      </h2>
-      <CodeBlock lang="python">{`from elips import GpuConfig
+      <h2 id="gpu">GPU Selection</h2>
+      <p>
+        The modern way to run on an accelerator is the <code>device</code>{" "}
+        setting on <code>Client</code> / <code>PersistentClient</code>:{" "}
+        <code>device="auto"</code>, <code>"cpu"</code>, <code>"metal"</code>,{" "}
+        <code>"cuda:0"</code>, or <code>"hip:0"</code>. A named but absent
+        backend raises <code>BackendUnavailableError</code> unless you also pass{" "}
+        <code>fallback=True</code>.
+      </p>
+      <CodeBlock lang="python">{`import elips
 
-cfg = Config().dimension(1536).metric("cosine").gpu(GpuConfig(device_id=0))
+# Apple GPU (Metal is the default-on backend on Apple hardware)
+client = elips.PersistentClient("/data/v.elips", dimension=1536, device="metal")
+
+# Named CUDA device, with CPU fallback if unavailable
+client = elips.PersistentClient(
+    "/data/v.elips", dimension=1536, device="cuda:0", fallback=True
+)
 `}</CodeBlock>
       <p>
-        Enables GPU-accelerated distance computations and graph construction.
-        Available only in GPU-enabled ELIPS builds (
-        <code>elips[gpu]</code> package extra). Raises{" "}
-        <code>RuntimeError</code> if the build does not include GPU support.
+        For fine-grained control you may instead pass a{" "}
+        <code>GpuConfig</code> via the <code>gpu=</code> setting (or{" "}
+        <code>Config.gpu(GpuConfig(...))</code>). There is no{" "}
+        <code>gpu=True</code> shorthand. See the{" "}
+        <a href="/docs/python/gpu">
+          <code>GPU API</code>
+        </a>{" "}
+        reference for backend maturity (Metal production on Apple; CUDA and
+        HIP/ROCm experimental; CPU always available) and the accelerator
+        discovery helpers.
       </p>
-      <p>
-        <code>GpuConfig</code> fields:
-      </p>
-      <ul>
-        <li>
-          <code>device_id: int = 0</code> — CUDA device index.
-        </li>
-        <li>
-          <code>memory_fraction: float = 0.8</code> — Fraction of GPU memory
-          ELIPS may use.
-        </li>
-        <li>
-          <code>fallback_to_cpu: bool = True</code> — If the GPU is
-          unavailable, fall back to CPU silently rather than raising.
-        </li>
-      </ul>
 
       {/* ── Read Properties ────────────────────────────────────── */}
       <h2 id="read-properties">Read Properties</h2>
       <p>
         After a database is opened, the resolved <code>Config</code> is
-        available via <code>db.config</code> and exposes read-only properties:
+        available via <code>client.config</code> and exposes read-only
+        properties:
       </p>
       <ul>
         <li>
@@ -589,10 +593,7 @@ cfg = Config().dimension(1536).metric("cosine").gpu(GpuConfig(device_id=0))
           <code>index_val: str</code> — Resolved index type string.
         </li>
         <li>
-          <code>graph_params_val: GraphParams</code> — Active graph parameters.
-        </li>
-        <li>
-          <code>durability_val: str</code> — Active durability level.
+          <code>graph_params_val: HnswParams</code> — Active HNSW parameters.
         </li>
         <li>
           <code>access_mode_val: str</code> — Active access mode.
@@ -607,8 +608,10 @@ cfg = Config().dimension(1536).metric("cosine").gpu(GpuConfig(device_id=0))
         </li>
       </ul>
 
-      <CodeBlock lang="python">{`db = elips.open_with_config("/data/v.elips", cfg)
-c = db.config
+      <CodeBlock lang="python">{`client = elips.PersistentClient(
+    "/data/v.elips", dimension=768, metric="cosine"
+)
+c = client.config
 print(c.dimension_val)         # 768
 print(c.metric_val)            # 'cosine'
 print(c.graph_params_val.ef_search)  # 50
@@ -630,7 +633,7 @@ print(c.has_text_embedder)     # True/False
         </li>
         <li>
           An invalid value is supplied (e.g., <code>dimension=0</code>,
-          unknown metric string, <code>ef_search &lt; top</code>).
+          unknown metric string, <code>ef_search &lt; n_results</code>).
         </li>
         <li>
           <code>text_embedder</code> is configured but the callable returns
@@ -638,7 +641,7 @@ print(c.has_text_embedder)     # True/False
         </li>
       </ul>
       <CodeBlock lang="python">{`try:
-    db = elips.open("/data/v.elips", dimension=512)
+    client = elips.PersistentClient("/data/v.elips", dimension=512)
 except elips.ConfigError as e:
     # e.field  → 'dimension'
     # e.stored → 768
@@ -655,38 +658,29 @@ except elips.ConfigError as e:
         same database path:
       </p>
 
-      <CodeBlock lang="python">{`# --- INGEST PHASE ---
-# Use relaxed durability for maximum write throughput.
-# Disable auto-compaction during bulk load (compaction_ratio=0.0).
-ingest_cfg = (
-    Config()
-    .dimension(1536)
-    .metric("cosine")
-    .index("graph")
-    .graph_params(GraphParams(max_connections=32, ef_construction=400, compaction_ratio=0.0))
-    .durability("relaxed")
-    .metadata_acceleration(True)
-)
-db = elips.open_with_config("/data/prod.elips", ingest_cfg)
-vault = db.vault("embeddings")
+      <CodeBlock lang="python">{`import elips
 
-# ... bulk insert via place_many() ...
+# --- INGEST PHASE ---
+client = elips.PersistentClient(
+    "/data/prod.elips",
+    dimension=1536,
+    metric="cosine",
+    index="graph",
+    metadata_acceleration=True,
+)
+embeddings = client.get_or_create_collection("embeddings")
+
+# ... bulk insert via collection.add(...) ...
 
 # Compact and checkpoint after ingest
-vault.rebuild_index()
-db.compact()
-db.checkpoint()
-db.close()
+embeddings.rebuild()
+client.compact()
+client.checkpoint()
+client.close()
 
 # --- SERVE PHASE ---
-# Reopen with paranoid durability + optimal ef_search, read-only access.
-serve_cfg = (
-    Config()
-    .graph_params(GraphParams(ef_search=100))
-    .durability("standard")
-    .access_mode("read_only")
-)
-db = elips.open_with_config("/data/prod.elips", serve_cfg)
+# Reopen read-only for query serving.
+client = elips.PersistentClient("/data/prod.elips", access_mode="read_only")
 `}</CodeBlock>
 
       {/* ── Full Examples ──────────────────────────────────────── */}
@@ -694,34 +688,31 @@ db = elips.open_with_config("/data/prod.elips", serve_cfg)
 
       <h3>Minimal new database</h3>
       <CodeBlock lang="python">{`import elips
-from elips import Config
 
-db = elips.open_with_config(
-    "/data/simple.elips",
-    Config().dimension(384).metric("cosine"),
+client = elips.PersistentClient(
+    "/data/simple.elips", dimension=384, metric="cosine"
 )
 `}</CodeBlock>
 
       <h3>Production configuration from environment</h3>
       <CodeBlock lang="python">{`import os, elips
-from elips import Config, GraphParams
+from elips import HnswParams
 
-def build_config() -> Config:
-    return (
-        Config()
-        .dimension(int(os.environ.get("ELIPS_DIM", "768")))
-        .metric(os.environ.get("ELIPS_METRIC", "cosine"))
-        .index("graph")
-        .graph_params(GraphParams(
+def open_from_env() -> elips.PersistentClient:
+    return elips.PersistentClient(
+        os.environ["ELIPS_PATH"],
+        dimension=int(os.environ.get("ELIPS_DIM", "768")),
+        metric=os.environ.get("ELIPS_METRIC", "cosine"),
+        index="graph",
+        graph_params=HnswParams(
             max_connections=int(os.environ.get("ELIPS_M", "16")),
             ef_construction=int(os.environ.get("ELIPS_EF_CONSTRUCTION", "200")),
             ef_search=int(os.environ.get("ELIPS_EF_SEARCH", "50")),
-        ))
-        .durability(os.environ.get("ELIPS_DURABILITY", "standard"))
-        .metadata_acceleration(True)
+        ),
+        metadata_acceleration=True,
     )
 
-db = elips.open_with_config(os.environ["ELIPS_PATH"], build_config())
+client = open_from_env()
 `}</CodeBlock>
     </DocsShell>
   );

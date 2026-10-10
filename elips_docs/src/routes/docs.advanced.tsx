@@ -43,27 +43,25 @@ function Page() {
         {`def my_embedder(texts: list[str]) -> list[list[float]]:
     return model.encode(texts).tolist()
 
-db = elips.open_with_config(
+client = elips.PersistentClient(
     "/tmp/elips",
-    elips.Config()
-        .dimension(384)
-        .metric("cosine")
-        .text_embedder(my_embedder, provider="myco", model="bge-small", revision="v1"),
+    dimension=384,
+    metric="cosine",
+    embedder=my_embedder,
 )`}
       </CodeBlock>
 
       <h2 id="plan">Planner introspection</h2>
       <p>
-        <code>explain_seek</code> returns the strategy the planner chose, whether
+        <code>explain</code> returns the strategy the planner chose, whether
         <code> MetadataIndex</code> narrowed the search, and the candidate count when narrowing
         occurred. Use it in tests to lock query shapes against accidental regressions.
       </p>
       <CodeBlock lang="python">
-        {`plan = docs.explain_seek(
+        {`plan = docs.explain(
     [1.0, 0.0],
-    top=5,
-    where=elips.Filter().field("kind").equals("design"),
-    has_text_component=True,
+    n_results=5,
+    where={"kind": "design"},
 )
 assert plan.metadata_accelerated
 assert plan.strategy in {"exact_candidates", "hybrid_fusion"}`}
@@ -71,13 +69,13 @@ assert plan.strategy in {"exact_candidates", "hybrid_fusion"}`}
 
       <h2 id="txn">Transactions</h2>
       <p>
-        Transactions buffer <code>place</code> and <code>erase</code> in memory and commit
+        Transactions buffer <code>add</code> and <code>remove</code> in memory and commit
         atomically.
       </p>
       <CodeBlock lang="cpp">
         {`auto txn = db->begin_transaction();
-txn.vault("documents").place(elips::Vector{{1.0F, 0.0F}});
-txn.vault("documents").place(elips::Vector{{0.0F, 1.0F}});
+txn.collection("documents").add(elips::Vector{{1.0F, 0.0F}});
+txn.collection("documents").add(elips::Vector{{0.0F, 1.0F}});
 txn.commit();   // both visible or neither`}
       </CodeBlock>
 
@@ -88,19 +86,18 @@ txn.commit();   // both visible or neither`}
         records that need it.
       </p>
       <CodeBlock lang="python">
-        {`stale = docs.scan(where=elips.Filter()
-                  .field("__lineage.model").equals("bge-small"))
+        {`stale = docs.get(where={"__lineage.model": "bge-small"})
 for r in stale:
-    docs.erase(r.id)
-    docs.place_document(r.document.text, r.payload,
-                        lineage=elips.EmbeddingLineage("myco", "bge-large", "v2"))`}
+    docs.delete(ids=[r.key])
+    docs.add(text=r.text, metadata=r.meta, id=r.key)`}
       </CodeBlock>
 
       <h2 id="abandon">Recovery testing</h2>
       <p>
-        <code>abandon()</code> closes the database without checkpointing, leaving unfinished
-        recovery work in the WAL. Pair it with <code>elips verify</code> in integration tests to
-        assert recovery semantics across crash points.
+        Calling <code>close()</code> without a preceding <code>checkpoint()</code> leaves pending
+        writes in the WAL. Inspect them with <code>client.pending_writes()</code>, then pair with{" "}
+        <code>elips verify</code> in integration tests to assert recovery semantics across crash
+        points.
       </p>
     </DocsShell>
   );

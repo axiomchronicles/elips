@@ -57,7 +57,7 @@ export const Route = createFileRoute("/faq")({
             },
             {
               "@type": "Question",
-              name: "How big can a vault get?",
+              name: "How big can a collection get?",
               acceptedAnswer: {
                 "@type": "Answer",
                 text: "ELIPS is designed for the embedded scale — millions of vectors comfortably, larger with segmented storage and HNSW tuned for memory budget. There is no hard ceiling baked into the format.",
@@ -125,7 +125,7 @@ const FAQS: [string, ReactNode][] = [
     </p>,
   ],
   [
-    "How big can a vault get?",
+    "How big can a collection get?",
     <p>
       ELIPS is designed for the embedded scale — millions of vectors comfortably, larger with
       segmented storage and HNSW tuned for memory budget. There is no hard ceiling baked into the

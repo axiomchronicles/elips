@@ -10,13 +10,13 @@ export const Route = createFileRoute("/docs/gpu-engine")({
       {
         name: "description",
         content:
-          "The ELIPS GPU engine — ports, backends (CUDA/HIP/Metal), index family, dynamic batching, memory pools, profiling, and configuration.",
+          "The ELIPS GPU engine — the GpuBackend port, backends (Metal production on Apple, CUDA/HIP experimental), distance + top-k kernels, bf_knn, query batching, memory pools, and configuration.",
       },
       { property: "og:title", content: "GPU engine — ELIPS" },
       {
         property: "og:description",
         content:
-          "Layered GPU acceleration behind GpuPort — CUDA, HIP/ROCm, Metal — with dynamic batching, pinned pools, and brute-force / IVF / graph / hybrid / distributed indexes.",
+          "Optional GPU acceleration behind GpuBackend — Metal (production on Apple Silicon), CUDA and HIP/ROCm (experimental) — running distance and top-k kernels with query batching and pinned pools.",
       },
       { property: "og:url", content: "/docs/gpu-engine" },
     ],
@@ -35,11 +35,10 @@ function Page() {
         { id: "architecture", label: "Layered architecture" },
         { id: "ports", label: "Ports (ISP)" },
         { id: "config", label: "GpuConfig" },
-        { id: "backends", label: "Backends" },
-        { id: "indexes", label: "Index family" },
-        { id: "batcher", label: "Dynamic batcher" },
+        { id: "backends", label: "Backends & maturity" },
+        { id: "indexes", label: "Distance & top-k path" },
+        { id: "batcher", label: "Query batcher" },
         { id: "memory", label: "Memory" },
-        { id: "transfer", label: "Index transfer" },
         { id: "errors", label: "Error model" },
         { id: "metrics", label: "Metrics & profiling" },
         { id: "build", label: "Build flags" },
@@ -47,9 +46,9 @@ function Page() {
     >
       <p className="lede handwritten-lede">
         ELIPS treats the GPU as an optional engine — never a runtime dependency. Domain code talks
-        to <code>IndexPort</code>; when GPU is built in, the index <em>happens</em> to live in
-        device memory. Everything else — selection, allocation, batching, fallback — is out of band,
-        behind narrow ports.
+        to <code>Index</code>; when GPU is built in, the distance and top-k stage{" "}
+        <em>happens</em> to run on the device. Everything else — selection, allocation, batching,
+        fallback — is out of band, behind narrow ports.
       </p>
 
       <h2 id="thesis">Thesis</h2>
@@ -58,8 +57,8 @@ function Page() {
       </p>
       <ul>
         <li>
-          <strong>Interface Segregation.</strong> Five ports (compute, memory, kernel, stream,
-          index) instead of one giant facade.
+          <strong>Interface Segregation.</strong> Four ports (compute, memory, kernel, stream)
+          instead of one giant facade.
         </li>
         <li>
           <strong>Failure is expected.</strong> Every GPU operation returns{" "}
@@ -84,8 +83,8 @@ function Page() {
         slice it actually needs.
       </p>
       <CodeBlock lang="cpp">
-        {`// GpuPort.hpp — the umbrella port (init + compute + top_k)
-class GpuPort {
+        {`// GpuBackend.hpp — the umbrella port (init + compute + top_k)
+class GpuBackend {
 public:
     virtual std::expected<void, GpuError>      initialize(const GpuConfig&) = 0;
     virtual void                               shutdown() noexcept = 0;
@@ -123,63 +122,35 @@ public:
           <code>GpuStreamPort</code> — fine-grained synchronisation surface for callers that
           schedule their own streams.
         </li>
-        <li>
-          <code>GpuIndexPort</code> — implements both <code>IndexPort</code> and{" "}
-          <code>IndexTransferPort</code>; exposes <code>build_from_batch</code>,{" "}
-          <code>search_batch</code>, <code>export_to_cpu_index</code> /{" "}
-          <code>import_from_cpu_index</code>, plus <code>backend_name()</code> and{" "}
-          <code>device_bytes_used()</code>.
-        </li>
       </ul>
+      <p>
+        There is no GPU-resident ANN index. The device accelerates the exact distance + top-k stage;
+        the exact brute-force path is surfaced to Python as{" "}
+        <code>elips.bf_knn(xq, xb, k, device=&quot;metal&quot;)</code>. HNSW and IVF indexes stay on
+        the CPU.
+      </p>
 
       <h2 id="config">GpuConfig</h2>
       <CodeBlock lang="cpp">
-        {`enum class GpuPolicy        { Auto, PreferGpu, RequireGpu, CpuOnly, Specific };
-enum class IndexBuildMode   { GpuBuild_CpuServe, GpuBuild_GpuServe, Hybrid };
-enum class GpuIndexAlgorithm{ Auto, CagraGraph, IvfFlat, IvfPq, BruteForce };
-enum class GpuPrecision     { FP32, FP16, Int8, Auto };
-
-struct GraphIndexBuildParams {
-    size_t intermediate_graph_degree{128};
-    size_t graph_degree{64};
-    enum class BuildAlgo { IvfPq, NnDescent, IterativeSearch } build_algo{...};
-    size_t nn_descent_iterations{20};
-    float  compression_ratio{0.0f};
-};
-struct IvfPqBuildParams {
-    size_t   n_lists{1024};
-    uint32_t pq_dim{0};
-    uint32_t pq_bits{8};
-    bool     add_data_on_build{true};
-    size_t   kmeans_n_iters{20};
-    float    kmeans_trainset_fraction{0.5f};
-};
+        {`enum class GpuPolicy    { Auto, PreferGpu, RequireGpu, CpuOnly, Specific };
+enum class GpuPrecision { FP32, FP16, Auto };
 
 struct GpuConfig {
-    GpuPolicy           policy{GpuPolicy::Auto};
-    std::string         preferred_backend;        // "cuda" | "hip" | "metal" | ""
-    int32_t             device_index{-1};         // -1 = let selector decide
-    IndexBuildMode      index_build_mode{IndexBuildMode::GpuBuild_GpuServe};
-    GpuIndexAlgorithm   algorithm{GpuIndexAlgorithm::Auto};
+    GpuPolicy    policy{GpuPolicy::Auto};
+    std::string  preferred_backend;        // "metal" | "cuda" | "hip" | ""
+    int32_t      device_index{-1};         // -1 = let the selector decide
 
-    size_t              device_memory_pool_bytes{0};            // 0 = auto-size
-    size_t              pinned_host_pool_bytes{256UL * 1024 * 1024};
-    bool                use_unified_memory{false};               // Apple / Grace Hopper
+    size_t       device_memory_pool_bytes{0};            // 0 = auto-size
+    size_t       pinned_host_pool_bytes{256UL * 1024 * 1024};
+    bool         use_unified_memory{false};              // Apple Silicon
 
-    size_t              default_ef_search_gpu{64};
-    size_t              dynamic_batch_window_us{500};
-    size_t              dynamic_batch_max_size{256};
-    bool                enable_fp16_search{false};
+    size_t       query_batch_window_us{500};
+    size_t       query_batch_max_size{256};
+    GpuPrecision search_precision{GpuPrecision::Auto};
+    bool         enable_fp16_search{false};
 
-    GraphIndexBuildParams graph_params;
-    IvfPqBuildParams      ivf_pq_params;
-    GpuPrecision          search_precision{GpuPrecision::Auto};
-
-    bool  auto_rebuild_on_startup{false};
-    float rebuild_threshold_ratio{0.1f};
-
-    bool  enable_profiling{false};
-    bool  emit_kernel_timings{false};
+    bool         enable_profiling{false};
+    bool         emit_kernel_timings{false};
 };`}
       </CodeBlock>
       <p>
@@ -187,79 +158,115 @@ struct GpuConfig {
         <code>PreferGpu</code> warns but still falls back; <code>RequireGpu</code> errors if no
         device is usable; <code>CpuOnly</code> short-circuits the engine entirely;{" "}
         <code>Specific</code> pins to <code>preferred_backend</code> / <code>device_index</code>.
+        From Python this is reached with <code>Client(..., device=&quot;metal&quot;, fallback=False)</code>{" "}
+        or <code>gpu=GpuConfig(...)</code> — never <code>gpu=True</code>.
       </p>
 
-      <h2 id="backends">Backends</h2>
+      <h2 id="backends">Backends &amp; maturity</h2>
       <p>
         Three concrete backends live under <code>src/gpu_engine/backends/</code>:
       </p>
       <ul>
         <li>
+          <strong>Metal</strong> (<code>backends/metal/</code>) — Apple Silicon, the production path.
+          Leans on unified memory (<code>has_unified_memory</code> in <code>GpuDeviceInfo</code>).
+        </li>
+        <li>
           <strong>CUDA</strong> (<code>backends/cuda/</code>) — NVIDIA path, ships{" "}
-          <code>cosine_fp32.cu</code> kernel.
+          <code>cosine_fp32.cu</code> kernel. Experimental.
         </li>
         <li>
           <strong>HIP / ROCm</strong> (<code>backends/hip/</code>) — AMD path, parallel{" "}
-          <code>cosine_fp32.hip</code> kernel.
-        </li>
-        <li>
-          <strong>Metal</strong> (<code>backends/metal/</code>) — Apple Silicon, leans on unified
-          memory (<code>has_unified_memory</code> in <code>GpuDeviceInfo</code>).
+          <code>cosine_fp32.hip</code> kernel. Experimental.
         </li>
       </ul>
+      <table>
+        <thead>
+          <tr>
+            <th>Backend</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Metal</td>
+            <td>Production</td>
+            <td>Default ON on Apple; distance + top-k kernels.</td>
+          </tr>
+          <tr>
+            <td>CUDA</td>
+            <td>Experimental</td>
+            <td>NVIDIA; opt-in.</td>
+          </tr>
+          <tr>
+            <td>HIP / ROCm</td>
+            <td>Experimental</td>
+            <td>AMD; opt-in.</td>
+          </tr>
+          <tr>
+            <td>CPU</td>
+            <td>Always</td>
+            <td>Fallback and default when GPU is not built in.</td>
+          </tr>
+        </tbody>
+      </table>
       <p>
-        Each backend implements <code>GpuPort</code>, registers its capabilities in{" "}
-        <code>GpuDeviceInfo</code> (FP16/BF16/Int8 support, CAGRA, IVF-PQ, dynamic batching,
-        half-precision search) and is selected by
-        <code>GpuSelector::rank_backend</code> together with the device list returned by{" "}
-        <code>GpuDeviceManager</code>.
+        Each backend implements <code>GpuBackend</code>, registers its capabilities in{" "}
+        <code>GpuDeviceInfo</code> (FP16 support, unified memory, batching) and is ranked by{" "}
+        <code>BackendSelector</code> against the accelerators ELIPS enumerates. From Python, that
+        list is <code>elips.accelerators()</code>:
+      </p>
+      <CodeBlock lang="python">
+        {`import elips
+
+for acc in elips.accelerators():          # list[AcceleratorSpec]
+    print(acc.name, acc.backend, acc.unified_memory, acc.supports_fp16)
+
+print(elips.has_gpu)                       # bool
+best = elips.accelerator()                 # AcceleratorSpec | None
+
+# pin a device; raise BackendUnavailableError if absent and fallback is off
+client = elips.PersistentClient("/tmp/db", dimension=384, device="metal", fallback=False)
+print(client.native.gpu_info())`}
+      </CodeBlock>
+
+      <h2 id="indexes">Distance &amp; top-k path</h2>
+      <p>
+        The GPU does one job: the exact distance computation and the top-k selection over a batch of
+        queries. There is no GPU-resident ANN structure — no CAGRA, no device-side IVF — so the
+        kernels stay small and portable across Metal, CUDA, and HIP. The exact brute-force path is
+        exposed to Python as <code>bf_knn</code>, and ANN continues to run on the CPU indexes
+        (<code>IndexHNSW</code>, <code>IndexIVFFlat</code>, …).
+      </p>
+      <CodeBlock lang="python">
+        {`import numpy as np, elips
+
+xb = np.random.rand(100000, 128).astype("float32")
+xq = np.random.rand(1000, 128).astype("float32")
+
+# exact k-NN on the Apple GPU, no index build
+D, I = elips.bf_knn(xq, xb, 10, metric="l2", device="metal")`}
+      </CodeBlock>
+      <p>
+        On the shipped Apple M4 benchmark (dim 128, nb 100000, nq 1000, k 10, L2, ELIPS 1.1.0),{" "}
+        <code>bf_knn</code> on Metal reaches recall 1.000 at 914 QPS batched — versus 24 QPS when
+        queries are issued one at a time, which is exactly what the query batcher below is for.
       </p>
 
-      <h2 id="indexes">Index family</h2>
-      <p>
-        Every GPU index is a final subclass of <code>GpuIndexPort</code>, which itself extends both{" "}
-        <code>IndexPort</code> and <code>IndexTransferPort</code>. Domain code keeps using{" "}
-        <code>IndexPort</code>.
-      </p>
-      <ul>
-        <li>
-          <code>GpuBruteForceIndex</code> — exhaustive search on device, ideal for small/medium
-          vaults and ground-truth probes.
-        </li>
-        <li>
-          <code>GpuIVFFlatIndex</code> — inverted-file with flat lists; tunable <code>n_lists</code>
-          .
-        </li>
-        <li>
-          <code>GpuIVFPQIndex</code> — inverted-file with product quantisation (<code>pq_dim</code>,{" "}
-          <code>pq_bits</code>); large-scale, memory-efficient.
-        </li>
-        <li>
-          <code>GpuGraphIndex</code> — CAGRA-style graph; build via IVF-PQ, NN-descent, or iterative
-          search.
-        </li>
-        <li>
-          <code>GpuHybridIndex</code> — composite for mixed dense / lexical paths.
-        </li>
-        <li>
-          <code>GpuDistributedIndex</code> — multi-GPU index with a <code>DistributedMode</code>{" "}
-          selector.
-        </li>
-      </ul>
-
-      <h2 id="batcher">Dynamic batcher</h2>
+      <h2 id="batcher">Query batcher</h2>
       <p>
         Concurrent single-query searches coalesce into one kernel launch.{" "}
-        <code>DynamicBatcher</code> opens a window of <code>dynamic_batch_window_us</code> µs
-        (default 500), buffers up to <code>dynamic_batch_max_size</code> queries (default 256), then
-        flushes — either when the window closes or the buffer fills.
+        <code>QueryBatcher</code> opens a window of <code>query_batch_window_us</code> µs (default
+        500), buffers up to <code>query_batch_max_size</code> queries (default 256), then flushes —
+        either when the window closes or the buffer fills.
       </p>
       <SketchCard caption="A short batching window converts many small queries into a few large kernel launches. Each query still resolves through its own std::future.">
         <DynamicBatcherDiagram />
       </SketchCard>
       <CodeBlock lang="cpp">
         {`std::future<std::vector<SearchResult>>
-DynamicBatcher::enqueue(std::span<const float> q, size_t k);
+QueryBatcher::enqueue(std::span<const float> q, size_t k);
 
 struct BatchStats {
     size_t queries_coalesced{0};
@@ -282,21 +289,6 @@ struct BatchStats {
         allocation is visible to host and GPU. See ADR-GPU-006.
       </p>
 
-      <h2 id="transfer">Index transfer</h2>
-      <p>
-        <code>GpuIndexTransferManager</code> moves built indexes between device and host:
-      </p>
-      <CodeBlock lang="cpp">
-        {`clone(source, destination);                 // CPU↔CPU or GPU↔GPU
-clone_cpu_to_gpu(cpu_src, gpu_dst);         // GpuBuild_CpuServe → upload
-clone_gpu_to_cpu(gpu_src, cpu_dst);         // export for serving on CPU`}
-      </CodeBlock>
-      <p>
-        Together with <code>IndexBuildMode::GpuBuild_CpuServe</code>, this unlocks the canonical
-        pattern: build a CAGRA graph on a beefy training box, then serve it from CPU nodes with no
-        GPU dependency. See <Link to="/docs/design-decisions">ADR-GPU-003</Link>.
-      </p>
-
       <h2 id="errors">Error model</h2>
       <CodeBlock lang="cpp">
         {`enum class GpuError {
@@ -314,15 +306,13 @@ clone_gpu_to_cpu(gpu_src, cpu_dst);         // export for serving on CPU`}
 
       <h2 id="metrics">Metrics &amp; profiling</h2>
       <p>
-        <code>gpu_stats()</code> on <code>ElipsInstance</code> returns a{" "}
+        <code>client.native.gpu_info()</code> (on the native <code>Database</code> handle) returns a{" "}
         <code>GpuMetricsSnapshot</code>:
       </p>
       <CodeBlock lang="cpp">
         {`struct GpuMetricsSnapshot {
     std::string backend, device_name;
     size_t device_memory_used_bytes, device_memory_total_bytes;
-    size_t index_build_count, index_build_time_total_ms;
-    float  index_build_speedup_vs_cpu_avg;
     size_t search_kernel_launches_total;
     size_t search_p50_latency_us, search_p99_latency_us;
     float  batch_avg_size, batch_coalescing_ratio;

@@ -76,8 +76,8 @@ Each WAL record has the form:
 | Field | Size | Encoding |
 |-------|------|----------|
 | Magic | 4 bytes | `0xE1105E01` (uint32) |
-| Op code | 1 byte | `1` = insert, `3` = erase |
-| Vault name | var | uint32 length + UTF-8 bytes |
+| Op code | 1 byte | `1` = insert, `3` = erase (plus `4` = insert_ex, `7` = quantized insert) |
+| Collection name | var | uint32 length + UTF-8 bytes |
 | Record ID | 16 bytes | Raw UUIDv7 bytes |
 | **If insert:** | | |
 | Dimension | 2 bytes | uint16 |
@@ -89,10 +89,15 @@ Each WAL record has the form:
 ### Op Enum
 
 ```cpp
-enum class Op : std::uint8_t { insert = 1, erase = 3 };
+enum class Op : std::uint8_t {
+    insert = 1, erase = 3, insert_ex = 4, insert_q = 7
+};
 ```
 
-The values skip 2 intentionally — this is a common defensive pattern so that
+The op codes are a **persisted on-disk format** and are deliberately not renamed
+by the Phase-5 vocabulary rename (`insert`/`erase` here are the storage op
+semantics, distinct from the public `add`/`remove` verbs). The values skip
+2/5/6 intentionally — this is a common defensive pattern so that
 accidental zero bytes (from uninitialised memory or disk corruption) are
 unlikely to match a valid op code.
 
@@ -140,16 +145,16 @@ void WAL::append(const Entry& entry) {
 }
 ```
 
-The write-before-memory-mutation invariant is enforced at the Vault level:
+The write-before-memory-mutation invariant is enforced at the collection level:
 
 ```cpp
-RecordID Vault::place(const Vector& vector, Payload payload,
-                      std::optional<RecordID> id) {
+RecordID Collection::add(const Vector& vector, Payload payload,
+                         std::optional<RecordID> id) {
     Vector prepared = prepare(vector);
     const RecordID record_id = id.value_or(RecordID::generate());
     if (wal_ != nullptr)  // WAL FIRST
         wal_->append_insert(name_, record_id, prepared.values(), payload);
-    index_->insert(record_id, prepared.values());   // then memory
+    index_->add_with_ids(record_id, prepared.values());   // then memory
     records_[record_id] = Record{record_id, std::move(prepared), std::move(payload)};
     return record_id;
 }
@@ -183,7 +188,7 @@ any writes that occurred after the last checkpoint. The replay process:
 2. **Frame-by-frame validation:**
    - Read 4-byte magic. If not `0xE1105E01`, stop immediately (corrupt or
      truncated tail).
-   - Parse op, vault name, record ID, and optionally vector + payload via
+   - Parse op, collection name, record ID, and optionally vector + payload via
      a temporary `std::istringstream`.
    - If the stream fails mid-parse, stop (truncated record).
    - Verify CRC32C. If mismatch, stop (corruption detected).
@@ -192,7 +197,7 @@ any writes that occurred after the last checkpoint. The replay process:
    handles the common crash-during-append scenario where the last record may
    be partially written.
 4. **Returns** a vector of `Entry` structs, which the caller applies to
-   vaults in order.
+   collections in order.
 
 The replay loop:
 
@@ -303,10 +308,10 @@ std::visit(
 | 4 | 4 B | Version `1` |
 | 8 | 2 B | Dimension |
 | 10 | 1 B | Metric |
-| 11 | 4 B | Vault count (N) |
-| 15 | var | Vault 0…N-1 |
+| 11 | 4 B | Collection count (N) |
+| 15 | var | Collection 0…N-1 |
 
-Each vault:
+Each collection:
 ```
 [uint32 name_len][name bytes][uint32 record_count][record × N]
 ```
@@ -321,7 +326,7 @@ Each record:
 Checkpoints use a **write-to-temp, rename-over-live** pattern:
 
 ```cpp
-void ElipsInstance::checkpoint() {
+void Database::checkpoint() {
     const fs::path tmp = path_ / (std::string(snapshot_file) + ".tmp");
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
@@ -339,7 +344,7 @@ contents are now captured in the snapshot.
 
 ### Snapshot Full-Rewrite
 
-Every checkpoint rewrites the **entire** database state — all vaults, all
+Every checkpoint rewrites the **entire** database state — all collections, all
 records. This is O(total records × dimension) and produces a self-contained
 snapshot. The WAL is then reset to zero. This full-rewrite model is chosen
 for its simplicity and self-contained snapshot format; incremental snapshots
@@ -407,7 +412,7 @@ LockManager::LockManager(const std::string& lock_path) {
   returns immediately with an error rather than blocking. ELIPS throws
   `LockConflict` rather than waiting.
 - **RAII:** The destructor calls `flock(LOCK_UN)` and `close(fd_)`. The lock
-  is released when the `ElipsInstance` is destroyed or `close()` is called.
+  is released when the `Database` is destroyed or `close()` is called.
 - **Move semantics:** The fd is transferred via `std::exchange` on move
   construction. Copy is deleted (unique ownership).
 
@@ -430,18 +435,18 @@ The complete database open sequence (`src/Database.cpp:354–418`):
    from it, validate against caller's config. If not, create IDENTITY from
    the caller's config (new database).
 
-3. **`ElipsInstance` construction:** Creates the instance handle with the
+3. **`Database` construction:** Creates the instance handle with the
    resolved config, persistent flag, and lock.
 
 4. **Snapshot load:** If `elips.snapshot` exists, parse it and populate all
-   vaults. Vectors are inserted through the normal `Vault::place()` path
+   collections. Vectors are added through the normal `Collection::add()` path
    (which writes through the index), but the WAL is not attached yet
    (WAL writes during snapshot load are skipped).
 
 5. **WAL replay:** Attach a temporary WAL reader (not the live appender),
    replay all valid records on top of the snapshot state. Each replayed
-   entry is applied through `Vault::place()` (for inserts) or
-   `Vault::erase()` (for erases), again without live WAL appends.
+   entry is applied through `Collection::add()` (for inserts) or
+   `Collection::remove()` (for erases), again without live WAL appends.
 
 6. **Live WAL attach:** Create a `WAL` in append mode at `wal.log`. The
    `sync_each_write` flag is `false` for `relaxed` durability, `true`

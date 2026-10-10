@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/python/utilities")({
       {
         name: "description",
         content:
-          "Complete reference for ELIPS Python vector utilities: cosine similarity, L2 distance, normalization, numpy interoperability, and batch embedder helpers.",
+          "Complete reference for ELIPS Python top-level utilities: distance, magnitude, normalize, generate_id, is_valid_id, NumPy interoperability, and batch embedder helpers.",
       },
     ],
   }),
@@ -23,65 +23,126 @@ function Page() {
       title="Utilities & Vector Helpers"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "vector-math", label: "Vector Distance & Math" },
-        { id: "normalization", label: "Vector Normalization" },
+        { id: "vector-math", label: "Distance & Magnitude" },
+        { id: "normalization", label: "Normalization" },
+        { id: "ids", label: "Record IDs" },
         { id: "numpy-interop", label: "NumPy Interoperability" },
         { id: "batch-helpers", label: "Batch Embedder Helpers" },
-        { id: "code-examples", label: "Code Examples" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS exports optimized C++ vector math functions and NumPy interoperability helpers in <code>elips.utils</code>.
+        ELIPS exports a small set of vector-math and id helpers at the top level
+        of the <code>elips</code> namespace. They operate on plain Python
+        sequences or NumPy arrays and share the same C++ math core the engine
+        uses internally.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        The <code>elips.utils</code> module provides pure vector operations, metric distance calculators, and zero-copy conversion routines to bridge Python numerical computing libraries (like NumPy and PyTorch) with the ELIPS C++ core.
+        The helpers below are available directly as{" "}
+        <code>elips.distance</code>, <code>elips.magnitude</code>,{" "}
+        <code>elips.normalize</code>, <code>elips.generate_id</code>, and{" "}
+        <code>elips.is_valid_id</code>. They let you compute metric-consistent
+        distances, prepare vectors, and mint record ids without opening a
+        database.
       </p>
 
-      <h2 id="vector-math">Vector Distance & Math</h2>
-      <CodeBlock lang="python">{`import elips.utils as utils
+      <h2 id="vector-math">Distance &amp; Magnitude</h2>
+      <CodeBlock lang="python">{`import elips
 
 vec_a = [0.1, 0.5, 0.9, 0.4]
 vec_b = [0.2, 0.4, 0.8, 0.5]
 
-# Distance and similarity calculators
-cos_sim = utils.cosine_similarity(vec_a, vec_b)
-l2_dist = utils.l2_distance(vec_a, vec_b)
-dot_prod = utils.dot_product(vec_a, vec_b)
+# Ordering-normalized distance for a given metric
+# metric ∈ {"cosine", "euclidean", "dot_product"}
+d_cos = elips.distance("cosine", vec_a, vec_b)
+d_l2  = elips.distance("euclidean", vec_a, vec_b)
+d_dot = elips.distance("dot_product", vec_a, vec_b)
 
-print(f"Cosine Similarity: {cos_sim:.4f}")
-print(f"L2 Distance:        {l2_dist:.4f}")
-print(f"Dot Product:        {dot_prod:.4f}")`}</CodeBlock>
+print(f"cosine distance:    {d_cos:.4f}")
+print(f"euclidean distance: {d_l2:.4f}")
+print(f"dot distance:       {d_dot:.4f}")
 
-      <h2 id="normalization">Vector Normalization</h2>
+# Euclidean L2 norm of a single vector
+print(elips.magnitude([3.0, 4.0]))  # 5.0`}</CodeBlock>
       <p>
-        Normalizes a floating point vector to unit length ($L_2$ norm = 1.0):
+        <code>distance(metric, a, b)</code> returns the same ordering-normalized
+        value the engine ranks on, so a smaller number always means "closer"
+        regardless of metric. This is the value exposed as{" "}
+        <code>Hit.distance</code> on search results.
       </p>
-      <CodeBlock lang="python">{`norm_vec = utils.normalize([3.0, 4.0])
-print(norm_vec)  # [0.6, 0.8]`}</CodeBlock>
+
+      <h2 id="normalization">Normalization</h2>
+      <p>
+        <code>normalize(vector)</code> L2-normalizes a vector to unit length and
+        returns a <code>tuple[float, ...]</code>. Zero vectors are returned
+        unchanged (no division by zero).
+      </p>
+      <CodeBlock lang="python">{`norm_vec = elips.normalize([3.0, 4.0])
+print(norm_vec)  # (0.6, 0.8)
+
+print(elips.normalize([0.0, 0.0]))  # (0.0, 0.0) — unchanged`}</CodeBlock>
+
+      <h2 id="ids">Record IDs</h2>
+      <p>
+        ELIPS record ids are UUIDv7 hex strings. Generate one ahead of a write
+        when the caller must know the id before the record exists (e.g. to
+        publish it to an event queue), or validate an externally supplied id.
+      </p>
+      <ul>
+        <li>
+          <code>generate_id() -&gt; str</code> — a fresh UUIDv7 hex string.
+        </li>
+        <li>
+          <code>is_valid_id(id: str) -&gt; bool</code> — validates the id format.
+        </li>
+      </ul>
+      <CodeBlock lang="python">{`rid = elips.generate_id()
+print(rid)                      # e.g. "018f...e7a1"
+print(elips.is_valid_id(rid))   # True
+print(elips.is_valid_id("nope"))  # False
+
+# Use a caller-assigned id at write time
+with elips.Client(dimension=2) as client:
+    docs = client.get_or_create_collection("docs")
+    docs.add(vector=[1.0, 0.0], id=rid)`}</CodeBlock>
 
       <h2 id="numpy-interop">NumPy Interoperability</h2>
       <p>
-        Convert seamlessly between Python lists, NumPy 2D matrices, and ELIPS vectors:
+        All vector arguments accept Python lists or NumPy arrays
+        interchangeably. Collection methods take 1-D arrays for single records
+        and 2-D arrays for column-form batches; returned vectors are plain
+        tuples you can wrap back into NumPy.
       </p>
       <CodeBlock lang="python">{`import numpy as np
-import elips.utils as utils
+import elips
 
-# Convert 2D NumPy array of shape (1000, 1536) to list of floats
+# A batch of 1000 x 1536 float32 embeddings
 matrix = np.random.randn(1000, 1536).astype(np.float32)
 
-# Convert single row to ELIPS vector
-vec = utils.from_numpy(matrix[0])
+with elips.Client(dimension=1536) as client:
+    docs = client.get_or_create_collection("docs")
 
-# Convert ELIPS search result vectors back to NumPy array
-matrix_back = utils.to_numpy([hit.record.vector for hit in hits])`}</CodeBlock>
+    # Column form accepts a 2-D NumPy array directly
+    ids = docs.add(embeddings=matrix)
+
+    # A single NumPy row works as a query vector
+    hits = docs.query(query_embeddings=matrix[0], n_results=5)
+
+    # Returned vectors are tuples — wrap them back into NumPy
+    rows = docs.get(ids[:3], include=["embeddings"])
+    back = np.array([row.vector for row in rows], dtype=np.float32)
+    print(back.shape)  # (3, 1536)`}</CodeBlock>
 
       <h2 id="batch-helpers">Batch Embedder Helpers</h2>
+      <p>
+        An embedder is any callable taking a batch of strings and returning one
+        vector per string. The snippet below wraps a single-text model into an
+        efficient batched callable you can pass as{" "}
+        <code>embedder=</code> when opening a client or creating a collection.
+      </p>
       <CodeBlock lang="python">{`def create_batch_embedder(model_func, batch_size=64):
-    """
-    Wraps a single-text embedder function into an efficient batched embedder.
-    """
+    """Wrap a single-batch embedder into a chunked batched embedder."""
     def embed_batch(texts: list[str]) -> list[list[float]]:
         results = []
         for i in range(0, len(texts), batch_size):

@@ -1,5 +1,15 @@
 # Design Principles
 
+> **Name update.** The code examples below use pre-rename class names to
+> illustrate C++ Core Guidelines principles; the principles are unchanged, only
+> the names drifted. Current names: `Database` (was `ElipsInstance`),
+> `Collection` (was `Vault`), `Index`/`IndexFlat`/`IndexHNSW` (was
+> `IndexPort`/`ExactIndex`/`HierarchicalGraphIndex`), `index_factory` (was
+> `IndexFactory`/`make_index`), `GpuBackend` (was `GpuPort`), and verbs
+> `add`/`search`/`get` (was `place`/`seek`/`fetch`). The DI-seam example
+> (`Collection` depends on the abstract `Index`, domain code depends on
+> `GpuBackend`) still holds exactly as drawn.
+
 ELIPS is built from first principles in C++23 following the
 [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
 and modern software engineering practices. Every design choice is intentional,
@@ -446,7 +456,7 @@ std::runtime_error
 
 1. **Purpose-designed exception types (E.14).** Each error category has its own
    type, making `catch` blocks precise:
-   ```python
+   ```python no-exec
    try:
        docs.place(invalid_vector)
    except elips.DimensionMismatch:

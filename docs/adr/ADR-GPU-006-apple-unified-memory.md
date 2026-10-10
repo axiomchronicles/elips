@@ -1,28 +1,39 @@
 # ADR-GPU-006: Unified Memory on Apple Silicon
 
-**Status:** Accepted
+**Status:** Accepted (validated on Apple M4, 2026-10-11)
 **Date:** 2026-05-31
 **Deciders:** ELIPS Engineering
 
 ## Context
 
-Apple M-series chips use a unified memory architecture where CPU and GPU share physical memory. Traditional PCIe-based GPUs require explicit `cudaMemcpy`/`upload`/`download` calls. On Apple Silicon, these copies are unnecessary — the GPU can read directly from CPU-allocated buffers.
+Apple M-series chips use a unified memory architecture where CPU and GPU share
+physical memory. PCIe GPUs require explicit `cudaMemcpy`/upload/download. On
+Apple Silicon those copies are unnecessary — the GPU reads CPU-allocated buffers
+directly.
 
 ## Decision
 
-Use `MTLResourceStorageModeShared` for all Metal buffers on Apple Silicon. Provide a `UnifiedBuffer` abstraction that wraps a single allocation accessible from both CPU and GPU, eliminating copy overhead.
+Use `MTLResourceStorageModeShared` for all Metal buffers on Apple Silicon.
+Treat upload/download as a `memcpy` over `[buffer contents]`, eliminating copy
+overhead and staging buffers.
 
-Detection: `device.hasUnifiedMemory` property on `MTLDevice`. Auto-enabled for all Apple Silicon Macs.
+Detection: `device.hasUnifiedMemory`. Auto-enabled on Apple Silicon.
 
-## Rationale
+## Reality Update (2026-10-11)
 
-- Zero-copy eliminates PCIe transfer latency (typically 5-10 μs per transfer)
-- Reduces memory footprint (one buffer instead of host + device copies)
-- Simplifies code — no upload/download needed for unified buffers
-- Graceful fallback: non-unified GPUs (AMD discrete on Mac Pro) use standard `MTLBlitCommandEncoder` copies
+- This is **implemented and validated** on Apple M4. `MetalBackend` allocates
+  every buffer `MTLResourceStorageModeShared` (`MetalBackend.mm`), so distance,
+  top-k, and IVF-scan kernels read host-written data with no blit.
+- `GpuConfig::use_unified_memory` defaults to **false** and is auto-promoted when
+  the device reports `hasUnifiedMemory`; `GpuDeviceInfo::has_unified_memory`
+  exposes it for observability.
+- This zero-copy transfer is the single biggest simplification Metal buys over
+  CUDA, and is why ELIPS's Metal cloner/transfer paths are pointer reads rather
+  than DMA.
 
 ## Consequences
 
-- `MetalBackend::upload()` and `download()` use `std::memcpy` on unified memory
-- `GpuConfig::use_unified_memory` defaults to `true` on Apple Silicon
-- `hasUnifiedMemory` flag in `GpuDeviceInfo` for observability
+- `MetalBackend` upload/download use `std::memcpy` on unified memory.
+- Larger-than-"VRAM" indexes are practical on Apple Silicon (one shared pool).
+- Non-unified GPUs would fall back to standard blit copies (not exercised on the
+  validated path).

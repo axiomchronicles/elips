@@ -17,9 +17,9 @@ on reopen.
 - **Explicit external embedders:** Python callables and custom C++ embedders
   still work, but persistent reopen requires the caller to supply the same
   embedder again because ELIPS only stores metadata for them.
-- **Vector-first compatibility:** `place()` remains unchanged and can still
-  attach documents manually. Text-first search is only meaningful when the
-  stored vectors and the configured text embedder are the same model.
+- **Vector-first compatibility:** `add()` (formerly `place()`) remains unchanged
+  and can still attach documents manually. Text-first search is only meaningful
+  when the stored vectors and the configured text embedder are the same model.
 
 ## Python And C++ Usage
 
@@ -29,9 +29,9 @@ Python default local workflow:
 import elips
 
 db = elips.open("/tmp/elips-local", dimension=128, metric="cosine")
-docs = db.vault("documents")
-docs.place_document("alpha design note", {"kind": "design"})
-print(docs.seek_text("alpha", top=1)[0].document.text)
+docs = db.collection("documents")
+docs.add_document("alpha design note", {"kind": "design"})
+print(docs.search_text("alpha", top=1)[0].document.text)
 ```
 
 Python explicit local workflow:
@@ -85,11 +85,11 @@ flowchart LR
     D --> H[metadata-only identity]
     E --> I[local artifact load on first text call]
 
-    D --> J[place_document / seek_text]
+    D --> J[add_document / search_text]
     I --> J
 
     J --> K[Embedding vector]
-    K --> L[Vault record store + ANN index]
+    K --> L[Collection record store + ANN index]
     J --> M[EmbeddingLineage]
 ```
 
@@ -98,8 +98,8 @@ flowchart LR
 - Built-in local embedders are restored automatically from
   `TEXT_EMBEDDER.manifest` and the referenced artifact.
 - Python callables and custom `TextEmbedderPort` implementations persist
-  metadata only. Reopen with the same embedder if you want `place_document()`
-  and `seek_text()` to work again.
+  metadata only. Reopen with the same embedder if you want `add_document()`
+  and `search_text()` to work again.
 - Disabling automatic text embedding is explicit: use
   `Config.auto_text_embedder(false)` in C++ or
   `use_default_text_embedder=False` / `Config.auto_text_embedder(False)` in
@@ -109,8 +109,8 @@ flowchart LR
 
 - ELIPS attaches the default embedder at database open, then persists that
   identity in `TEXT_EMBEDDER.manifest`.
-- ELIPS keeps vector-first APIs first-class: `place()` and `seek()` never
-  depend on text embedding.
+- ELIPS keeps vector-first APIs first-class: `add()` and `search()` (formerly
+  `place()` / `seek()`) never depend on text embedding.
 - ELIPS does not silently fall back to lexical-only text search when no text
   embedder is available. Text-first APIs fail with an actionable `ConfigError`
   so the embedding model remains explicit.
@@ -118,7 +118,7 @@ flowchart LR
 ## Failure Modes
 
 - If a database expects an external non-rehydratable embedder and one is not
-  supplied on reopen, `place_document()` and `seek_text()` raise `ConfigError`
+  supplied on reopen, `add_document()` and `search_text()` raise `ConfigError`
   that explains how to reopen with the matching embedder.
 - If the local artifact referenced by `TEXT_EMBEDDER.manifest` is missing,
   reopen raises `StorageError`.

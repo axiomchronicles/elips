@@ -26,7 +26,7 @@ struct Token {
 
 | Kind | Lexed by | Examples |
 |------|----------|----------|
-| `word` | `[a-zA-Z_][a-zA-Z0-9_]*` | `seek`, `in`, `top`, `vault_name` |
+| `word` | `[a-zA-Z_][a-zA-Z0-9_]*` | `search`, `in`, `k`, `collection_name` |
 | `number` | Optional `-`, digits, optional `.digits` | `10`, `-3`, `0.5`, `-0.75` |
 | `string` | `"` ... `"` | `"hello"`, `"abc123"` |
 | `punct` | Single or two-char comparator | `[`, `]`, `{`, `}`, `,`, `$`, `=`, `!=`, `<`, `<=`, `>`, `>=` |
@@ -98,17 +98,19 @@ and calls `parse_statement()`. On any syntax error, `ParseError` is thrown.
 ```cpp
 Statement Parser::parse_statement() {
     const std::string& kw = peek().text;
-    if (is_word("seek"))  return parse_search();
-    if (is_word("fetch")) return parse_fetch();
+    if (is_word("search") || is_word("seek")) return parse_search();
+    if (is_word("get")    || is_word("fetch")) return parse_get();
     if (is_word("scan"))  return parse_scan();
-    if (is_word("place")) return parse_insert();
-    if (is_word("erase")) return parse_delete();
+    if (is_word("add")    || is_word("place")) return parse_add();
+    if (is_word("delete") || is_word("erase")) return parse_delete();
     throw ParseError{"EQL: expected a statement keyword, got '" + kw + "'"};
 }
 ```
 
-The first word determines the statement type. There is no look-ahead beyond one
-token.
+The first word determines the statement type. The current verbs are `search`,
+`get`, `scan`, `add`, `delete`; the pre-Phase-5 verbs (`seek`/`fetch`/`place`/
+`erase`) are still accepted as aliases (see `MIGRATION.md`). There is no
+look-ahead beyond one token.
 
 ### Filter Parsing (Recursive-Descent Expressions)
 
@@ -221,40 +223,44 @@ std::vector<std::string> parse_projection() {
 }
 ```
 
-Projections appear after the `project` keyword in SEEK statements. `*` means
+Projections appear after the `project` keyword in SEARCH statements. `*` means
 return all payload fields. A comma-separated list selects specific fields.
 
 ### Statement-Specific Parsers
 
-**SEEK:**
+**SEARCH:**
 ```
-seek in <vault> nearest <vector_ref>
-  [top <int>] [threshold <float>] [where <filter>]
+search in <collection> nearest <vector_ref>
+  [k <int>] [threshold <float>] [where <filter>]
   [rank_by <field>] [project <fields>]
   yield
 ```
-`yield` is the required statement terminator.
+`k` (alias `top`) sets the result count; `yield` is the required statement
+terminator.
 
-**FETCH:**
+**GET:**
 ```
-fetch from <vault> id <string> yield
+get from <collection> id <string> yield
 ```
 
 **SCAN:**
 ```
-scan in <vault> [where <filter>] [offset <int>] [limit <int>] yield
+scan in <collection> [where <filter>] [offset <int>] [limit <int>] yield
 ```
 
-**PLACE:**
+**ADD:**
 ```
-place in <vault> vector <vector_literal> [data <json_object>]
+add in <collection> vector <vector_literal> [metadata <json_object>]
 ```
-`yield` is optional for PLACE.
+`metadata` (alias `data`) carries the payload; `yield` is optional for ADD.
 
-**ERASE:**
+**DELETE:**
 ```
-erase from <vault> id <string>
+delete from <collection> id <string>
 ```
+
+Each verb also accepts its pre-Phase-5 alias (`seek`/`fetch`/`place`/`erase`,
+and `data` for `metadata`).
 
 ---
 
@@ -263,8 +269,12 @@ erase from <vault> id <string>
 **Header:** `include/elips/query_engine/AST.hpp`
 
 ```cpp
-using Statement = std::variant<SearchStatement, FetchStatement, ScanStatement,
-                               InsertStatement, DeleteStatement>;
+using Statement = std::variant<SearchStatement, GetStatement, ScanStatement,
+                               AddStatement, DeleteStatement>;
+
+// Deprecated pre-Phase-5 aliases (one minor version):
+using FetchStatement  [[deprecated("renamed to GetStatement")]] = GetStatement;
+using InsertStatement [[deprecated("renamed to AddStatement")]] = AddStatement;
 ```
 
 ### `VectorRef` — Query Vector Representation
@@ -282,9 +292,9 @@ Exactly one of `literal` (non-empty) or `binding` (non-empty) is set.
 
 ```cpp
 struct SearchStatement {
-    std::string vault;
+    std::string collection;
     VectorRef query;
-    std::optional<int> top;                  // default: 10 (or unbounded for threshold)
+    std::optional<int> top;                  // k; default 10 (or unbounded for threshold)
     std::optional<double> threshold;         // range query distance cutoff
     Filter where;                            // payload filter; matches_all if absent
     std::optional<std::string> rank_by;      // sort by a payload field; nullopt = by distance
@@ -292,11 +302,11 @@ struct SearchStatement {
 };
 ```
 
-### `FetchStatement`
+### `GetStatement`
 
 ```cpp
-struct FetchStatement {
-    std::string vault;
+struct GetStatement {
+    std::string collection;
     std::string id;
 };
 ```
@@ -305,18 +315,18 @@ struct FetchStatement {
 
 ```cpp
 struct ScanStatement {
-    std::string vault;
+    std::string collection;
     Filter where;
     std::optional<int> offset;
     std::optional<int> limit;
 };
 ```
 
-### `InsertStatement`
+### `AddStatement`
 
 ```cpp
-struct InsertStatement {
-    std::string vault;
+struct AddStatement {
+    std::string collection;
     std::vector<float> vector;
     Payload data;
 };
@@ -326,7 +336,7 @@ struct InsertStatement {
 
 ```cpp
 struct DeleteStatement {
-    std::string vault;
+    std::string collection;
     std::string id;
 };
 ```
@@ -345,7 +355,7 @@ builder and EQL parser.
 ### Execution Entry
 
 ```cpp
-std::vector<SearchResult> execute(const Statement& statement, ElipsInstance& db,
+std::vector<SearchResult> execute(const Statement& statement, Database& db,
                                   const std::map<std::string, Vector>& bindings) {
     return std::visit(Executor{db, bindings}, statement);
 }
@@ -369,20 +379,20 @@ Vector resolve_query(const VectorRef& ref,
 }
 ```
 
-When a SEEK statement uses `$variable` syntax, the executor looks up the
+When a SEARCH statement uses `$variable` syntax, the executor looks up the
 binding in the provided map. Missing bindings throw `NotFound`.
 
-### Statement Dispatch to Vault
+### Statement Dispatch to Collection
 
-| Statement | Vault method called | Notes |
+| Statement | Collection method called | Notes |
 |-----------|-------------------|-------|
-| `SearchStatement` | `vault.seek(query, top, filter, threshold)` | Resolves vector, computes top from `top` or default 10 (or unbounded for threshold queries). Applies optional `rank_by` re-sort and `project` field filtering post-hoc. |
-| `FetchStatement` | `vault.fetch(RecordID::from_string(id))` | Looks up by string ID, wraps in SearchResult |
-| `ScanStatement` | `vault.scan(filter, offset, limit)` | Iterates ordered record map. Offset/limit control pagination. |
-| `InsertStatement` | `vault.place(Vector{vector}, data)` | Returns single SearchResult with the new RecordID |
-| `DeleteStatement` | `vault.erase(RecordID::from_string(id))` | Returns empty vector |
+| `SearchStatement` | `collection.search(query, top, filter, threshold)` | Resolves vector, computes `top` from `k`/`top` or default 10 (or unbounded for threshold queries). Applies optional `rank_by` re-sort and `project` field filtering post-hoc. |
+| `GetStatement` | `collection.get(RecordID::from_string(id))` | Looks up by string ID, wraps in SearchResult |
+| `ScanStatement` | `collection.scan(filter, offset, limit)` | Iterates ordered record map. Offset/limit control pagination. |
+| `AddStatement` | `collection.add(Vector{vector}, data)` | Returns single SearchResult with the new RecordID |
+| `DeleteStatement` | `collection.remove(RecordID::from_string(id))` | Returns empty vector |
 
-### SEEK Statement Execution Details
+### SEARCH Statement Execution Details
 
 ```cpp
 std::vector<SearchResult> operator()(const SearchStatement& s) const {
@@ -392,7 +402,7 @@ std::vector<SearchResult> operator()(const SearchStatement& s) const {
     const std::size_t top =
         s.top ? static_cast<std::size_t>(*s.top)
               : (s.threshold ? unbounded_top : static_cast<std::size_t>(default_top));
-    auto results = db.vault(s.vault).seek(query, top, s.where, threshold);
+    auto results = db.collection(s.collection).search(query, top, s.where, threshold);
     if (s.rank_by) {
         // re-sort by a payload field using meta_less()
     }
@@ -401,11 +411,11 @@ std::vector<SearchResult> operator()(const SearchStatement& s) const {
 }
 ```
 
-**Default top:** 10 results when no `top` or `threshold` is specified.
+**Default top:** 10 results when no `k`/`top` or `threshold` is specified.
 
 **Threshold queries:** When `threshold` is set but `top` is not, `top` is
 set to `unbounded_top` (= 100,000) to get all candidates below the threshold.
-The Vault's `seek()` method then filters by the threshold value.
+The collection's `search()` method then filters by the threshold value.
 
 **Ranking by payload field:** When `rank_by` is specified (and not `"distance"`),
 results are re-sorted by the named payload field using `meta_less()`, which
@@ -416,12 +426,12 @@ comparison or variant-index ordering for non-comparable types.
 only the requested fields. If `project *` was used, the projection list is
 empty and all fields are retained.
 
-### Execution as Part of ElipsInstance
+### Execution as Part of Database
 
-The `ElipsInstance::query()` method combines parse + execute:
+The `Database::query()` method combines parse + execute:
 
 ```cpp
-std::vector<SearchResult> ElipsInstance::query(
+std::vector<SearchResult> Database::query(
     const std::string& eql, const std::map<std::string, Vector>& bindings) {
     return eql::execute(eql::parse(eql), *this, bindings);
 }

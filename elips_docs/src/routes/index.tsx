@@ -81,15 +81,15 @@ function Home() {
           <CodeBlock lang="python" filename="quickstart.py">
             {`import elips
 
-engine = elips.connect(":memory:", dimension=128)
-arena = engine.arena("documents")
+client = elips.Client(dimension=128)
+docs = client.get_or_create_collection("documents")
 
-arena.ingest(
-    texts=["alpha design note", "beta incident runbook"],
-    meta=[{"kind": "design"}, {"kind": "ops"}],
+docs.add(
+    documents=["alpha design note", "beta incident runbook"],
+    metadatas=[{"kind": "design"}, {"kind": "ops"}],
 )
 
-for hit in arena.probe_text("alpha", top=2):
+for hit in docs.query(query_texts="alpha", n_results=2):
     print(hit.key, hit.distance, hit.text, hit.meta)`}
           </CodeBlock>
         </div>
@@ -138,7 +138,7 @@ for hit in arena.probe_text("alpha", top=2):
                   fontSize="26"
                   fill="var(--color-ink)"
                 >
-                  Vault
+                  Collection
                 </text>
                 <text
                   x="180"
@@ -169,7 +169,7 @@ for hit in arena.probe_text("alpha", top=2):
                   fontSize="17"
                   fill="var(--color-ink)"
                 >
-                  IndexPort
+                  Index
                 </text>
                 <text
                   x="282"
@@ -189,7 +189,7 @@ for hit in arena.probe_text("alpha", top=2):
                   fontSize="17"
                   fill="var(--color-ink)"
                 >
-                  GpuPort
+                  GpuBackend
                 </text>
                 <text
                   x="282"
@@ -252,7 +252,7 @@ for hit in arena.probe_text("alpha", top=2):
                   stroke="none"
                   opacity=".7"
                 >
-                  place / erase
+                  add / delete
                 </text>
                 <path d="M 105 65 C 130 65, 130 65, 145 65" markerEnd="url(#arrow1)" />
                 <rect x="150" y="40" width="80" height="50" rx="8" />
@@ -450,8 +450,8 @@ for hit in arena.probe_text("alpha", top=2):
         <div className="mt-10 grid md:grid-cols-5 gap-3">
           {[
             { p: "pill-thinking", l: "Plan", d: "Resolve filters, choose strategy." },
-            { p: "pill-grep", l: "Filter", d: "Narrow via MetadataIndex equality sets." },
-            { p: "pill-read", l: "Probe", d: "ANN, exact, or hybrid fusion." },
+            { p: "pill-grep", l: "Filter", d: "Narrow via the metadata filter index equality sets." },
+            { p: "pill-read", l: "Search", d: "ANN, exact, or hybrid fusion." },
             { p: "pill-edit", l: "Rank", d: "Re-sort by distance or metadata." },
             { p: "pill-done", l: "Yield", d: "Project requested fields and return." },
           ].map((s) => (
@@ -484,12 +484,12 @@ for hit in arena.probe_text("alpha", top=2):
                 d: "Every record may carry text, chunk coordinates, and embedding lineage — restored across restarts.",
               },
               {
-                t: "ANN and exact, behind one port",
-                d: "HNSW and an exact index plug into the same IndexPort. GPU indexes follow the same contract.",
+                t: "ANN and exact, one Index contract",
+                d: "HNSW, flat, and IVF plug into the same FAISS-style Index (IndexFlat/IndexIVFFlat/IndexHNSW). GPU paths follow the same contract.",
               },
               {
                 t: "Hybrid retrieval",
-                d: "seek_text, seek_hybrid, and EQL share one planner. Lexical overlap fuses with vector distance.",
+                d: "Text, vector, and hybrid query() plus EQL share one planner. Lexical overlap fuses with vector distance.",
               },
               {
                 t: "Crash-safe WAL",
@@ -497,7 +497,7 @@ for hit in arena.probe_text("alpha", top=2):
               },
               {
                 t: "Inspectable planner",
-                d: "explain_seek returns the strategy, candidate set, and acceleration flags used by the query.",
+                d: "explain() returns the strategy, candidate set, and acceleration flags used by the query.",
               },
             ].map((f) => (
               <div key={f.t}>
@@ -522,11 +522,11 @@ for hit in arena.probe_text("alpha", top=2):
               <CodeBlock lang="python" filename="python_sdk.py">
                 {`import elips
 
-db = elips.open("/tmp/elips", dimension=128, metric="cosine")
-docs = db.vault("documents")
-docs.place_document("alpha design note", {"kind": "design"})
-hit = docs.seek_text("alpha", top=1)[0]
-print(hit.document.text, hit.distance)`}
+client = elips.PersistentClient("/tmp/elips", dimension=128, metric="cosine")
+docs = client.get_or_create_collection("documents")
+docs.add(documents=["alpha design note"], metadatas=[{"kind": "design"}])
+hit = docs.query(query_texts="alpha", n_results=1)[0]
+print(hit.text, hit.distance)`}
               </CodeBlock>
             </div>
             <div>
@@ -538,11 +538,11 @@ auto db = elips::open(
     ":memory:",
     elips::Config{}.dimension(128).metric(elips::Metric::cosine));
 
-auto& docs = db->vault("documents");
-docs.place_document("alpha design note",
-                    {{"kind", std::string{"design"}}});
+auto& docs = db->collection("documents");
+docs.add_document("alpha design note",
+                  {{"kind", std::string{"design"}}});
 
-auto hits = docs.seek_text("alpha", 1);`}
+auto hits = docs.search_text("alpha", 1);`}
               </CodeBlock>
             </div>
           </div>
@@ -602,11 +602,11 @@ auto hits = docs.seek_text("alpha", 1);`}
               {[
                 {
                   t: "Episodic memory",
-                  d: "Every turn is embedded and placed back into a vault for the next session.",
+                  d: "Every turn is embedded and added back into a collection for the next session.",
                 },
                 {
                   t: "Semantic memory",
-                  d: "Entity cards and stable facts live in their own vault and survive restarts.",
+                  d: "Entity cards and stable facts live in their own collection and survive restarts.",
                 },
                 {
                   t: "Document corpus",
@@ -635,9 +635,9 @@ auto hits = docs.seek_text("alpha", 1);`}
           ELIPS.
         </h2>
         <p className="handwritten-lede mt-5 text-body max-w-[760px]">
-          Five layers, no sidecars. The agent runtime calls one client; the client talks to vaults;
-          vaults route through the planner and the ports; everything terminates in a WAL frame and a
-          segment on disk.
+          Five layers, no sidecars. The agent runtime calls one client; the client talks to
+          collections; collections route through the planner and the backends; everything
+          terminates in a WAL frame and a segment on disk.
         </p>
         <div className="mt-10">
           <SketchCard caption="Five layers from orchestration to persistence — the agent owns the bytes the whole way down.">
@@ -656,11 +656,11 @@ auto hits = docs.seek_text("alpha", 1);`}
                 One <span className="handwritten text-primary">contract</span>, three engines.
               </h2>
               <p className="handwritten-lede mt-5 text-body">
-                HNSW for scale, exact for ground truth, GPU for throughput — all behind{" "}
-                <code>IndexPort</code>. The planner never branches on which one is mounted.
+                HNSW for scale, flat/exact for ground truth, GPU for throughput — all behind one{" "}
+                <code>Index</code> contract. The planner never branches on which one is mounted.
               </p>
               <div className="mt-6">
-                <SketchCard caption="The planner sees one shape — IndexPort. Recall/latency trade-offs are a config switch, not a rewrite.">
+                <SketchCard caption="The planner sees one shape — Index. Recall/latency trade-offs are a config switch, not a rewrite.">
                   <AlgorithmPortsDiagram />
                 </SketchCard>
               </div>
@@ -671,11 +671,11 @@ auto hits = docs.seek_text("alpha", 1);`}
                 Coalesce, launch <span className="handwritten text-primary">once</span>, ship.
               </h2>
               <p className="handwritten-lede mt-5 text-body">
-                A dynamic batcher gathers concurrent queries inside a tiny window and fires a single
-                kernel. One HBM trip, saturated SMs, std::expected on every fallible call.
+                A query batcher gathers concurrent queries inside a tiny window and fires a single
+                kernel. One batched launch, saturated cores, std::expected on every fallible call.
               </p>
               <div className="mt-6">
-                <SketchCard caption="DynamicBatcher turns N CPU-side queries into one GPU launch — the only honest way to amortise PCIe.">
+                <SketchCard caption="QueryBatcher turns N CPU-side queries into one GPU launch — the honest way to amortise kernel-launch overhead.">
                   <GpuAccelGlanceDiagram />
                 </SketchCard>
               </div>

@@ -360,7 +360,7 @@ py::class_<elips::gpu::GpuConfig>(m, "GpuConfig") // ... etc.
 #endif
 ```
 
-In CPU-only builds, the GPU classes are simply absent from the `_core` module. Python's `__init__.py` catches the `ImportError` and sets `_has_gpu = False`.
+In CPU-only builds, the GPU classes are simply absent from the `_core` module. Python's seam (`_native.py`) detects this with `hasattr(_core, "GpuDevice")` and sets `elips.has_gpu = False`; GPU via Metal is Beta (Apple M4) and CUDA/HIP are experimental (not hardware-validated).
 
 ## `open()` / `open_with_config()` Factories
 

@@ -1,11 +1,15 @@
 # Config & Enums
 
 `Config` is the authoritative Python configuration builder for advanced ELIPS
-features.
+features. Build one and pass it to the deprecated `connect_with_config(path,
+config)`; the `Client` / `PersistentClient` keyword settings cover the common
+cases.
 
 ## `Config`
 
 ```python
+import elips
+
 config = (
     elips.Config()
     .dimension(128)
@@ -54,6 +58,8 @@ config = (
 ### `LocalEmbedderConfig`
 
 ```python
+import elips
+
 local = elips.LocalEmbedderConfig(
     model="default",
     revision="v1",
@@ -62,7 +68,8 @@ local = elips.LocalEmbedderConfig(
 )
 ```
 
-Use this with `Config.local_text_embedder(local)` or `elips.open(..., embedder=local)`.
+Use this with `Config.local_text_embedder(local)` or
+`elips.Client(embedder=local)` / `elips.PersistentClient(path, embedder=local)`.
 
 ### `TextEmbedderInfo`
 
@@ -83,6 +90,8 @@ Resolved metadata for the current or expected text embedder:
 ## `GraphParams`
 
 ```python
+import elips
+
 params = elips.GraphParams(
     max_connections=32,
     ef_construction=400,
@@ -180,7 +189,37 @@ Fields:
 - `revision`
 - `attributes`
 
+## Compression
+
+### `Codec`
+
+Vector compression codec enum: `none`, `pq`, `opq`, `sq8`.
+
+### `QuantParams`
+
+```python
+import elips
+
+quant = elips.QuantParams(codec="sq8", pq_dim=0, pq_bits=8, train_iters=10, opq_iters=4)
+```
+
+Pass `quantization=` to the client (`elips.Client(dimension=128,
+quantization="sq8")`) or `Config.quantization(...)`. Selecting a codec does not
+compress anything on its own — a codebook must be trained on real data first;
+call `Collection.compress()` (alias `train()`) once the collection holds a
+representative sample.
+
+- `pq` — product quantization (highest compression, largest recall cost).
+- `opq` — product quantization with a learned rotation (better recall when
+  dimensions correlate, as learned embeddings usually do).
+- `sq8` — per-dimension int8 scalar quantization.
+
 ## GPU Types
+
+> **Maturity:** GPU via Apple **Metal** is **Beta** (validated on Apple M4).
+> GPU via **CUDA** / **HIP (ROCm)** is **Experimental** — compiled but not
+> hardware-validated. The GPU types below exist only in a GPU-enabled build;
+> guard access with `elips.has_gpu`.
 
 When the extension is built with GPU support, ELIPS also exposes:
 
@@ -196,14 +235,15 @@ When the extension is built with GPU support, ELIPS also exposes:
 - `GpuDeviceInfo`
 - `GpuMetricsSnapshot`
 
-Use `elips._has_gpu` to detect whether GPU bindings were compiled into the
-extension module. Use `elips.GpuDeviceInfo()` or `db.gpu_info()` to inspect the
-active runtime device, which may still be the CPU fallback when no GPU backend
-is selected.
+Use `elips.has_gpu` to detect whether GPU bindings were compiled into the
+extension module. Use `elips.GpuDeviceInfo()` or `db.native.gpu_info()` to
+inspect the active runtime device, which may still be the CPU fallback when no
+GPU backend is selected.
 
 ### `GpuConfig` Example
 
 ```python
+# no-exec — requires a GPU-enabled build
 gpu = elips.GpuConfig()
 gpu.policy = elips.GpuPolicy.prefer_gpu
 gpu.build_mode = elips.IndexBuildMode.gpu_build_gpu_serve
@@ -255,6 +295,7 @@ runtime path.
 ### `IvfPqBuildParams`
 
 ```python
+# no-exec — requires a GPU-enabled build
 ivf = elips.IvfPqBuildParams()
 ivf.n_lists = 1024
 ivf.pq_dim = 48

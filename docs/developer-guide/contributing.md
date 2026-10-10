@@ -22,13 +22,16 @@ Build targets:
 | `elips` (output name of `elips_cli`) | Command-line tool |
 | `elips_bench` | Benchmark suite |
 | `elips_tests` | C++ test suite |
-| `elips_pymodule` | Python bindings (`ELIPS_BUILD_PYTHON=ON`) |
+| `elips_pymodule` | Python bindings (`ELIPS_ENABLE_PYTHON=ON`) |
 
 Build types: `Debug`, `Release`, `RelWithDebInfo` (default if unspecified).
 
 GPU backends are enabled via CMake options:
-- `ELIPS_GPU_METAL` (default ON on Apple platforms)
-- `ELIPS_GPU_CUDA`, `ELIPS_GPU_HIP` (both default OFF, experimental, not hardware-validated)
+- `ELIPS_ENABLE_METAL` (default ON on Apple platforms)
+- `ELIPS_ENABLE_CUDA`, `ELIPS_ENABLE_ROCM` (both default OFF, experimental, not hardware-validated)
+
+The pre-rename option names (`ELIPS_GPU_METAL/CUDA/HIP`, `ELIPS_BUILD_PYTHON`,
+`ELIPS_BUILD_TESTS`) are honored as deprecated aliases with a `message(DEPRECATION)`.
 
 ## Running Tests
 
@@ -44,7 +47,7 @@ Since tests are registered via `gtest_discover_tests`, use the CTest `-R` flag f
 
 ```bash
 # Run a specific test suite via CTest regex
-ctest --test-dir build -R ExactIndexTest
+ctest --test-dir build -R IndexFlatTest
 
 # Run a specific test case
 ctest --test-dir build -R "MetricsTest.CosineIdenticalNormalizedVectorsZeroDistance"
@@ -59,7 +62,7 @@ ctest --test-dir build -R "Eql"
 ctest --test-dir build -R "Integration"
 
 # Run directly with gtest_filter for precise selection
-./build/elips_tests --gtest_filter='ExactIndex*'
+./build/elips_tests --gtest_filter='IndexFlat*'
 ./build/elips_tests --gtest_filter='*Edge*'
 ./build/elips_tests --gtest_filter='FilterEdgeTest.MissingFieldDoesNotMatch'
 ```
@@ -67,7 +70,7 @@ ctest --test-dir build -R "Integration"
 ### Python tests
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
 cmake --build build --target elips_pymodule -j
 PYTHONPATH=bindings/python python3 tests/python/test_bindings.py
 ```
@@ -92,7 +95,7 @@ ELIPS follows the [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelin
 - Scoped enums (`enum class`) exclusively (Core Guidelines Enum.3).
 - `[[nodiscard]]` on functions where ignoring the return value is a bug.
 - Exceptions for error handling; no error codes, no `std::expected` in the public API.
-- DIP (Dependency Inversion Principle): depend on interfaces (`IndexPort`), never concretes.
+- DIP (Dependency Inversion Principle): depend on interfaces (`Index`), never concretes.
 - Header guards use `#ifndef`/`#define`/`#endif` with `ELIPS_` prefix.
 - Snake_case for files, functions, and variables; PascalCase for classes, enums, and structs.
 - Namespace: everything under `elips`.
@@ -136,7 +139,7 @@ Two additional jobs:
 
 1. **ASan + UBSan**: Ubuntu Debug build with `-fsanitize=address,undefined -fno-omit-frame-pointer`. All C++ tests run under sanitizers.
 
-2. **Python bindings**: Ubuntu Release build with `ELIPS_BUILD_PYTHON=ON`. Builds `elips_pymodule`, then runs `examples/python/01_getting_started.py` as a smoke test.
+2. **Python bindings**: Ubuntu Release build with `ELIPS_ENABLE_PYTHON=ON`. Builds `elips_pymodule`, then runs `examples/python/01_getting_started.py` as a smoke test.
 
 ### What reviewers look for
 
@@ -155,7 +158,7 @@ elips/
 ├── CMakeLists.txt          # Build system
 ├── include/elips/          # Public headers
 │   ├── domain/             # Value types (Vector, RecordID, Errors)
-│   ├── index_engine/       # IndexPort, ExactIndex, HNSW
+│   ├── index_engine/       # Index, IndexFlat, IndexHNSW, IVF family
 │   ├── kernel/             # LockManager
 │   ├── metadata/           # Filter predicate engine
 │   ├── query_engine/       # EQL lexer, parser, AST, executor

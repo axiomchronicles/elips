@@ -52,7 +52,7 @@ function Page() {
         Including <code>&lt;elips/elips.hpp&gt;</code> pulls in the full surface area of
         the engine.
       </p>
-      <CodeBlock lang="cpp">{`// Master header providing ElipsInstance, Vault, Transaction, and Domain types
+      <CodeBlock lang="cpp">{`// Master header providing Database, Collection, Transaction, and Domain types
 #include <elips/elips.hpp>
 
 // Specific subsystem headers (included automatically by elips.hpp)
@@ -68,10 +68,10 @@ function Page() {
       </p>
       <ul>
         <li>
-          <Link to="/docs/cpp/elips-instance"><code>elips::ElipsInstance</code></Link> — Top-level database handle managing storage, WAL, locking, and multi-vault registries.
+          <Link to="/docs/cpp/elips-instance"><code>elips::Database</code></Link> — Top-level database handle managing storage, WAL, locking, and multi-collection registries.
         </li>
         <li>
-          <Link to="/docs/cpp/vault"><code>elips::Vault</code></Link> — A named partition owning vector graph indices, metadata inverted indices, and record stores.
+          <Link to="/docs/cpp/vault"><code>elips::Collection</code></Link> — A named partition owning vector graph indices, metadata inverted indices, and record stores.
         </li>
         <li>
           <Link to="/docs/cpp/domain"><code>elips::Record</code> & <code>Vector</code></Link> — Domain primitives representing vectors, payloads, and search results.
@@ -90,13 +90,13 @@ function Page() {
       </p>
       <ul>
         <li>
-          <code>elips::open()</code> returns a <code>std::unique_ptr&lt;ElipsInstance&gt;</code>.
+          <code>elips::open()</code> returns a <code>std::unique_ptr&lt;Database&gt;</code>.
         </li>
         <li>
-          When <code>ElipsInstance</code> is destroyed, it flushes pending WAL logs, executes a database checkpoint (for persistent databases), and releases file lock handles.
+          When <code>Database</code> is destroyed, it flushes pending WAL logs, executes a database checkpoint (for persistent databases), and releases file lock handles.
         </li>
         <li>
-          <code>Vault</code> objects are owned by their parent <code>ElipsInstance</code> and returned by reference.
+          <code>Collection</code> objects are owned by their parent <code>Database</code> and returned by reference.
         </li>
       </ul>
 
@@ -109,7 +109,7 @@ function Page() {
           <strong>Process Isolation:</strong> An advisory <code>flock</code> lock manager prevents multiple processes from opening the same disk database in Read-Write mode simultaneously.
         </li>
         <li>
-          <strong>Thread Safety:</strong> <code>ElipsInstance</code> uses a recursive mutex for vault registry lookups. Each <code>Vault</code> contains a <code>std::shared_mutex</code> allowing arbitrary concurrent readers (e.g. <code>seek</code> calls across threads) while serializing mutations (<code>place</code>, <code>erase</code>).
+          <strong>Thread Safety:</strong> <code>Database</code> uses a recursive mutex for collection registry lookups. Each <code>Collection</code> contains a <code>std::shared_mutex</code> allowing arbitrary concurrent readers (e.g. <code>search</code> calls across threads) while serializing mutations (<code>add</code>, <code>remove</code>).
         </li>
       </ul>
 
@@ -141,21 +141,21 @@ int main() {
 
     // 2. Open an in-memory database instance
     auto db = elips::open(":memory:", config);
-    auto& vault = db->vault("embeddings");
+    auto& collection = db->collection("embeddings");
 
-    // 3. Place a vector with metadata payload
+    // 3. Add a vector with metadata payload
     elips::Vector vec(128, 0.5f);
     elips::Payload meta;
     meta["category"] = std::string("finance");
     meta["year"] = int64_t(2026);
 
-    elips::RecordID id = vault.place(vec, meta);
+    elips::RecordID id = collection.add(vec, meta);
     std::cout << "Inserted record ID: " << id << std::endl;
 
     // 4. Perform top-K similarity search
-    auto results = vault.seek(vec, 5);
+    auto results = collection.search(vec, 5);
     for (const auto& hit : results) {
-        std::cout << "Hit ID: " << hit.id << " Score: " << hit.score << std::endl;
+        std::cout << "Hit ID: " << hit.id << " Distance: " << hit.distance << std::endl;
     }
 
     return 0;

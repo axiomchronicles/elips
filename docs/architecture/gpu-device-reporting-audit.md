@@ -2,6 +2,12 @@
 
 Date: 2026-06-15
 
+> **Historical audit (names drifted).** This is a dated record of a specific
+> fix; the narrative is accurate for its date. In current code the names are
+> `GpuBackend` (was `GpuPort`), `BackendSelector` (was `GpuSelector`),
+> `Database` (was `ElipsInstance`), and `Collection` (was `Vault`). For the
+> authoritative GPU behavior and maturity, see the [GPU guide](../gpu/index.md).
+
 ## Scope
 
 This audit covers ELIPS GPU detection, runtime device reporting, Python bindings,

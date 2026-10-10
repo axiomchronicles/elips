@@ -153,7 +153,7 @@ export function SystemShapeDiagram() {
       <text x="40" y="40" className="sub">
         surfaces
       </text>
-      <RoughRect x={40} y={56} w={170} h={62} label="Python · modern" sub="Engine · Arena" />
+      <RoughRect x={40} y={56} w={170} h={62} label="Python · modern" sub="Client · Collection" />
       <RoughRect x={230} y={56} w={170} h={62} label="Python · core" sub="open · Vault" />
       <RoughRect x={420} y={56} w={170} h={62} label="C++23 SDK" sub="elips::open" />
       <RoughRect x={610} y={56} w={170} h={62} label="elips CLI" sub="ops & repl" />
@@ -169,8 +169,8 @@ export function SystemShapeDiagram() {
         y={184}
         w={280}
         h={68}
-        label="ElipsInstance"
-        sub="lifecycle · config · WAL · vault registry"
+        label="Database"
+        sub="lifecycle · config · WAL · collection registry"
         accent
       />
 
@@ -181,7 +181,7 @@ export function SystemShapeDiagram() {
         y={300}
         w={280}
         h={64}
-        label="Vault"
+        label="Collection"
         sub="records · planner · index · metadata"
       />
 
@@ -195,13 +195,13 @@ export function SystemShapeDiagram() {
         query path
       </text>
       <text x="160" y="446" className="sub">
-        seek / scan / hybrid
+        search / scan / hybrid
       </text>
       <text x="320" y="430" className="label" style={{ fontSize: 17 }}>
         text path
       </text>
       <text x="320" y="446" className="sub">
-        place_document
+        add_document
       </text>
       <text x="480" y="430" className="label" style={{ fontSize: 17 }}>
         persistence
@@ -236,10 +236,10 @@ export function SystemShapeDiagram() {
 export function QueryPathDiagram() {
   const lanes = [
     { x: 80, label: "App" },
-    { x: 240, label: "Vault" },
+    { x: 240, label: "Collection" },
     { x: 400, label: "Planner" },
     { x: 560, label: "MetaIndex" },
-    { x: 720, label: "IndexPort" },
+    { x: 720, label: "Index" },
   ];
   return (
     <svg
@@ -270,12 +270,12 @@ export function QueryPathDiagram() {
       {/* messages */}
       <g>
         {[
-          { y: 100, from: 0, to: 1, txt: "seek_hybrid(vec, text, filter)" },
-          { y: 145, from: 1, to: 2, txt: "plan_seek(...)" },
+          { y: 100, from: 0, to: 1, txt: "hybrid_search(vec, text, filter)" },
+          { y: 145, from: 1, to: 2, txt: "plan_search(...)" },
           { y: 190, from: 2, to: 3, txt: "candidates(filter)" },
           { y: 230, from: 3, to: 2, txt: "id set", dashed: true },
           { y: 275, from: 2, to: 1, txt: "QueryPlan", dashed: true },
-          { y: 320, from: 1, to: 4, txt: "search(query, top, ids)" },
+          { y: 320, from: 1, to: 4, txt: "search(query, k, ids)" },
           { y: 365, from: 4, to: 1, txt: "ranked hits", dashed: true },
         ].map((m, i) => {
           const a = lanes[m.from].x;
@@ -323,7 +323,7 @@ export function PersistenceDiagram() {
       aria-label="Persistence path"
     >
       <Defs />
-      <RoughRect x={30} y={130} w={150} h={66} label="write" sub="place / erase" />
+      <RoughRect x={30} y={130} w={150} h={66} label="write" sub="add / delete" />
       <RoughRect x={220} y={130} w={150} h={66} label="WAL append" sub="CRC32C frames" />
       <RoughRect x={410} y={70} w={170} h={62} label="record store" sub="in-memory" />
       <RoughRect x={410} y={196} w={170} h={62} label="MetadataIndex" sub="equality sets" />
@@ -385,19 +385,19 @@ export function ObjectModelDiagram() {
         y={150}
         w={180}
         h={70}
-        label="ElipsInstance"
+        label="Database"
         sub="lifecycle · config · WAL"
         accent
       />
 
-      <RoughRect x={300} y={70} w={160} h={60} label="Vault: documents" />
-      <RoughRect x={300} y={230} w={160} h={60} label="Vault: faces" />
+      <RoughRect x={300} y={70} w={160} h={60} label="Collection: documents" />
+      <RoughRect x={300} y={230} w={160} h={60} label="Collection: faces" />
 
       <Arrow d="M 220 175 C 260 175, 260 100, 298 100" />
       <Arrow d="M 220 195 C 260 195, 260 260, 298 260" />
 
       {/* vault internals */}
-      <RoughRect x={520} y={20} w={150} h={48} label="IndexPort" sub="graph / exact / gpu" />
+      <RoughRect x={520} y={20} w={150} h={48} label="Index" sub="hnsw / flat / gpu" />
       <RoughRect x={520} y={80} w={150} h={48} label="record store" />
       <RoughRect x={520} y={140} w={150} h={48} label="MetadataIndex" />
       <RoughRect x={520} y={200} w={150} h={48} label="Planner" />
@@ -718,7 +718,7 @@ export function GpuEngineDiagram() {
         y={50}
         w={800}
         h={56}
-        label="Vault · seek / seek_hybrid"
+        label="Collection · search / hybrid_search"
         sub="domain code is backend-agnostic"
         accent
       />
@@ -726,14 +726,14 @@ export function GpuEngineDiagram() {
       <text x="40" y="140" className="sub">
         orchestration
       </text>
-      <RoughRect x={40} y={156} w={180} h={62} label="GpuSelector" sub="rank backends" />
+      <RoughRect x={40} y={156} w={180} h={62} label="BackendSelector" sub="rank backends" />
       <RoughRect x={240} y={156} w={180} h={62} label="GpuDeviceManager" sub="enumerate devices" />
       <RoughRect
         x={440}
         y={156}
         w={200}
         h={62}
-        label="DynamicBatcher"
+        label="QueryBatcher"
         sub="window_us · max_batch"
       />
       <RoughRect x={660} y={156} w={180} h={62} label="GpuMemoryManager" sub="pool · pinned" />
@@ -741,7 +741,7 @@ export function GpuEngineDiagram() {
       <text x="40" y="252" className="sub">
         interface segregation
       </text>
-      <RoughRect x={40} y={268} w={150} h={56} label="GpuPort" sub="compute · top_k" />
+      <RoughRect x={40} y={268} w={150} h={56} label="GpuBackend" sub="compute · top_k" />
       <RoughRect x={210} y={268} w={150} h={56} label="GpuMemoryPort" sub="alloc · pinned" />
       <RoughRect x={380} y={268} w={150} h={56} label="GpuKernelPort" sub="cos · l2 · dot" />
       <RoughRect x={550} y={268} w={150} h={56} label="GpuStreamPort" sub="synchronise" />
@@ -759,8 +759,8 @@ export function GpuEngineDiagram() {
         y={376}
         w={180}
         h={56}
-        label="Graph · Hybrid · Dist"
-        sub="CAGRA · multi-GPU"
+        label="distance · top-k"
+        sub="Metal kernels"
       />
 
       {/* arrows */}
@@ -943,7 +943,7 @@ export function TransactionLifecycleDiagram() {
         fill="var(--color-primary)"
         style={{ fontSize: 18 }}
       >
-        enqueue place/erase
+        enqueue add/delete
       </text>
 
       {/* fan to three outcomes */}
@@ -1199,7 +1199,7 @@ export function AgenticFlowDiagram() {
 
       <RoughRect x={40} y={40} w={160} h={60} label="user turn" sub="prompt · tool call" />
       <RoughRect x={240} y={40} w={180} h={60} label="agent loop" sub="LLM · planner" accent />
-      <RoughRect x={460} y={40} w={180} h={60} label="retrieval step" sub="seek_hybrid(q, k)" />
+      <RoughRect x={460} y={40} w={180} h={60} label="retrieval step" sub="query(q, k)" />
       <RoughRect x={680} y={40} w={160} h={60} label="LLM call" sub="grounded reply" />
 
       <Arrow d="M 200 70 L 238 70" />
@@ -1215,7 +1215,7 @@ export function AgenticFlowDiagram() {
         w={460}
         h={70}
         label="ELIPS · in-process retrieval"
-        sub="vault · planner · index · WAL"
+        sub="collection · planner · index · WAL"
         accent
       />
 
@@ -1260,7 +1260,7 @@ export function AgenticFlowDiagram() {
         style={{ fontSize: 18 }}
         transform="rotate(90 820 240)"
       >
-        write back · place_document
+        write back · add
       </text>
 
       <g transform="translate(40 410)">
@@ -1317,7 +1317,7 @@ export function ElipsAgenticSystemDiagram() {
         y={146}
         w={840}
         h={56}
-        label="ElipsClient — seek · seek_text · seek_hybrid · explain_seek"
+        label="ElipsClient — search · search_text · hybrid_search · explain_query"
         sub="one process · no network hop"
         accent
       />
@@ -1329,19 +1329,19 @@ export function ElipsAgenticSystemDiagram() {
 
       {/* row 3: vaults */}
       <text x="30" y="230" className="sub">
-        layer 3 · vaults (per memory class)
+        layer 3 · collections (per memory class)
       </text>
       <RoughRect
         x={30}
         y={246}
         w={200}
         h={70}
-        label="vault: episodic"
+        label="collection: episodic"
         sub="turn embeddings + meta"
       />
-      <RoughRect x={250} y={246} w={200} h={70} label="vault: semantic" sub="entity cards" />
-      <RoughRect x={470} y={246} w={200} h={70} label="vault: corpus" sub="docs · chunks" />
-      <RoughRect x={690} y={246} w={180} h={70} label="vault: tools" sub="trace embeddings" />
+      <RoughRect x={250} y={246} w={200} h={70} label="collection: semantic" sub="entity cards" />
+      <RoughRect x={470} y={246} w={200} h={70} label="collection: corpus" sub="docs · chunks" />
+      <RoughRect x={690} y={246} w={180} h={70} label="collection: tools" sub="trace embeddings" />
 
       <Arrow d="M 130 202 L 130 244" />
       <Arrow d="M 350 202 L 350 244" />
@@ -1353,10 +1353,10 @@ export function ElipsAgenticSystemDiagram() {
         layer 4 · engine
       </text>
       <RoughRect x={30} y={356} w={160} h={60} label="Planner" sub="strategy · filters" />
-      <RoughRect x={210} y={356} w={160} h={60} label="IndexPort" sub="hnsw · exact · gpu" />
+      <RoughRect x={210} y={356} w={160} h={60} label="Index" sub="hnsw · flat · gpu" />
       <RoughRect x={390} y={356} w={170} h={60} label="MetadataIndex" sub="equality sets" />
       <RoughRect x={580} y={356} w={140} h={60} label="Embedder" sub="local · hosted" />
-      <RoughRect x={740} y={356} w={130} h={60} label="GpuPort" sub="batch · stream" />
+      <RoughRect x={740} y={356} w={130} h={60} label="GpuBackend" sub="batch · stream" />
 
       <Arrow d="M 130 316 L 110 354" />
       <Arrow d="M 350 316 L 290 354" />
@@ -1414,12 +1414,12 @@ export function GpuAccelGlanceDiagram() {
         y={120}
         w={200}
         h={70}
-        label="DynamicBatcher"
+        label="QueryBatcher"
         sub="window_us · max_batch"
         accent
       />
       <Arrow d="M 440 155 L 480 155" />
-      <RoughRect x={480} y={120} w={180} h={70} label="GpuPort kernel" sub="cos · l2 · dot" />
+      <RoughRect x={480} y={120} w={180} h={70} label="GpuBackend kernel" sub="cos · l2 · dot" />
       <Arrow d="M 660 155 L 700 155" />
       <RoughRect x={700} y={120} w={150} h={70} label="top-k results" sub="merged" accent />
 
@@ -1439,7 +1439,7 @@ export function GpuAccelGlanceDiagram() {
           fill="var(--color-primary)"
           style={{ fontSize: 20 }}
         >
-          CUDA · HIP / ROCm · Metal — selected by GpuSelector
+          CUDA · HIP / ROCm · Metal — selected by BackendSelector
         </text>
       </g>
     </svg>
@@ -1462,8 +1462,8 @@ export function AlgorithmPortsDiagram() {
         y={30}
         w={280}
         h={56}
-        label="IndexPort"
-        sub="build · upsert · search · erase"
+        label="Index"
+        sub="build · upsert · search · remove"
         accent
       />
       <Arrow d="M 380 86 L 220 150" />
@@ -1474,7 +1474,7 @@ export function AlgorithmPortsDiagram() {
         y={150}
         w={200}
         h={70}
-        label="HNSW (graph)"
+        label="IndexHNSW"
         sub="M · ef_construction · ef_search"
       />
       <RoughRect
@@ -1482,10 +1482,10 @@ export function AlgorithmPortsDiagram() {
         y={150}
         w={200}
         h={70}
-        label="Exact (flat)"
+        label="IndexFlat"
         sub="brute force · deterministic"
       />
-      <RoughRect x={560} y={150} w={200} h={70} label="GPU family" sub="brute · ivf · pq · cagra" />
+      <RoughRect x={560} y={150} w={200} h={70} label="GPU family" sub="bf_knn · ivf · pq · sq" />
       <text x="220" y="250" textAnchor="middle" className="sub">
         log-ish recall@k
       </text>
@@ -1493,7 +1493,7 @@ export function AlgorithmPortsDiagram() {
         100% recall, O(N) per query
       </text>
       <text x="660" y="250" textAnchor="middle" className="sub">
-        batched, async, GpuPort-bound
+        batched, async, GpuBackend-bound
       </text>
       <g transform="translate(80 300)">
         <text className="label handwritten" fill="var(--color-primary)" style={{ fontSize: 20 }}>
@@ -1510,8 +1510,8 @@ export function TutorialRoadmapDiagram() {
     "install",
     "first DB",
     "records",
-    "place / erase",
-    "seek + filters",
+    "add / delete",
+    "query + filters",
     "documents",
     "hybrid",
     "EQL",
@@ -1519,7 +1519,7 @@ export function TutorialRoadmapDiagram() {
     "recovery",
     "config",
     "C++ hello",
-    "C++ vault",
+    "C++ collection",
     "embedder",
     "GPU",
     "ship it",

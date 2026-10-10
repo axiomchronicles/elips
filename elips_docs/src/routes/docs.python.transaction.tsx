@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/python/transaction")({
       {
         name: "description",
         content:
-          "Complete reference for the ELIPS Python Transaction API: atomic multi-vault mutations, commit, rollback, crash-safety guarantees, and the WAL framing model.",
+          "Complete reference for the ELIPS Python native Transaction API: atomic multi-collection mutations, commit, rollback, crash-safety guarantees, and the WAL framing model.",
       },
     ],
   }),
@@ -40,22 +40,26 @@ function Page() {
       {/* ── Overview ───────────────────────────────────────────── */}
       <h2 id="overview">Overview</h2>
       <p>
-        A <code>Transaction</code> lets you group multiple mutations — spanning
-        one or more vaults — into a single <strong>atomic</strong> operation.
-        Either every pending operation in the transaction is applied, or none
-        of them are. This guarantee holds across process crashes: the WAL
-        framing ensures that a partially written transaction is never replayed
-        on recovery.
+        Most applications never touch transactions directly: the high-level{" "}
+        <code>collection.add()</code>, <code>collection.upsert()</code>, and{" "}
+        <code>collection.delete()</code> methods are each individually durable.
+        Reach for an explicit <strong>transaction</strong> only when you need
+        multiple mutations — potentially spanning several collections — to apply
+        as a single <strong>atomic</strong> unit: either every pending operation
+        is applied, or none of them are.
       </p>
       <p>
-        Transactions are obtained from a{" "}
-        <a href="/docs/python/database">
-          <code>Database</code>
-        </a>{" "}
-        object and are most conveniently used as Python context managers.
+        Explicit transactions are a <strong>native-layer</strong> feature. You
+        obtain one from the native handle via{" "}
+        <code>client.native.begin_transaction()</code>. This guarantee holds
+        across process crashes: the WAL framing ensures that a partially written
+        transaction is never replayed on recovery. The native{" "}
+        <code>TransactionVault</code> proxy uses the native verbs{" "}
+        <code>place</code> / <code>erase</code> (the low-level equivalents of{" "}
+        <code>collection.add</code> / <code>collection.delete</code>).
       </p>
 
-      <CodeBlock lang="python">{`with db.begin_transaction() as txn:
+      <CodeBlock lang="python">{`with client.native.begin_transaction() as txn:
     products = txn.vault("products")
     sessions = txn.vault("sessions")
 
@@ -66,15 +70,15 @@ function Page() {
 
       {/* ── begin_transaction() ────────────────────────────────── */}
       <h2 id="begin">
-        <code>Database.begin_transaction()</code>
+        <code>client.native.begin_transaction()</code>
       </h2>
-      <CodeBlock lang="python">{`Database.begin_transaction() -> Transaction
+      <CodeBlock lang="python">{`client.native.begin_transaction() -> Transaction
 `}</CodeBlock>
       <p>
-        Allocates a new <code>Transaction</code> context against the database.
+        Allocates a new <code>Transaction</code> context on the native handle.
         This call writes a <code>txn_begin</code> marker to the WAL immediately.
-        No vault-level write lock is acquired until the first mutating operation
-        is enqueued or commit is called.
+        No collection-level write lock is acquired until the first mutating
+        operation is enqueued or commit is called.
       </p>
       <p>
         You may call <code>begin_transaction()</code> from any thread; however,
@@ -89,10 +93,11 @@ function Page() {
       <CodeBlock lang="python">{`Transaction.vault(name: str) -> TransactionVault
 `}</CodeBlock>
       <p>
-        Returns a <code>TransactionVault</code> — a thin proxy over the named
-        vault that buffers all mutations into the transaction's pending-operation
-        log. The underlying vault is created if it does not exist (same lazy
-        semantics as <code>Database.vault()</code>).
+        Returns a <code>TransactionVault</code> — a thin native proxy over the
+        named collection that buffers all mutations into the transaction's
+        pending-operation log. The underlying collection is created if it does
+        not exist (same lazy semantics as{" "}
+        <code>client.get_or_create_collection()</code>).
       </p>
       <p>
         Multiple calls to <code>txn.vault("same-name")</code> within the same
@@ -164,7 +169,7 @@ function Page() {
         <code>Transaction</code> raises <code>RuntimeError</code>.
       </p>
 
-      <CodeBlock lang="python">{`txn = db.begin_transaction()
+      <CodeBlock lang="python">{`txn = db.native.begin_transaction()
 v = txn.vault("items")
 v.place([0.5] * 768, data={"label": "a"})
 v.place([0.6] * 768, data={"label": "b"})
@@ -190,7 +195,7 @@ except Exception as e:
         transaction. After rollback, the <code>Transaction</code> is invalid.
       </p>
 
-      <CodeBlock lang="python">{`txn = db.begin_transaction()
+      <CodeBlock lang="python">{`txn = db.native.begin_transaction()
 v = txn.vault("items")
 v.place([0.1] * 768, data={"label": "draft"})
 
@@ -220,14 +225,14 @@ txn.rollback()
       </p>
 
       <CodeBlock lang="python">{`# Clean exit → auto-commit
-with db.begin_transaction() as txn:
+with db.native.begin_transaction() as txn:
     txn.vault("items").place([0.1] * 768, data={"x": 1})
     txn.vault("items").place([0.2] * 768, data={"x": 2})
 # commit() called here automatically
 
 # Exception → auto-rollback
 try:
-    with db.begin_transaction() as txn:
+    with db.native.begin_transaction() as txn:
         txn.vault("items").place([0.3] * 768, data={"x": 3})
         raise ValueError("something went wrong")
 except ValueError:
@@ -343,8 +348,8 @@ except ValueError:
           vault.
         </li>
         <li>
-          A <code>rebuild_index()</code> or <code>vacuum()</code> call is in
-          progress on the vault.
+          A <code>collection.rebuild()</code> or <code>collection.vacuum()</code>{" "}
+          call is in progress on the collection.
         </li>
       </ul>
       <p>
@@ -358,7 +363,7 @@ except ValueError:
 def place_with_retry(db, vault_name, vector, data, max_retries=3):
     for attempt in range(max_retries):
         try:
-            with db.begin_transaction() as txn:
+            with db.native.begin_transaction() as txn:
                 txn.vault(vault_name).place(vector, data=data)
             return  # success
         except elips.LockConflict:
@@ -379,11 +384,11 @@ def place_with_retry(db, vault_name, vector, data, max_retries=3):
 
       <CodeBlock lang="python">{`import threading, elips
 
-db = elips.open("/data/v.elips", dimension=384, metric="cosine")
+db = elips.PersistentClient("/data/v.elips", dimension=384, metric="cosine")
 
 def worker(items):
     # Each thread creates its own transaction
-    with db.begin_transaction() as txn:
+    with db.native.begin_transaction() as txn:
         v = txn.vault("items")
         for vec, meta in items:
             v.place(vec, data=meta)
@@ -397,10 +402,11 @@ for t in threads: t.join()
 `}</CodeBlock>
 
       <p>
-        The <code>Database</code> object itself is thread-safe and can be shared
-        freely. Concurrent calls to <code>begin_transaction()</code> from
-        different threads each produce independent <code>Transaction</code>{" "}
-        objects with separate pending-op buffers.
+        The <code>client</code> (and its native handle) is thread-safe and can
+        be shared freely. Concurrent calls to{" "}
+        <code>client.native.begin_transaction()</code> from different threads
+        each produce independent <code>Transaction</code> objects with separate
+        pending-op buffers.
       </p>
 
       {/* ── Examples ───────────────────────────────────────────── */}
@@ -409,15 +415,15 @@ for t in threads: t.join()
       <h3>Minimal example</h3>
       <CodeBlock lang="python">{`import elips
 
-db = elips.open("/data/v.elips", dimension=128, metric="cosine")
+db = elips.PersistentClient("/data/v.elips", dimension=128, metric="cosine")
 
-with db.begin_transaction() as txn:
+with db.native.begin_transaction() as txn:
     v = txn.vault("default")
     v.place([0.1] * 128, data={"label": "hello"}, id="rec:1")
     v.place([0.2] * 128, data={"label": "world"}, id="rec:2")
 
 # Both records are now visible
-print(db.vault("default").count)  # 2
+print(db.collection("default").count())  # 2
 `}</CodeBlock>
 
       <h3>Multi-vault atomic update</h3>
@@ -427,10 +433,10 @@ record the transition in an 'audit' vault.
 """
 import elips, time
 
-db = elips.open("/data/pipeline.elips", dimension=768, metric="cosine")
+db = elips.PersistentClient("/data/pipeline.elips", dimension=768, metric="cosine")
 
 def promote(record_id: str, embedding: list[float], meta: dict):
-    with db.begin_transaction() as txn:
+    with db.native.begin_transaction() as txn:
         staging    = txn.vault("staging")
         production = txn.vault("production")
         audit      = txn.vault("audit")
@@ -451,12 +457,12 @@ def promote(record_id: str, embedding: list[float], meta: dict):
       <h3>Error handling example</h3>
       <CodeBlock lang="python">{`import elips
 
-db = elips.open("/data/v.elips", dimension=128, metric="cosine")
+db = elips.PersistentClient("/data/v.elips", dimension=128, metric="cosine")
 
 def safe_batch_insert(records: list[dict]) -> bool:
     """Returns True on success, False if the transaction could not be applied."""
     try:
-        with db.begin_transaction() as txn:
+        with db.native.begin_transaction() as txn:
             v = txn.vault("items")
             for r in records:
                 v.place(r["vector"], data=r.get("data", {}), id=r.get("id"))
@@ -477,7 +483,7 @@ def safe_batch_insert(records: list[dict]) -> bool:
 
       <h3>Sharing a Transaction across threads</h3>
       <CodeBlock lang="python">{`# ❌ WRONG — TransactionVault is not thread-safe
-txn = db.begin_transaction()
+txn = db.native.begin_transaction()
 v = txn.vault("items")
 
 def bad_worker(vec, meta):
@@ -487,7 +493,7 @@ threads = [threading.Thread(target=bad_worker, args=(vec, {})) for vec in vecs]
 
 # ✅ CORRECT — one transaction per thread
 def good_worker(vecs_metas):
-    with db.begin_transaction() as txn:
+    with db.native.begin_transaction() as txn:
         v = txn.vault("items")
         for vec, meta in vecs_metas:
             v.place(vec, data=meta)
@@ -495,22 +501,22 @@ def good_worker(vecs_metas):
 
       <h3>Using a Transaction after commit or rollback</h3>
       <CodeBlock lang="python">{`# ❌ WRONG
-txn = db.begin_transaction()
+txn = db.native.begin_transaction()
 txn.vault("items").place([0.1] * 128)
 txn.commit()
 txn.vault("items").place([0.2] * 128)  # RuntimeError: transaction already finalised
 
 # ✅ CORRECT — use the context manager or open a new transaction
-with db.begin_transaction() as txn:
+with db.native.begin_transaction() as txn:
     txn.vault("items").place([0.1] * 128)
 
-with db.begin_transaction() as txn:
+with db.native.begin_transaction() as txn:
     txn.vault("items").place([0.2] * 128)
 `}</CodeBlock>
 
       <h3>Forgetting to handle LockConflict</h3>
       <CodeBlock lang="python">{`# ❌ FRAGILE — no retry on lock contention
-with db.begin_transaction() as txn:
+with db.native.begin_transaction() as txn:
     txn.vault("items").place(vec, data={})
 
 # ✅ ROBUST — wrap with retry logic for high-concurrency scenarios
@@ -519,7 +525,7 @@ import time
 def insert_with_retry(db, vault_name, vec, data, retries=5):
     for i in range(retries):
         try:
-            with db.begin_transaction() as txn:
+            with db.native.begin_transaction() as txn:
                 txn.vault(vault_name).place(vec, data=data)
             return
         except elips.LockConflict:

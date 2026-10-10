@@ -58,7 +58,7 @@ function Page() {
 ├── text_embedder/
 │   └── default_v1_<dim>.localembed
 ├── segments/
-│   └── vault_<n>_<epoch>.segment
+│   └── collection_<n>_<epoch>.segment
 └── elips.snapshot             # snapshot mode (compat)`}
       </CodeBlock>
 
@@ -79,8 +79,8 @@ function Page() {
 
       <h2 id="wal">WAL</h2>
       <p>
-        Every mutation appends to <code>wal.log</code> before the in-memory vault changes. Records
-        are framed with a CRC32C. Supported ops:
+        Every mutation appends to <code>wal.log</code> before the in-memory collection changes.
+        Records are framed with a CRC32C. Supported ops:
       </p>
       <ul>
         <li>
@@ -132,13 +132,13 @@ function Page() {
       <h2 id="checkpoint">Checkpoint &amp; compact</h2>
       <p>
         <code>checkpoint()</code> writes the current logical state and truncates the WAL. In
-        segmented mode it writes one fresh segment per vault, rewrites <code>elips.manifest</code>,
-        and removes obsolete segment files. In snapshot mode it writes{" "}
+        segmented mode it writes one fresh segment per collection, rewrites{" "}
+        <code>elips.manifest</code>, and removes obsolete segment files. In snapshot mode it writes{" "}
         <code>elips.snapshot.tmp</code>, then atomically renames into place.
       </p>
       <p>
-        <code>compact()</code> rebuilds every vault index from the authoritative record store, then
-        checkpoints — useful after large deletions or to reset graph topology.
+        <code>compact()</code> rebuilds every collection index from the authoritative record store,
+        then checkpoints — useful after large deletions or to reset graph topology.
       </p>
 
       <h2 id="recovery">Recovery</h2>

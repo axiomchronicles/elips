@@ -1,5 +1,12 @@
 # ELIPS Python Binding Flow
 
+> **Name update.** Current names: Python `Client`/`PersistentClient` +
+> `Collection` (Chroma-style) over the core, plus the FAISS `Index` layer
+> (`IndexFlat`/`IndexIVFFlat`/`index_factory`/`bf_knn`); core `Database` (was
+> `ElipsInstance`), `Collection` (was `Vault`), verbs `add`/`search`/`get`
+> (was `place`/`seek`/`fetch`). Old spellings remain as deprecation shims. The
+> PyBind11 mechanics described here are unchanged.
+
 This document describes how the Python SDK maps to the C++ core library via PyBind11, covering type conversions, return value policies, lifetime management, and the call dispatch sequence.
 
 ## Binding Architecture Overview
@@ -131,7 +138,7 @@ py::tuple tuple_from_vector(const elips::Vector& vector) {
 
 ### Vault from Database: `reference_internal`
 
-```python
+```cpp
 py::class_<elips::Vault, std::unique_ptr<elips::Vault, py::nodelete>>(m, "Vault")
     ...
 
@@ -146,7 +153,7 @@ py::class_<elips::ElipsInstance>(m, "Database")
 
 ### Config Fluent Builder: `reference_internal`
 
-```python
+```cpp
 .def("dimension",
      [](elips::Config& c, std::uint16_t dim) -> elips::Config& {
          return c.dimension(dim);
@@ -158,7 +165,7 @@ py::class_<elips::ElipsInstance>(m, "Database")
 
 ### Filter Fluent Builder: `reference_internal`
 
-```python
+```cpp
 py::class_<elips::Filter>(m, "Filter")
     .def("field", &elips::Filter::field,
          py::return_value_policy::reference_internal)
@@ -189,7 +196,7 @@ struct TransactionHolder {
 
 **Solution**: `TransactionHolder` stores a `py::object` reference to the Python `Database` object. This increments the Python reference count, preventing garbage collection. The C++ destructor chain ensures `db_ref` outlives `txn`.
 
-```python
+```cpp
 # In Python bindings:
 .def("begin_transaction",
      [](py::object db_ref) {
@@ -200,7 +207,7 @@ struct TransactionHolder {
 
 ### TransactionVault: `py::keep_alive`
 
-```python
+```cpp
 py::class_<TransactionHolder>(m, "Transaction")
     .def("vault",
          [](TransactionHolder& h, const std::string& name) {
@@ -213,7 +220,7 @@ py::class_<TransactionHolder>(m, "Transaction")
 
 ### Context Manager (__enter__/__exit__)
 
-```python
+```cpp
 # Database context manager:
 .def("__enter__", [](elips::ElipsInstance& db) { return &db; })
 .def("__exit__", [](elips::ElipsInstance& db, ...) { db.close(); })
@@ -227,7 +234,7 @@ py::class_<TransactionHolder>(m, "Transaction")
 ```
 
 Usage:
-```python
+```python no-exec
 with elips.open("db") as db:
     with db.begin_transaction() as txn:
         v = txn.vault("data")
@@ -251,7 +258,7 @@ py::register_exception<elips::eql::ParseError>(m, "ParseError", elips_error);
 
 All C++ exceptions derive from `elips::ElipsError` → `std::runtime_error`. PyBind11's exception translator maps them to a Python exception hierarchy rooted at `ElipsError` (base `RuntimeError`). Python code can catch specific exception types:
 
-```python
+```python no-exec
 try:
     vault.place(wrong_dim_vector)
 except elips.DimensionMismatch as e:

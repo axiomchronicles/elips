@@ -53,7 +53,7 @@ function highlight(src: string, lang: Lang): string {
   if (kw) s = s.replace(kw, mark("tok-kw"));
   if (lang === "cpp") {
     s = s.replace(
-      /\b(std|elips|Config|Vector|Filter|Vault|ElipsInstance|Metric|AccessMode|DocumentAttachment|ChunkInfo|EmbeddingLineage|QueryPlan|IndexPort|GpuPort|HierarchicalGraphIndex|ExactIndex|LockManager|WAL)\b/g,
+      /\b(std|elips|Config|Vector|Filter|Collection|Database|Client|PersistentClient|Vault|ElipsInstance|Metric|AccessMode|DocumentAttachment|ChunkInfo|EmbeddingLineage|QueryPlan|Index|IndexFlat|IndexHNSW|IndexIVFFlat|IndexIVFPQ|GpuBackend|BackendSelector|QueryBatcher|HnswParams|LockManager|WAL)\b/g,
       mark("tok-ty"),
     );
   }

@@ -5,11 +5,11 @@ import { CodeBlock } from "../components/Code";
 export const Route = createFileRoute("/docs/python/connect")({
   head: () => ({
     meta: [
-      { title: "elips.connect() — Python Connection Reference" },
+      { title: "Opening a database — Client & PersistentClient" },
       {
         name: "description",
         content:
-          "Complete reference for elips.connect() and elips.connect_with_config(): database creation, embedder integration, durability levels, and context manager lifecycle.",
+          "Reference for elips.Client() and elips.PersistentClient(): database creation, settings, embedder integration, and context-manager lifecycle. connect() is the deprecated shim.",
       },
     ],
   }),
@@ -20,91 +20,141 @@ function Page() {
   return (
     <DocsShell
       eyebrow="Reference · Python"
-      title="elips.connect()"
+      title="Opening a database"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "connect-signature", label: "elips.connect()" },
-        { id: "connect-with-config", label: "elips.connect_with_config()" },
-        { id: "embedder-integration", label: "Embedder Integration" },
-        { id: "context-manager", label: "Context Manager Usage" },
-        { id: "examples", label: "Code Examples" },
+        { id: "clients", label: "Client & PersistentClient" },
+        { id: "settings", label: "Settings" },
+        { id: "connect-legacy", label: "connect() (deprecated)" },
+        { id: "embedder-integration", label: "Embedder integration" },
+        { id: "context-manager", label: "Context manager usage" },
+        { id: "examples", label: "Code examples" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        <code>elips.connect()</code> is the primary, modern entry point for opening or initializing an ELIPS database in Python. It creates the underlying C++ database instance and wraps it in a high-level <Link to="/docs/python/engine"><code>Engine</code></Link> handle.
+        <code>elips.Client()</code> and <code>elips.PersistentClient()</code> are the entry points
+        for opening an ELIPS database in Python. They create the underlying C++ database and expose
+        the Chroma-style client surface (<code>create_collection</code>,{" "}
+        <code>get_or_create_collection</code>, <code>list_collections</code>, …) through a high-level{" "}
+        <Link to="/docs/python/engine"><code>Engine</code></Link> handle.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        The modern Python surface favors <code>elips.connect()</code> over raw database handle instantiation. It automatically configures vector dimensions, distance metrics, HNSW parameters, text embedder models, and durability guarantees.
+        <code>Client</code> opens an ephemeral, in-memory database; <code>PersistentClient</code>{" "}
+        opens (or creates) one on disk. ELIPS is dimension-first, so a <code>dimension</code> (or a
+        dimension-fixing <code>embedder</code>) is required. The pre-1.1 openers{" "}
+        <code>elips.connect()</code> / <code>elips.open()</code> / <code>elips.Engine</code> still
+        work as deprecated shims.
       </p>
 
-      <h2 id="connect-signature">elips.connect()</h2>
-      <CodeBlock lang="python">{`def connect(
-    path: str = ":memory:",
-    *,
-    dimension: int = 128,
-    metric: str = "cosine",             # "cosine", "euclidean", "dot_product"
-    index_type: str = "hnsw",           # "hnsw", "exact", "ivf_flat", "ivf_pq"
-    embedder: Embedder | None = None,   # Python callable or sentence-transformers model
-    durability: str = "sync_on_commit", # "sync_on_commit", "wal_only", "in_memory"
-    access_mode: str = "read_write",    # "read_write", "read_only"
-    gpu: bool = False,
-) -> Engine: ...`}</CodeBlock>
+      <h2 id="clients">Client &amp; PersistentClient</h2>
+      <CodeBlock lang="python">{`import elips
 
-      <h2 id="connect-with-config">elips.connect_with_config()</h2>
-      <CodeBlock lang="python">{`def connect_with_config(
-    path: str,
-    config: Config,
-    *,
-    embedder: Embedder | None = None
-) -> Engine: ...`}</CodeBlock>
+# Ephemeral, in-memory
+client = elips.Client(dimension=384, metric="cosine")
 
-      <h2 id="embedder-integration">Embedder Integration</h2>
+# On disk (opens or creates)
+client = elips.PersistentClient("./my_db", dimension=384)
+
+docs = client.get_or_create_collection("documents")`}</CodeBlock>
+
+      <h2 id="settings">Settings</h2>
       <p>
-        You can pass any text-to-vector embedding function or object matching the <code>Embedder</code> protocol (e.g. SentenceTransformers, OpenAI, Ollama):
+        Both clients accept the same keyword settings:
+      </p>
+      <ul>
+        <li>
+          <code>dimension</code> — vector dimension. Required for in-memory and new databases.
+        </li>
+        <li>
+          <code>metric</code> — <code>"cosine"</code> (default), <code>"euclidean"</code>, or{" "}
+          <code>"dot_product"</code>.
+        </li>
+        <li>
+          <code>index</code> — <code>"graph"</code> (default, HNSW) or <code>"exact"</code> (flat).
+        </li>
+        <li>
+          <code>access_mode</code> — <code>"read_write"</code> (default) or <code>"read_only"</code>.
+        </li>
+        <li>
+          <code>embedder</code> — a Python callable or <code>LocalEmbedderConfig</code>.
+        </li>
+        <li>
+          <code>quantization</code> — a <code>QuantParams</code> or a codec name (<code>"sq8"</code>,{" "}
+          <code>"pq"</code>, <code>"opq"</code>).
+        </li>
+        <li>
+          <code>device</code> — <code>"cpu"</code>, <code>"auto"</code>, <code>"metal"</code>,{" "}
+          <code>"cuda:N"</code>, or <code>"hip:N"</code> (see{" "}
+          <Link to="/docs/python/gpu">GPU</Link>); or pass a <code>gpu=GpuConfig(...)</code>.
+        </li>
+        <li>
+          <code>segmented_storage</code>, <code>metadata_acceleration</code>,{" "}
+          <code>use_default_text_embedder</code> — persistence and embedder toggles.
+        </li>
+      </ul>
+      <p>
+        There is no <code>index_type</code>, no <code>durability=</code>, and no{" "}
+        <code>gpu=True</code> keyword — those never existed on the opener. Durability is configured
+        on the native <code>Config</code>; see <Link to="/docs/python/durability">Durability</Link>.
+      </p>
+
+      <h2 id="connect-legacy">connect() (deprecated)</h2>
+      <CodeBlock lang="python">{`def connect(
+    path: str,
+    *,
+    dimension: int = 0,
+    metric: str = "cosine",            # "cosine" | "euclidean" | "dot_product"
+    index: str = "graph",              # "graph" (HNSW) | "exact" (flat)
+    access_mode: str = "read_write",   # "read_write" | "read_only"
+    embedder = None,
+    quantization = None,               # QuantParams | "sq8" | "pq" | "opq"
+    gpu = None,                        # GpuConfig | None
+    device: str | None = None,         # "cpu" | "auto" | "metal" | "cuda:N" | "hip:N"
+    fallback: bool = False,
+) -> Engine: ...  # deprecated shim; prefer Client / PersistentClient`}</CodeBlock>
+
+      <h2 id="embedder-integration">Embedder integration</h2>
+      <p>
+        Pass any text-to-vector embedding function matching the <code>Embedder</code> protocol
+        (e.g. SentenceTransformers, OpenAI, Ollama):
       </p>
       <CodeBlock lang="python">{`from sentence_transformers import SentenceTransformer
 import elips
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Pass model directly to connect
-with elips.connect("./my_db", dimension=384, embedder=model.encode) as engine:
-    arena = engine.arena("docs")
-    arena.write(text="ELIPS makes vector search embedded and fast.")
-    
-    hits = arena.probe_text("fast vector search", top=3)
+with elips.PersistentClient("./my_db", dimension=384, embedder=model.encode) as client:
+    docs = client.get_or_create_collection("docs")
+    docs.add(documents=["ELIPS makes vector search embedded and fast."])
+
+    hits = docs.query(query_texts="fast vector search", n_results=3)
     print(hits[0].text)`}</CodeBlock>
 
-      <h2 id="context-manager">Context Manager Usage</h2>
+      <h2 id="context-manager">Context manager usage</h2>
       <p>
-        Using <code>connect()</code> inside a Python <code>with</code> block guarantees that the database is flushed, checkpointed, and closed cleanly upon exiting the block:
+        Using a client inside a <code>with</code> block flushes, checkpoints, and closes the
+        database cleanly on exit:
       </p>
-      <CodeBlock lang="python">{`with elips.connect("vectors.elips", dimension=1536) as engine:
-    # Perform read/write operations
+      <CodeBlock lang="python">{`with elips.PersistentClient("vectors.elips", dimension=1536) as client:
+    # read/write operations
     pass
-# Database handle is safely closed here`}</CodeBlock>
+# database handle is safely closed here`}</CodeBlock>
 
-      <h2 id="examples">Code Examples</h2>
-      <h3 id="in-memory">In-Memory Volatile DB</h3>
+      <h2 id="examples">Code examples</h2>
+      <h3 id="in-memory">In-memory volatile DB</h3>
       <CodeBlock lang="python">{`import elips
 
-with elips.connect(":memory:", dimension=64, metric="euclidean") as engine:
-    arena = engine.arena("quick_test")
-    arena.write(vector=[0.1] * 64, meta={"tag": "test"})`}</CodeBlock>
+with elips.Client(dimension=64, metric="euclidean") as client:
+    quick = client.get_or_create_collection("quick_test")
+    quick.add(embeddings=[[0.1] * 64], metadatas=[{"tag": "test"}])`}</CodeBlock>
 
-      <h3 id="persistent-gpu">Persistent Disk DB with GPU Acceleration</h3>
+      <h3 id="persistent-gpu">Persistent disk DB with GPU acceleration</h3>
       <CodeBlock lang="python">{`import elips
 
-with elips.connect(
-    "./gpu_db",
-    dimension=1536,
-    metric="cosine",
-    durability="wal_only",
-    gpu=True
-) as engine:
-    print(f"Connected to GPU: {engine.gpu_info()}")`}</CodeBlock>
+with elips.PersistentClient("./gpu_db", dimension=1536, device="metal") as client:
+    print(f"Backend: {client.native.gpu_info().backend}")`}</CodeBlock>
     </DocsShell>
   );
 }

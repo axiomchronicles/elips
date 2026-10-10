@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/gpu/overview")({
       {
         name: "description",
         content:
-          "Comprehensive overview of ELIPS GPU engine: CUDA, HIP, Metal backends, GpuPort architecture, memory pools, dynamic batching, and acceleration pipelines.",
+          "Overview of the ELIPS GPU engine: the Metal backend (real), experimental CUDA/HIP, the GpuBackend abstraction, memory pools, query batching, and acceleration pipelines.",
       },
     ],
   }),
@@ -23,41 +23,76 @@ function Page() {
       title="GPU Engine Architecture"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "backends", label: "Backend Support (CUDA, HIP, Metal)" },
-        { id: "port-architecture", label: "GpuPort & Device Abstractions" },
-        { id: "index-family", label: "GPU Index Family" },
-        { id: "memory-pools", label: "Memory Management & Pools" },
-        { id: "batching-pipelines", label: "Dynamic Batcher & Pipelines" },
-        { id: "python-integration", label: "Python API Integration" },
+        { id: "backends", label: "Backend maturity" },
+        { id: "port-architecture", label: "GpuBackend abstraction" },
+        { id: "index-family", label: "GPU index family" },
+        { id: "memory-pools", label: "Memory management & pools" },
+        { id: "batching-pipelines", label: "Query batcher & pipelines" },
+        { id: "python-integration", label: "Python API integration" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS features a unified, multi-backend GPU acceleration engine capable of offloading matrix distance calculations, IVF-PQ quantization, graph traversals, and dynamic batch queries to hardware accelerators.
+        ELIPS has a multi-backend GPU abstraction for offloading distance math and top-k selection
+        to hardware accelerators. Today the <strong>Metal</strong> backend is the implemented,
+        production path on Apple silicon; CUDA and HIP/ROCm are experimental, and everything falls
+        back to CPU.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        The GPU engine provides ultra-high throughput vector search by exploiting massively parallel CUDA cores (NVIDIA), HIP streams (AMD), and Metal Performance Shaders (Apple Silicon).
+        The GPU engine accelerates vector search by running distance and top-k kernels on the
+        device. On Apple silicon, unified memory lets ELIPS skip host↔device copies. The exact
+        brute-force path is reachable directly from Python through{" "}
+        <code>elips.bf_knn(..., device="metal")</code>.
       </p>
 
-      <h2 id="backends">Backend Support (CUDA, HIP, Metal)</h2>
-      <ul>
-        <li>
-          <strong>CUDA Backend:</strong> Native CUDA C++ kernels targeting NVIDIA Volta, Ampere, Hopper, and Blackwell architectures using async streams and Tensor Cores.
-        </li>
-        <li>
-          <strong>HIP Backend:</strong> AMD ROCm acceleration for Instinct MI200/MI300 series accelerators.
-        </li>
-        <li>
-          <strong>Metal Backend:</strong> Hardware-accelerated matrix multiplication on Apple M1/M2/M3/M4 unified memory architectures.
-        </li>
-      </ul>
+      <h2 id="backends">Backend maturity</h2>
+      <div className="not-prose my-4 overflow-x-auto">
+        <table className="w-full text-[13.5px] border border-hairline">
+          <thead>
+            <tr className="bg-surface text-ink">
+              <th className="text-left p-2 border-b border-hairline">Backend</th>
+              <th className="text-left p-2 border-b border-hairline">Status</th>
+              <th className="text-left p-2 border-b border-hairline">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="p-2 border-b border-hairline">Metal</td>
+              <td className="p-2 border-b border-hairline">Production</td>
+              <td className="p-2 border-b border-hairline">
+                Apple M-series, default ON. Distance + top-k kernels, unified memory.
+              </td>
+            </tr>
+            <tr>
+              <td className="p-2 border-b border-hairline">CUDA</td>
+              <td className="p-2 border-b border-hairline">Experimental</td>
+              <td className="p-2 border-b border-hairline">
+                NVIDIA. Off by default; opt in and expect rough edges.
+              </td>
+            </tr>
+            <tr>
+              <td className="p-2 border-b border-hairline">HIP / ROCm</td>
+              <td className="p-2 border-b border-hairline">Experimental</td>
+              <td className="p-2 border-b border-hairline">AMD. Off by default.</td>
+            </tr>
+            <tr>
+              <td className="p-2">CPU</td>
+              <td className="p-2">Always</td>
+              <td className="p-2">The fallback path; present in every build.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        SYCL and Vulkan backends were removed from the engine; they are not part of ELIPS.
+      </p>
 
-      <h2 id="port-architecture">GpuPort & Device Abstractions</h2>
+      <h2 id="port-architecture">GpuBackend abstraction</h2>
       <CodeBlock lang="cpp">{`namespace elips::gpu {
-    class GpuPort {
+    class GpuBackend {
     public:
-        virtual ~GpuPort() = default;
+        virtual ~GpuBackend() = default;
         virtual GpuDeviceInfo device_info() const = 0;
         virtual GpuMetricsSnapshot metrics() const = 0;
         virtual void compute_distances(
@@ -67,6 +102,10 @@ function Page() {
         ) = 0;
     };
 }`}</CodeBlock>
+      <p>
+        A <code>BackendSelector</code> picks the backend once at startup; the chain is backend →
+        device → CPU, so the runtime always lands on a working path.
+      </p>
 
       <h2 id="index-family">GPU Index Family</h2>
       <p>
@@ -106,23 +145,28 @@ function Page() {
         </li>
       </ul>
 
-      <h2 id="batching-pipelines">Dynamic Batcher & Pipelines</h2>
+      <h2 id="batching-pipelines">Query batcher &amp; pipelines</h2>
       <CodeBlock lang="cpp">{`namespace elips::gpu {
-    class DynamicBatcher;
+    class QueryBatcher;
     class GpuIngestionPipeline;
     class GpuSearchPipeline;
 }`}</CodeBlock>
       <p>
-        The <code>DynamicBatcher</code> accumulates incoming single vector queries from multiple CPU worker threads into contiguous GPU batch matrices, maximizing Tensor Core compute efficiency.
+        The <code>QueryBatcher</code> coalesces incoming single-vector queries from multiple CPU
+        worker threads into contiguous GPU batch matrices, amortising kernel-launch overhead.
       </p>
 
-      <h2 id="python-integration">Python API Integration</h2>
+      <h2 id="python-integration">Python API integration</h2>
       <CodeBlock lang="python">{`import elips
 
-# Initialize GPU accelerator handle
-with elips.connect(":memory:", dimension=1536, gpu=True) as engine:
-    print(engine.gpu_info())
-    # {'device_name': 'NVIDIA RTX 4090', 'total_memory_mb': 24576, 'backend': 'cuda'}`}</CodeBlock>
+# Select a backend by device string (not gpu=True)
+with elips.PersistentClient("./db", dimension=1536, device="metal") as client:
+    info = client.native.gpu_info()
+    print(info.backend)   # "metal" on Apple silicon, else "cpu"
+
+# Enumerate accelerators without opening a database
+for spec in elips.accelerators():
+    print(spec.name, spec.backend, spec.unified_memory)`}</CodeBlock>
     </DocsShell>
   );
 }

@@ -18,7 +18,7 @@ fallback.
 
 The fundamental contract is that `distance()` returns a value where **smaller
 means more similar** for every metric. This allows all index implementations
-(ExactIndex, HNSW) and the query engine to sort results ascending by distance
+(`IndexFlat`, `IndexHNSW`, and the IVF family) and the query engine to sort results ascending by distance
 and keep the smallest K, without needing to know which metric is in use.
 
 This is achieved by transforming each underlying metric:
@@ -59,8 +59,8 @@ float distance(Metric metric, std::span<const float> a,
 
 Assumes both vectors are L2-normalised (unit length). ELIPS enforces this
 through `requires_normalization()`, which returns `true` for cosine only.
-`Vault::prepare()` calls `vector.normalized()` for cosine metrics before
-inserting or querying, so the index engine always receives unit vectors.
+`Collection::prepare()` calls `vector.normalized()` for cosine metrics before
+adding or querying, so the index engine always receives unit vectors.
 
 The returned value 1 − dot measures the cosine distance, with a range of
 [0, 2] for normalised inputs.
@@ -218,7 +218,7 @@ bool requires_normalization(Metric metric) noexcept {
 }
 ```
 
-Only the cosine metric requires L2-normalisation. The caller (`Vault::prepare()`)
+Only the cosine metric requires L2-normalisation. The caller (`Collection::prepare()`)
 calls `vector.normalized()` on both ingested and query vectors when this returns
 `true`.
 
@@ -273,6 +273,6 @@ on unrecognised input rather than silently defaulting.
 - Cosine distance adds one extra subtraction (1 − dot) after the dot product
   — negligible overhead.
 - The `distance()` function is the hottest code path in the system. Every
-  candidate evaluation in ExactIndex linear scan and every neighbour probe
-  in HNSW beam search calls `distance()`. The NEON dispatch ensures this
+  candidate evaluation in `IndexFlat` linear scan and every neighbour probe
+  in `IndexHNSW` beam search calls `distance()`. The NEON dispatch ensures this
   path is as close to hardware as possible with zero abstraction overhead.

@@ -36,6 +36,14 @@ New: `where=`, `where_document=` (raises `NotImplementedError` until implemented
 `create_collection` / `get_collection` / `get_or_create_collection` / `list_collections` on the client.
 (`delete_collection` / `reset` are not yet implemented and raise `NotImplementedError`.)
 
+### FAISS-style Index API (new)
+A low-level numpy surface sits alongside the Collection API: `elips.IndexFlat`,
+`IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer`, `IndexHNSW`, the
+`index_factory(d, spec)` builder, and standalone `bf_knn`. There is no old name to
+migrate from — this layer is new. (`read_index`/`write_index`, `get_num_gpus`,
+`index_cpu_to_gpu`, `StandardGpuResources`, and Python `range_search`/`reconstruct`
+are not yet exposed; see `docs/roadmap.md`.)
+
 ### Exceptions
 Suffix-aligned to `*Error`; new `NotTrainedError`, `CollectionNotFoundError`, `BackendUnavailableError`.
 Removed from the public surface (never produced by any API): `IndexSnapshot`, `IvfSnapshot`,
@@ -57,6 +65,9 @@ Removed from the public surface (never produced by any API): `IndexSnapshot`, `I
 | `DynamicBatcher` | `QueryBatcher` |
 | `MetadataIndex` | `MetadataFilterIndex` |
 | `GraphParams` | `HnswParams` |
+| `IndexFactory` / `make_index` | `index_factory` |
+
+> Note: `IndexType::graph` / `IndexType::exact` are **unchanged** (the enumerators were not renamed to `hnsw`/`flat`). The class `IndexFlat`/`IndexHNSW` names apply to the Index API types, not the `Config::IndexType` enum.
 
 ### Methods
 `place`→`add` (+`_many`/`_document`), `seek`→`search` (+`_text`), `seek_hybrid`→`hybrid_search`,
