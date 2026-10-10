@@ -1,18 +1,30 @@
 // PyBind11 bindings for ELIPS. Exposes the embedded database, vaults, filters,
 // transactions, configuration, GPU config, and the EQL query interface to Python.
 #include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "elips/elips.hpp"
+#include "elips/index_engine/Index.hpp"
+#include "elips/index_engine/IndexFactory.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
+#include "elips/index_engine/IndexIVFFlat.hpp"
+#include "elips/index_engine/IndexIVFPQ.hpp"
+#include "elips/index_engine/IndexIVFScalarQuantizer.hpp"
 #include "elips/index_engine/IndexSnapshot.hpp"
 #include "elips/query_engine/AST.hpp"
 #include "elips/query_engine/EQLLexer.hpp"
@@ -360,6 +372,212 @@ namespace {
 
 }  // namespace
 #endif
+
+namespace {
+
+// ============================================================================
+// FAISS-style Index adapter (Phase 6.6).
+//
+// A thin numpy-facing wrapper over elips::Index that gives Python the FAISS
+// contract: positional int64 labels, (nq, k) float32/int64 search outputs with
+// -1 padding, train/add/add_with_ids/search/reset + ntotal/d/is_trained/nprobe.
+// elips::Index stores records by 128-bit RecordID; this adapter owns the
+// label<->RecordID map so callers see plain int64 ids like FAISS does.
+// ============================================================================
+
+// FAISS-recognizable metric spellings -> the elips Metric enum.
+elips::Metric parse_index_metric(const std::string& name) {
+    if (name == "l2" || name == "L2" || name == "euclidean") {
+        return elips::Metric::euclidean;
+    }
+    if (name == "ip" || name == "dot" || name == "dot_product" ||
+        name == "inner_product") {
+        return elips::Metric::dot_product;
+    }
+    if (name == "cosine") {
+        return elips::Metric::cosine;
+    }
+    throw py::value_error(
+        "unknown metric '" + name +
+        "': expected 'l2'/'euclidean', 'ip'/'dot_product', or 'cosine'");
+}
+
+// numpy IN contract: float32, C-contiguous, forced-cast (silent copy only when
+// the caller's array isn't already f32/C-contiguous), matching FAISS.
+using FloatArray =
+    py::array_t<float, py::array::c_style | py::array::forcecast>;
+using Int64Array =
+    py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>;
+
+class PyIndex {
+public:
+    PyIndex(std::unique_ptr<elips::Index> idx, std::uint16_t d,
+            elips::Metric metric, std::size_t* nprobe_ptr,
+            std::function<std::unique_ptr<elips::Index>()> rebuild)
+        : idx_(std::move(idx)),
+          d_(d),
+          metric_(metric),
+          nprobe_ptr_(nprobe_ptr),
+          rebuild_(std::move(rebuild)) {}
+
+    void train(const FloatArray& x) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        idx_->train(std::span<const float>(data, n * d_), n);
+    }
+
+    // add(): FAISS positional labels ntotal .. ntotal+n-1, one fresh RecordID
+    // per row.
+    void add(const FloatArray& x) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        const std::int64_t base = static_cast<std::int64_t>(idx_->ntotal());
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto rid = elips::RecordID::generate();
+            rid_to_label_[rid] = base + static_cast<std::int64_t>(i);
+            idx_->add_with_ids(rid, std::span<const float>(data + i * d_, d_));
+        }
+    }
+
+    void add_with_ids(const FloatArray& x, const Int64Array& ids) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        if (static_cast<std::size_t>(ids.size()) != n) {
+            throw py::value_error(
+                "add_with_ids: ids length must equal the number of rows");
+        }
+        const std::int64_t* idp = ids.data();
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto rid = elips::RecordID::generate();
+            rid_to_label_[rid] = idp[i];
+            idx_->add_with_ids(rid, std::span<const float>(data + i * d_, d_));
+        }
+    }
+
+    // search(): returns (D float32[nq,k], I int64[nq,k]). Slots past the number
+    // of hits (k > ntotal) get label -1 and a +inf sentinel distance, matching
+    // FAISS heap padding.
+    py::tuple search(const FloatArray& x, std::size_t k) {
+        if (k == 0) {
+            throw py::value_error("search: k must be > 0");
+        }
+        std::size_t nq = 0;
+        const float* data = as_rows(x, nq);
+        py::array_t<float> dists({static_cast<py::ssize_t>(nq),
+                                  static_cast<py::ssize_t>(k)});
+        py::array_t<std::int64_t> labels({static_cast<py::ssize_t>(nq),
+                                          static_cast<py::ssize_t>(k)});
+        float* dptr = dists.mutable_data();
+        std::int64_t* iptr = labels.mutable_data();
+        for (std::size_t q = 0; q < nq; ++q) {
+            const auto hits =
+                idx_->search(std::span<const float>(data + q * d_, d_), k);
+            for (std::size_t j = 0; j < k; ++j) {
+                const std::size_t slot = q * k + j;
+                if (j < hits.size()) {
+                    dptr[slot] = hits[j].second;
+                    const auto it = rid_to_label_.find(hits[j].first);
+                    iptr[slot] = it != rid_to_label_.end() ? it->second : -1;
+                } else {
+                    dptr[slot] = std::numeric_limits<float>::infinity();
+                    iptr[slot] = -1;
+                }
+            }
+        }
+        return py::make_tuple(std::move(dists), std::move(labels));
+    }
+
+    void reset() {
+        // IVF indexes keep their trained centroids across reset(); Flat/HNSW
+        // have no reset of their own, so rebuild a fresh empty index.
+        if (rebuild_) {
+            idx_ = rebuild_();
+        } else {
+            idx_->reset();
+        }
+        rid_to_label_.clear();
+    }
+
+    [[nodiscard]] std::size_t ntotal() const { return idx_->ntotal(); }
+    [[nodiscard]] std::uint16_t d() const { return d_; }
+    [[nodiscard]] bool is_trained() const { return idx_->is_trained(); }
+
+    [[nodiscard]] std::size_t get_nprobe() const {
+        if (nprobe_ptr_ == nullptr) {
+            throw py::attribute_error("nprobe is only defined for IVF indexes");
+        }
+        return *nprobe_ptr_;
+    }
+    void set_nprobe(std::size_t value) {
+        if (nprobe_ptr_ == nullptr) {
+            throw py::attribute_error("nprobe is only defined for IVF indexes");
+        }
+        if (value == 0) {
+            throw py::value_error("nprobe must be >= 1");
+        }
+        *nprobe_ptr_ = value;
+    }
+
+    [[nodiscard]] std::string repr() const {
+        return "<Index " + std::string(idx_->type_name()) +
+               " d=" + std::to_string(d_) +
+               " ntotal=" + std::to_string(idx_->ntotal()) + ">";
+    }
+
+private:
+    // Validate shape against d_ and return a pointer to contiguous row-major
+    // floats. Accepts (n, d) or a bare 1-D (d,) treated as a single row.
+    const float* as_rows(const FloatArray& x, std::size_t& n) const {
+        if (x.ndim() == 1) {
+            if (static_cast<std::size_t>(x.shape(0)) != d_) {
+                throw elips::DimensionMismatch{
+                    "expected a vector of dimension " + std::to_string(d_)};
+            }
+            n = 1;
+            return x.data();
+        }
+        if (x.ndim() == 2) {
+            if (static_cast<std::size_t>(x.shape(1)) != d_) {
+                throw elips::DimensionMismatch{
+                    "expected rows of dimension " + std::to_string(d_)};
+            }
+            n = static_cast<std::size_t>(x.shape(0));
+            return x.data();
+        }
+        throw py::value_error("expected a 1-D or 2-D float32 array");
+    }
+
+    std::unique_ptr<elips::Index> idx_;
+    std::uint16_t d_;
+    elips::Metric metric_;
+    std::size_t* nprobe_ptr_;  // -> concrete IVF nprobe, else null
+    std::function<std::unique_ptr<elips::Index>()> rebuild_;  // empty for IVF
+    std::unordered_map<elips::RecordID, std::int64_t> rid_to_label_;
+};
+
+// Classify a freshly built index: locate its IVF nprobe knob (if any) and
+// decide reset() strategy, then wrap it. Keeps every constructor uniform.
+PyIndex make_py_index(std::unique_ptr<elips::Index> idx, std::uint16_t d,
+                      elips::Metric metric,
+                      std::function<std::unique_ptr<elips::Index>()> rebuild) {
+    std::size_t* nprobe = nullptr;
+    if (auto* p = dynamic_cast<elips::IndexIVFFlat*>(idx.get())) {
+        nprobe = &p->nprobe;
+    } else if (auto* p = dynamic_cast<elips::IndexIVFPQ*>(idx.get())) {
+        nprobe = &p->nprobe;
+    } else if (auto* p =
+                   dynamic_cast<elips::IndexIVFScalarQuantizer*>(idx.get())) {
+        nprobe = &p->nprobe;
+    }
+    // IVF indexes have a real reset() that preserves training; drop the rebuild
+    // closure for them so reset() keeps the learned centroids.
+    if (nprobe != nullptr) {
+        rebuild = {};
+    }
+    return PyIndex(std::move(idx), d, metric, nprobe, std::move(rebuild));
+}
+
+}  // namespace
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "ELIPS — embedded local vector database (C extension)";
@@ -2880,6 +3098,122 @@ Example:
               return elips::open(path, config);
           },
           py::arg("path"), py::arg("config"));
+
+    // =====================  FAISS-style Index API (Phase 6.6)  =============
+    //
+    // A numpy-facing, FAISS-recognizable surface over elips::Index. Vectors go
+    // in as float32, C-contiguous, (n, d) arrays (a bare (d,) is one row);
+    // search returns (D float32[nq,k], I int64[nq,k]) with -1 label padding.
+    // Labels are positional int64 like FAISS; the adapter owns the
+    // label<->RecordID map so Python never sees a RecordID.
+
+    py::class_<PyIndex>(m, "Index",
+                        "A FAISS-style vector index. Construct one with "
+                        ":func:`IndexFlat`, :func:`IndexIVFFlat`, "
+                        ":func:`IndexIVFPQ`, :func:`IndexIVFScalarQuantizer`, "
+                        ":func:`IndexHNSW`, or :func:`index_factory`.")
+        .def("train", &PyIndex::train, py::arg("x"),
+             "Learn index structure (e.g. IVF centroids) from ``x`` "
+             "(float32 (n, d)). A no-op for indexes that need no training.")
+        .def("add", &PyIndex::add, py::arg("x"),
+             "Add rows of ``x``, assigning sequential int64 labels "
+             "``ntotal .. ntotal+n-1`` (FAISS semantics).")
+        .def("add_with_ids", &PyIndex::add_with_ids, py::arg("x"),
+             py::arg("ids"),
+             "Add rows of ``x`` under the caller-supplied int64 ``ids``.")
+        .def("search", &PyIndex::search, py::arg("x"), py::arg("k"),
+             "Return ``(D, I)``: float32 distances and int64 labels, each "
+             "``(nq, k)``. Unfilled slots (k > ntotal) hold label -1.")
+        .def("reset", &PyIndex::reset,
+             "Remove all stored vectors. IVF indexes keep their training.")
+        .def_property_readonly("ntotal", &PyIndex::ntotal,
+                               "Number of indexed vectors.")
+        .def_property_readonly("d", &PyIndex::d, "Vector dimension.")
+        .def_property_readonly("is_trained", &PyIndex::is_trained,
+                               "True when the index is ready for ``add``.")
+        .def_property("nprobe", &PyIndex::get_nprobe, &PyIndex::set_nprobe,
+                      "Lists probed per query (IVF indexes only).")
+        .def("__repr__", &PyIndex::repr);
+
+    m.def("IndexFlat",
+          [](std::uint16_t d, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexFlat>(mt, d), d, mt,
+                  [mt, d] {
+                      return std::unique_ptr<elips::Index>(
+                          std::make_unique<elips::IndexFlat>(mt, d));
+                  });
+          },
+          py::arg("d"), py::arg("metric") = "l2",
+          "Brute-force exact index. ``metric`` is 'l2'/'euclidean', "
+          "'ip'/'dot_product', or 'cosine'.");
+
+    m.def("IndexIVFFlat",
+          [](std::uint16_t d, std::size_t nlist, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFFlat>(mt, d, nlist), d, mt,
+                  {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("metric") = "l2",
+          "Inverted-file index with full-precision postings. Call "
+          ":meth:`Index.train` before adding; tune recall with ``nprobe``.");
+
+    m.def("IndexIVFPQ",
+          [](std::uint16_t d, std::size_t nlist, std::uint32_t M,
+             const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFPQ>(mt, d, nlist, M), d, mt,
+                  {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("M"),
+          py::arg("metric") = "l2",
+          "Inverted-file index with product-quantized postings (``M`` "
+          "subspaces, 8-bit codes).");
+
+    m.def("IndexIVFScalarQuantizer",
+          [](std::uint16_t d, std::size_t nlist, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFScalarQuantizer>(mt, d,
+                                                                   nlist),
+                  d, mt, {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("metric") = "l2",
+          "Inverted-file index with SQ8 (per-dimension int8) postings.");
+
+    m.def("IndexHNSW",
+          [](std::uint16_t d, std::size_t M, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              elips::HnswParams params;
+              params.max_connections = M;
+              return make_py_index(
+                  std::make_unique<elips::IndexHNSW>(mt, d, params), d, mt,
+                  [mt, d, params] {
+                      return std::unique_ptr<elips::Index>(
+                          std::make_unique<elips::IndexHNSW>(mt, d, params));
+                  });
+          },
+          py::arg("d"), py::arg("M") = 16, py::arg("metric") = "l2",
+          "HNSW graph index. ``M`` is the per-node neighbour count.");
+
+    m.def("index_factory",
+          [](std::uint16_t d, const std::string& spec,
+             const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  elips::index_factory(d, mt, spec), d, mt,
+                  [mt, d, spec] { return elips::index_factory(d, mt, spec); });
+          },
+          py::arg("d"), py::arg("spec"), py::arg("metric") = "l2",
+          R"doc(Build an index from a FAISS-style factory string.
+
+Supported specs mirror FAISS token spellings:
+    "Flat", "IVF<nlist>,Flat", "IVF<nlist>,PQ<M>", "IVF<nlist>,SQ8",
+    "HNSW<M>".  e.g. ``index_factory(128, "IVF32,Flat")``.
+)doc");
 
     // =====================  Phase 5 naming aliases  =====================
     // The C++ core already carries the new vocabulary; expose it in Python

@@ -55,6 +55,7 @@ Deep rename applied across C++ / Python / EQL / CMake in 8 verified batches; bui
 ## Phase 6 checklist (core maturity — fill gaps, don't rebuild)
 - [x] 6.1 CPU IVFFlat + `index_factory` + Index-contract extension (train/is_trained/reset defaults). ctest 268 (267+1skip); recall@10 vs Flat oracle: euclidean .999/cosine .985/dot .995 @nprobe8, →1.0 @nprobe=nlist.
 - [x] 6.2 IVFPQ + IVF-SQ (CPU) over the same factory. ctest 287 (286+1skip). IVFPQ 16× compression, recall@10 ~0.72 plateau (by_residual PQ); IVF-SQ 4× compression, recall@10 0.96. factory `IVF<n>,PQ<M>` / `IVF<n>,SQ8`.
+- [x] 6.6 expose FAISS Index API in Python — `elips.IndexFlat/IndexIVFFlat/IndexIVFPQ/IndexIVFScalarQuantizer/IndexHNSW` + `index_factory`, numpy float32/C-contig in, `(D float32, I int64)` out with -1 pad, settable `nprobe`. PyIndex adapter holds int64↔RecordID map. test_index_api.py 8/8; test_bindings 34/34; ctest 287. **Phase 8 note:** numpy is now a real runtime dep of the Index API — add to pyproject.
 - [ ] 6.3 IDMap (arbitrary string ids ⇄ RecordID) — unblocks Chroma `add(ids=…)`
 - [ ] 6.4 IndexRefine (`refine_fraction`), batched search, true `range_search`
 - [ ] 6.5 metric squared/true option; k>ntotal pad policy; numpy float32/C-contig boundary; C++ typed-exception raising
