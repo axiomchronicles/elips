@@ -36,8 +36,6 @@ cmake --build . -j$(nproc)
 | `ELIPS_GPU_METAL` | ON | Apple Metal GPU backend |
 | `ELIPS_GPU_CUDA` | OFF | NVIDIA CUDA GPU backend |
 | `ELIPS_GPU_HIP` | OFF | AMD ROCm/HIP GPU backend |
-| `ELIPS_GPU_SYCL` | OFF | Intel oneAPI/SYCL GPU backend |
-| `ELIPS_GPU_VULKAN` | OFF | Vulkan compute GPU backend |
 
 Enabling any GPU backend automatically sets `ELIPS_GPU_ENABLED` and links the `elips_gpu` library. GPU backends are optional; the library works in pure-CPU mode without any GPU dependencies.
 

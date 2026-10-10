@@ -17,14 +17,6 @@
 #include "hip/HipBackend.hpp"
 #endif
 
-#if defined(ELIPS_SYCL_ENABLED)
-#include "sycl/SyclBackend.hpp"
-#endif
-
-#if defined(ELIPS_VULKAN_ENABLED)
-#include "vulkan/VulkanBackend.hpp"
-#endif
-
 namespace elips::gpu {
 namespace {
 
@@ -101,28 +93,6 @@ std::vector<GpuDeviceInfo> GpuDeviceManager::probe_all_devices() const {
     } catch (...) {}
 #endif
 
-#if defined(ELIPS_SYCL_ENABLED)
-    try {
-        sycl::SyclBackend probe;
-        auto result = probe.initialize(GpuConfig{});
-        if (result.has_value()) {
-            devices.push_back(probe.device_info());
-            probe.shutdown();
-        }
-    } catch (...) {}
-#endif
-
-#if defined(ELIPS_VULKAN_ENABLED)
-    try {
-        vulkan::VulkanBackend probe;
-        auto result = probe.initialize(GpuConfig{});
-        if (result.has_value()) {
-            devices.push_back(probe.device_info());
-            probe.shutdown();
-        }
-    } catch (...) {}
-#endif
-
     std::sort(devices.begin(), devices.end(),
               [](const GpuDeviceInfo& a, const GpuDeviceInfo& b) {
                   if (a.supports_cagra != b.supports_cagra) return a.supports_cagra;
@@ -191,26 +161,6 @@ GpuDeviceManager::select(const GpuConfig& config,
 #if defined(__APPLE__) && defined(ELIPS_METAL_ENABLED)
     if (chosen->backend == "metal") {
         auto backend = std::make_unique<metal::MetalBackend>();
-        auto result = backend->initialize(config);
-        if (result.has_value()) {
-            return backend;
-        }
-    }
-#endif
-
-#if defined(ELIPS_SYCL_ENABLED)
-    if (chosen->backend == "sycl") {
-        auto backend = std::make_unique<sycl::SyclBackend>();
-        auto result = backend->initialize(config);
-        if (result.has_value()) {
-            return backend;
-        }
-    }
-#endif
-
-#if defined(ELIPS_VULKAN_ENABLED)
-    if (chosen->backend == "vulkan") {
-        auto backend = std::make_unique<vulkan::VulkanBackend>();
         auto result = backend->initialize(config);
         if (result.has_value()) {
             return backend;

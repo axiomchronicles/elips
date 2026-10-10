@@ -349,7 +349,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure`}
       </CodeBlock>
       <p>
-        Reference: ADR-GPU-001 through ADR-GPU-010 in{" "}
+        Reference: ADR-GPU-001 through ADR-GPU-008 in{" "}
         <Link to="/docs/design-decisions">Design decisions</Link>.
       </p>
     </DocsShell>

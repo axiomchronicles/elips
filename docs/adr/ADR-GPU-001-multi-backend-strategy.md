@@ -6,7 +6,7 @@
 
 ## Context
 
-ELIPS needs GPU acceleration across NVIDIA CUDA, AMD ROCm, Apple Metal, Intel oneAPI/SYCL, and Vulkan. Each backend has distinct APIs, memory models, and compilation requirements.
+ELIPS needs GPU acceleration across Apple Metal, NVIDIA CUDA, and AMD ROCm/HIP. Each backend has distinct APIs, memory models, and compilation requirements. Metal is the hardware-validated backend; CUDA and HIP are experimental and not yet hardware-validated.
 
 ## Decision
 
@@ -14,11 +14,9 @@ We use a single abstract interface `GpuPort` that all backends implement. Domain
 
 ```
 GpuPort (abstract interface)
+  <- MetalBackend (MPSGraph, MSL compute kernels)
   <- CudaBackend  (cuVS/CAGRA, cuBLAS)
   <- HipBackend   (hipVS/CAGRA, rocBLAS)
-  <- MetalBackend (MPSGraph, MSL compute kernels)
-  <- SyclBackend  (oneMKL, SYCL compute)
-  <- VulkanBackend(SPIR-V compute)
 ```
 
 ## Rationale

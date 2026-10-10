@@ -76,7 +76,7 @@ sequenceDiagram
 
         opt GPU enabled and config.has_gpu()
             Open->>GPU: GpuDeviceManager::probe_all_devices()
-            GPU->>GPU: Try Metal → CUDA → HIP → SYCL → Vulkan
+            GPU->>GPU: Try Metal → CUDA → HIP
             GPU-->>Open: vector<GpuDeviceInfo> (sorted: CAGRA first, then by memory)
             alt devices not empty
                 Open->>Inst: set_gpu_available(true)
@@ -112,7 +112,7 @@ sequenceDiagram
 
 6. **WAL Attach**: If durability is not `ephemeral`, create a new `WAL` instance (opening the log file in append mode). The sync behavior depends on durability: `standard`/`paranoid` flush on every write; `relaxed` does not. Attach the WAL to the instance and all vaults via `attach_wal()`.
 
-7. **GPU Detection** (optional): If `ELIPS_GPU_ENABLED` and the config enables GPU, `GpuDeviceManager::probe_all_devices()` tries each compile-time-enabled backend in order: Metal → CUDA → HIP → SYCL → Vulkan. Results are sorted by CAGRA support then memory capacity. If at least one device is found, it's stored on the instance.
+7. **GPU Detection** (optional): If `ELIPS_GPU_ENABLED` and the config enables GPU, `GpuDeviceManager::probe_all_devices()` tries each compile-time-enabled backend in order: Metal → CUDA → HIP. Results are sorted by CAGRA support then memory capacity. If at least one device is found, it's stored on the instance.
 
 ## 2. Write Path
 

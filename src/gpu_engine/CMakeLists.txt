@@ -30,8 +30,6 @@ target_include_directories(elips_gpu
         ${CMAKE_CURRENT_SOURCE_DIR}/backends/metal
         ${CMAKE_CURRENT_SOURCE_DIR}/backends/cuda
         ${CMAKE_CURRENT_SOURCE_DIR}/backends/hip
-        ${CMAKE_CURRENT_SOURCE_DIR}/backends/sycl
-        ${CMAKE_CURRENT_SOURCE_DIR}/backends/vulkan
 )
 
 target_link_libraries(elips_gpu PUBLIC elips_core)
@@ -59,20 +57,6 @@ if(APPLE AND ELIPS_GPU_METAL)
     add_subdirectory(backends/metal)
     target_link_libraries(elips_gpu PUBLIC elips_gpu_metal)
     target_compile_definitions(elips_gpu PUBLIC ELIPS_METAL_ENABLED)
-endif()
-
-# ---- SYCL backend ----
-if(ELIPS_GPU_SYCL)
-    add_subdirectory(backends/sycl)
-    target_link_libraries(elips_gpu PRIVATE elips_gpu_sycl)
-    target_compile_definitions(elips_gpu PRIVATE ELIPS_SYCL_ENABLED)
-endif()
-
-# ---- Vulkan backend ----
-if(ELIPS_GPU_VULKAN)
-    add_subdirectory(backends/vulkan)
-    target_link_libraries(elips_gpu PRIVATE elips_gpu_vulkan)
-    target_compile_definitions(elips_gpu PRIVATE ELIPS_VULKAN_ENABLED)
 endif()
 
 # ---- GPU tests ----

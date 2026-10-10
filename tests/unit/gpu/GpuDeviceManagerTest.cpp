@@ -103,7 +103,7 @@ TEST(GpuDeviceManagerTest, can_fit_index_estimation) {
     EXPECT_TRUE(manager.can_fit_index(info, 10000, 1536, config));
 }
 
-TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_vulkan) {
+TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_hip) {
     GpuSelector selector;
     std::vector<GpuDeviceInfo> devices;
 
@@ -114,10 +114,10 @@ TEST(GpuDeviceManagerTest, selector_ranks_cuda_over_vulkan) {
     cuda_dev.total_device_memory_bytes = 1024ULL * 1024 * 1024;
     devices.push_back(cuda_dev);
 
-    GpuDeviceInfo vulkan_dev;
-    vulkan_dev.backend = "vulkan";
-    vulkan_dev.name = "Test Vulkan";
-    devices.push_back(vulkan_dev);
+    GpuDeviceInfo hip_dev;
+    hip_dev.backend = "hip";
+    hip_dev.name = "Test AMD";
+    devices.push_back(hip_dev);
 
     GpuConfig config;
     config.policy = GpuPolicy::Auto;

@@ -15,7 +15,7 @@ C4Context
   System_Ext(fs, "Filesystem", "Local directory: IDENTITY, snapshot, WAL log, LOCK file")
 
   Rel(dev, elips, "Inserts vectors, searches, manages transactions via Python SDK, C++ SDK, or CLI")
-  Rel(elips, gpu, "Offloads distance computation and ANN index searches via Metal/CUDA/HIP/SYCL/Vulkan backend")
+  Rel(elips, gpu, "Offloads distance computation and ANN index searches via Metal/CUDA/HIP backend")
   Rel(elips, fs, "Reads/writes persistence data: snapshots, write-ahead log, identity metadata, advisory lock")
 ```
 
@@ -98,7 +98,7 @@ ELIPS follows a clean layered architecture with five logical tiers:
 +-------------------------------------------------------------+
 |  GPU Engine Layer (optional, compile-time backend)          |
 |  - GpuPort (abstract backend interface)                    |
-|  - Backends: Metal, CUDA, HIP, SYCL, Vulkan                |
+|  - Backends: Metal, CUDA, HIP                              |
 |  - Indices: GpuGraphIndex, GpuBruteForce, GpuIVFFlat,     |
 |    GpuIVFPQ, GpuHybridIndex                                |
 |  - Memory: GpuMemoryManager (best-fit pool), unified       |
@@ -138,9 +138,9 @@ Provides persistence and crash safety:
 #### 5. GPU Engine Layer
 Optional layer for GPU-accelerated vector operations (see `docs/internals/gpu-engine.md` for exhaustive details):
 - **GpuPort**: Abstract interface with 13 virtual methods for device management, memory allocation, data transfer, distance computation, and synchronization.
-- **Five backends**: Metal (Apple, always-on), CUDA (NVIDIA), HIP (AMD), SYCL (Intel), Vulkan (cross-platform).
+- **Three backends**: Metal (Apple, always-on, hardware-validated), CUDA (NVIDIA, experimental, not hardware-validated), HIP (AMD, experimental, not hardware-validated).
 - **GpuDeviceManager**: Probes all compile-time-enabled backends, sorts by CAGRA support and memory capacity, selects the best available.
-- **GpuSelector**: Ranks backends (`cuda=100, hip=90, metal=80, sycl=50, vulkan=30, cpu=0`) and selects per policy.
+- **GpuSelector**: Ranks backends (`cuda=100, hip=90, metal=80, cpu=0`) and selects per policy.
 - **GPU Indices**: GpuGraphIndex (CAGRA), GpuBruteForceIndex, GpuIVFFlatIndex, GpuIVFPQIndex, GpuHybridIndex (GPU + CPU fallback).
 - **Memory**: GpuMemoryManager (best-fit pool allocator, thread-safe), GpuMemoryPool (fixed-size pool with block coalescing), pinned memory via `aligned_alloc`, unified memory auto-detection on Apple Silicon.
 - **Batching**: DynamicBatcher (push model, worker thread, time-window + max-batch coalescing, `std::future` results).

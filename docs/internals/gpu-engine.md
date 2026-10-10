@@ -4,7 +4,7 @@ Exhaustive documentation of the GPU acceleration subsystem, covering the abstrac
 
 ## Architecture Overview
 
-The GPU engine is an optional, compile-time-selectable layer that accelerates vector distance computation and approximate nearest neighbor search. It follows a **Ports & Adapters** pattern: the `GpuPort` abstract interface defines the contract, and backend-specific implementations (Metal, CUDA, HIP, SYCL, Vulkan) fulfill it.
+The GPU engine is an optional, compile-time-selectable layer that accelerates vector distance computation and approximate nearest neighbor search. It follows a **Ports & Adapters** pattern: the `GpuPort` abstract interface defines the contract, and backend-specific implementations (Metal, CUDA, HIP) fulfill it. Metal is hardware-validated; CUDA and HIP are experimental and not yet hardware-validated.
 
 ```
 +--------------------------------------------------------------+
@@ -41,8 +41,6 @@ The GPU engine is an optional, compile-time-selectable layer that accelerates ve
 |  elips_gpu_metal  → MetalBackend.mm  + Metal/MPS/Foundation |
 |  elips_gpu_cuda   → CudaBackend.cpp  + CUDA toolkit         |
 |  elips_gpu_hip    → HipBackend.cpp   + ROCm/HIP             |
-|  elips_gpu_sycl   → SyclBackend.cpp  + oneAPI/SYCL          |
-|  elips_gpu_vulkan → VulkanBackend.cpp + Vulkan SDK          |
 +--------------------------------------------------------------+
 ```
 
@@ -216,8 +214,6 @@ The probing order is determined at compile time by `#if defined()` guards:
 1. **Metal** (`__APPLE__ && ELIPS_METAL_ENABLED`): Creates a `metal::MetalBackend`, calls `initialize()`, extracts `device_info()`, calls `shutdown()`.
 2. **CUDA** (`ELIPS_CUDA_ENABLED`): Same probe pattern with `cuda::CudaBackend`.
 3. **HIP** (`ELIPS_HIP_ENABLED`): Same with `hip::HipBackend`.
-4. **SYCL** (`ELIPS_SYCL_ENABLED`): Same with `sycl::SyclBackend`.
-5. **Vulkan** (`ELIPS_VULKAN_ENABLED`): Same with `vulkan::VulkanBackend`.
 
 Each probe is wrapped in a try-catch to handle initialization failures gracefully.
 
@@ -265,8 +261,6 @@ private:
 | `"cuda"` | **100** | Highest performance, most mature ecosystem, CAGRA support |
 | `"hip"` | **90** | AMD ROCm, comparable to CUDA for supported GPUs |
 | `"metal"` | **80** | Native Apple GPU, excellent for unified memory architectures |
-| `"sycl"` | **50** | Intel oneAPI, cross-vendor but less mature for ANN |
-| `"vulkan"` | **30** | Cross-platform compute, highest abstraction overhead |
 | `"cpu"` | **0** | CPU SIMD fallback (no GPU) |
 
 ### select() Policy Logic
@@ -790,7 +784,7 @@ class GpuProfiler {
 - **Atomic counter**: `total_launches_` tracks lifetime kernel launch count.
 - **Enabled via config**: `GpuConfig::enable_profiling` and `emit_kernel_timings`.
 
-## 14. CUDA/HIP/SYCL/Vulkan Stubs
+## 14. CUDA/HIP Stubs
 
 Each non-Metal backend has a stub implementation in its respective directory:
 
@@ -798,12 +792,9 @@ Each non-Metal backend has a stub implementation in its respective directory:
 backends/
   cuda/CudaBackend.cpp      → implements GpuPort via CUDA Runtime API
   hip/HipBackend.cpp        → implements GpuPort via HIP API (ROCm)
-  sycl/SyclBackend.cpp      → implements GpuPort via SYCL 2020
-                            + kernels/cosine_fp32.cpp
-  vulkan/VulkanBackend.cpp  → implements GpuPort via Vulkan Compute
 ```
 
-All stubs follow the same pattern: they implement the 13 pure virtual methods of `GpuPort` using their respective APIs. The SYCL backend includes separate kernel source files (`kernels/cosine_fp32.cpp`) for device kernels. Each backend is compiled as a separate static library.
+All stubs follow the same pattern: they implement the 13 pure virtual methods of `GpuPort` using their respective APIs. Each backend is compiled as a separate static library. Both are experimental and not yet hardware-validated.
 
 ## 15. Fallback Chain
 
@@ -864,7 +855,7 @@ Complete GPU configuration structure:
 ```cpp
 struct GpuConfig {
     GpuPolicy policy{Auto};                    // Auto, PreferGpu, RequireGpu, CpuOnly, Specific
-    std::string preferred_backend;             // "metal", "cuda", "hip", "sycl", "vulkan"
+    std::string preferred_backend;             // "metal", "cuda", "hip"
     int32_t device_index{-1};                  // -1 = auto-select
     IndexBuildMode index_build_mode{GpuBuild_GpuServe};
     GpuIndexAlgorithm algorithm{Auto};          // Auto, CagraGraph, IvfFlat, IvfPq, BruteForce

@@ -9,8 +9,6 @@ int GpuSelector::rank_backend(std::string_view backend) const noexcept {
     if (backend == "cuda")   return 100;
     if (backend == "hip")    return 90;
     if (backend == "metal")  return 80;
-    if (backend == "sycl")   return 50;
-    if (backend == "vulkan") return 30;
     if (backend == "cpu")    return 0;
     return 0;
 }
