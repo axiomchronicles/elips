@@ -11,8 +11,8 @@ Running checklist. Update at every gate. Dates are absolute (today: 2026-10-10).
 | 3 | Study FAISS | DONE (2026-10-10) | ☑ |
 | 4 | Gap analysis | DONE (2026-10-10) | ☑ |
 | 5 | Naming & public API redesign | DONE (2026-10-10) | ☑ |
-| 6 | Core engine maturity | IN PROGRESS (2026-10-10) | ☐ |
-| 7 | GPU acceleration redesign | not started | ☐ |
+| 6 | Core engine maturity | DONE (2026-10-10) | ☑ |
+| 7 | GPU acceleration redesign | IN PROGRESS (2026-10-10) | ☐ |
 | 8 | Build / packaging / test infra | not started | ☐ |
 | 9 | Documentation | not started | ☐ |
 | 10 | Release readiness | not started | ☐ |
@@ -74,6 +74,12 @@ FAISS Index API in Python (numpy), Chroma string ids, range_search, typed errors
 ctest 297 (296+1skip), pytest 34/34 at every commit. Deferred (tracked, non-blocking): IndexRefine,
 batched C++ range, metric-squared kernel, Collection.update string ids, parallel-search pool.
 Next: **Phase 7 — Metal GPU (the heart).**
+
+## Phase 7 checklist (GPU — Metal first; the heart)
+- [x] 7.1 Real Metal Flat path on M4: metallib build chain (`xcrun metal→air→metallib` + env/compiled-in/dladdr loader), tiled-GEMM distance (`elips_l2_matrix`/`elips_ip_matrix`), **GPU top-k** (`topk_select`, exact chunked sort-merge, smaller-index tiebreak — replaces CPU `std::partial_sort`), real `synchronize`. **MetalRealKernelParity test RAN+PASSED on M4** (L2/IP/cosine × dims{2,64,128,384} × n{1,1e3,1e4} × k{1,10,100} + k>ntotal, tol 6e-3). ctest 299. THIRD_PARTY_NOTICES.md (FAISS MIT) added. Device limits queried, not hardcoded. k>1024 clamped (documented ceiling).
+- [ ] REGRESSION FIX (pre-7.1, from Phase 5/6): `.pyi` stub + `_native` seam out of sync with the new surface → `test_exposed_surface`/`test_native_seam` fail (2). Full pytest = 250 pass / 2 fail / 1 skip. Must fix to restore green.
+- [ ] 7.2 GPU IVF scan (ivf_scan_list + merge); 7.3 bf_knn; 7.4 cloner/unified-memory + logged fallback; 7.5 full §7.2 M4 checklist + benchmarks vs faiss-cpu
+- [ ] 7.6 CUDA/HIP compile-check, labelled EXPERIMENTAL
 
 ## Open questions
 (see `04_architecture.md`)
