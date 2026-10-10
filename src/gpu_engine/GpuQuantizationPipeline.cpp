@@ -6,7 +6,7 @@
 
 namespace elips::gpu {
 
-GpuQuantizationPipeline::GpuQuantizationPipeline(GpuPort& backend)
+GpuQuantizationPipeline::GpuQuantizationPipeline(GpuBackend& backend)
     : backend_(backend) {}
 
 // Both entry points delegate to elips::quant::detail, which owns the only

@@ -58,6 +58,9 @@ class NotFound(ElipsError):
 class StorageError(ElipsError):
     """Persistence/IO failure."""
 
+class BackendUnavailableError(ElipsError):
+    """A required GPU backend was unavailable and CPU fallback was not permitted."""
+
 class LockConflict(ElipsError):
     """A second writer tried to open a database directory already held."""
 
@@ -453,6 +456,7 @@ class GpuConfig:
     policy: GpuPolicy
     preferred_backend: str
     device_index: int
+    fallback: bool
     build_mode: IndexBuildMode
     algorithm: GpuIndexAlgorithm
     device_memory_pool_mb: int
@@ -1433,6 +1437,12 @@ Statement: TypeAlias = (
     SearchStatement | FetchStatement | ScanStatement | InsertStatement | DeleteStatement
 )
 
+# EQL vocabulary aliases. ``get``/``add`` are the current statement spellings;
+# the extension exports them as the canonical classes, with ``fetch``/``insert``
+# kept as back-compat aliases of the same type.
+GetStatement = FetchStatement
+AddStatement = InsertStatement
+
 def parse_eql(source: str) -> Statement:
     """Parse an EQL statement into its abstract syntax tree.
 
@@ -1727,3 +1737,67 @@ def open_with_config(path: str, config: Config) -> Database:
     Returns:
         A Database handle.
     """
+
+# -- FAISS-style index API ----------------------------------------------------
+
+class Index:
+    """A FAISS-style vector index.
+
+    Construct one with :func:`IndexFlat`, :func:`IndexIVFFlat`,
+    :func:`IndexIVFPQ`, :func:`IndexIVFScalarQuantizer`, :func:`IndexHNSW`, or
+    :func:`index_factory`.
+    """
+
+    def train(self, x: object) -> None: ...
+    def add(self, x: object) -> None: ...
+    def add_with_ids(self, x: object, ids: object) -> None: ...
+    def search(self, x: object, k: int) -> tuple[object, object]: ...
+    def reset(self) -> None: ...
+    @property
+    def ntotal(self) -> int: ...
+    @property
+    def d(self) -> int: ...
+    @property
+    def is_trained(self) -> bool: ...
+    nprobe: int
+    def __repr__(self) -> str: ...
+
+def IndexFlat(d: int, metric: str = ...) -> Index:
+    """Brute-force exact index."""
+
+def IndexIVFFlat(d: int, nlist: int, metric: str = ...) -> Index:
+    """Inverted-file index with full-precision postings."""
+
+def IndexIVFPQ(d: int, nlist: int, M: int, metric: str = ...) -> Index:
+    """Inverted-file index with product-quantized postings."""
+
+def IndexIVFScalarQuantizer(d: int, nlist: int, metric: str = ...) -> Index:
+    """Inverted-file index with SQ8 postings."""
+
+def IndexHNSW(d: int, M: int = ..., metric: str = ...) -> Index:
+    """HNSW graph index."""
+
+def index_factory(d: int, spec: str, metric: str = ...) -> Index:
+    """Build an index from a FAISS-style factory string."""
+
+def bf_knn(
+    xq: object,
+    xb: object,
+    k: int,
+    metric: str = ...,
+    device: str = ...,
+) -> tuple[object, object]:
+    """Brute-force exact k-NN over raw arrays, no index build.
+
+    Returns ``(D, I)``: float32 distances and int64 row-index labels, each
+    ``(nq, k)``, with -1 / +inf padding for ``k > nb``. ``device`` is
+    'auto', 'cpu', or 'metal'. Present only in GPU-enabled builds.
+    """
+
+# -- Phase 5 naming aliases ---------------------------------------------------
+# The modern vocabulary is Vault/VaultInfo/TransactionVault; these are the
+# kept-working legacy spellings of the same types.
+Collection = Vault
+CollectionInfo = VaultInfo
+TransactionCollection = TransactionVault
+

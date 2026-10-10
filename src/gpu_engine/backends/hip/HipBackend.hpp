@@ -3,12 +3,12 @@
 
 #ifdef ELIPS_HIP_ENABLED
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include <vector>
 
 namespace elips::gpu::hip {
 
-class HipBackend final : public GpuPort {
+class HipBackend final : public GpuBackend {
 public:
     HipBackend();
     ~HipBackend() override;

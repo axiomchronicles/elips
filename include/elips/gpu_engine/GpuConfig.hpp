@@ -59,6 +59,12 @@ struct GpuConfig {
     std::string preferred_backend;
     int32_t device_index{-1};
 
+    // When a GPU is requested (RequireGpu/Specific) but unavailable, permit a
+    // logged demotion to CPU instead of raising BackendUnavailableError.
+    // Auto always permits CPU fallback (CPU is always present); this flag only
+    // affects the explicit-request policies.
+    bool allow_cpu_fallback{false};
+
     IndexBuildMode index_build_mode{IndexBuildMode::GpuBuild_GpuServe};
 
     GpuIndexAlgorithm algorithm{GpuIndexAlgorithm::Auto};

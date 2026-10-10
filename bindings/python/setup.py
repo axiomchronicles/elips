@@ -1,7 +1,7 @@
 """Source build for the ELIPS Python package.
 
 For local development the extension is built via the top-level CMake project
-(`-DELIPS_BUILD_PYTHON=ON`), which places `_core` inside the `elips/` package.
+(`-DELIPS_ENABLE_PYTHON=ON`), which places `_core` inside the `elips/` package.
 This setup.py drives `cibuildwheel` / `pip` builds via CMake.
 
 The C++ sources live at the repository root, outside this directory, so an
@@ -119,8 +119,8 @@ class CMakeBuild(build_ext):
             "-B",
             self.build_temp,
             f"-DCMAKE_BUILD_TYPE={cfg}",
-            "-DELIPS_BUILD_PYTHON=ON",
-            "-DELIPS_BUILD_TESTS=OFF",
+            "-DELIPS_ENABLE_PYTHON=ON",
+            "-DBUILD_TESTING=OFF",
             "-DELIPS_BUILD_CLI=OFF",
             "-DELIPS_BUILD_BENCH=OFF",
             f"-DPYTHON_EXECUTABLE={sys.executable}",

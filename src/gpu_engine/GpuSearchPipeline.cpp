@@ -3,7 +3,7 @@
 
 namespace elips::gpu {
 
-GpuSearchPipeline::GpuSearchPipeline(GpuPort& backend)
+GpuSearchPipeline::GpuSearchPipeline(GpuBackend& backend)
     : backend_(backend) {}
 
 std::expected<std::vector<std::vector<elips::SearchResult>>, GpuError>

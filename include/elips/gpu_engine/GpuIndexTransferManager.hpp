@@ -4,7 +4,7 @@
 #include <string>
 
 #include "elips/domain/Expected.hpp"
-#include "elips/gpu_engine/GpuIndexPort.hpp"
+#include "elips/gpu_engine/GpuIndex.hpp"
 #include "elips/index_engine/IndexTransferPort.hpp"
 
 namespace elips::gpu {
@@ -17,10 +17,10 @@ public:
 
     [[nodiscard]] static std::expected<void, GpuError>
     clone_cpu_to_gpu(const elips::IndexTransferPort& source,
-                     GpuIndexPort& destination);
+                     GpuIndex& destination);
 
     [[nodiscard]] static std::expected<void, std::string>
-    clone_gpu_to_cpu(const GpuIndexPort& source,
+    clone_gpu_to_cpu(const GpuIndex& source,
                      elips::IndexTransferPort& destination);
 };
 

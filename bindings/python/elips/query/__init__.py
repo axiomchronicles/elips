@@ -5,8 +5,8 @@ parse produces. Useful when a query arrives from somewhere other than Python
 code -- a saved report, a config file, an HTTP request -- and you want to check
 or rewrite it before running it.
 
-Executing a query is :meth:`elips.Engine.query`; this package is only about the
-text of one.
+Executing a query is :meth:`elips.Client.query_eql` (or the native
+``Database.query``); this package is only about the text of one.
 
 Examples::
 

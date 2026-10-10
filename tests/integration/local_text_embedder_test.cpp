@@ -122,12 +122,12 @@ TEST_F(LocalTextEmbedderTest, NewDatabaseAutoAttachesAndRehydratesDefaultLocalEm
         EXPECT_EQ(info->kind, elips::TextEmbedderKind::local_builtin);
         artifact_path = info->storage_path;
 
-        auto& docs = db->vault("docs");
-        first_id = docs.place_document(
+        auto& docs = db->collection("docs");
+        first_id = docs.add_document(
             "vector database handbook",
             {{"kind", std::string{"db"}}})
                        .to_string();
-        docs.place_document("python language guide",
+        docs.add_document("python language guide",
                             {{"kind", std::string{"py"}}});
         db->checkpoint();
     }
@@ -142,7 +142,7 @@ TEST_F(LocalTextEmbedderTest, NewDatabaseAutoAttachesAndRehydratesDefaultLocalEm
     EXPECT_TRUE(info->auto_attached);
     EXPECT_EQ(info->storage_path, artifact_path);
 
-    const auto hits = reopened->vault("docs").seek_text("vector database", 1);
+    const auto hits = reopened->collection("docs").search_text("vector database", 1);
     ASSERT_EQ(hits.size(), 1U);
     EXPECT_EQ(hits[0].id.to_string(), first_id);
 }
@@ -170,10 +170,10 @@ TEST_F(LocalTextEmbedderTest, TextFirstApisExplainHowToRecoverWhenDisabled) {
             .dimension(64)
             .metric(elips::Metric::cosine)
             .auto_text_embedder(false));
-    auto& docs = db->vault("docs");
+    auto& docs = db->collection("docs");
 
     try {
-        (void)docs.place_document("alpha note");
+        (void)docs.add_document("alpha note");
         FAIL() << "place_document should require a text embedder";
     } catch (const elips::ConfigError& error) {
         const std::string message = error.what();
@@ -183,13 +183,13 @@ TEST_F(LocalTextEmbedderTest, TextFirstApisExplainHowToRecoverWhenDisabled) {
 
     std::vector<float> raw(64U, 0.0F);
     raw.front() = 1.0F;
-    docs.place(elips::Vector{std::move(raw)},
+    docs.add(elips::Vector{std::move(raw)},
                {},
                std::nullopt,
                elips::DocumentAttachment{.text = "vector only note"});
 
     try {
-        (void)docs.seek_text("alpha", 1);
+        (void)docs.search_text("alpha", 1);
         FAIL() << "seek_text should require a text embedder";
     } catch (const elips::ConfigError& error) {
         const std::string message = error.what();
@@ -205,7 +205,7 @@ TEST_F(LocalTextEmbedderTest, ExternalEmbedderMetadataRequiresExplicitReopen) {
                 .dimension(4)
                 .metric(elips::Metric::cosine)
                 .text_embedder(std::make_shared<ExternalToyEmbedder>()));
-        db->vault("docs").place_document("alpha database");
+        db->collection("docs").add_document("alpha database");
         db->checkpoint();
     }
 
@@ -219,7 +219,7 @@ TEST_F(LocalTextEmbedderTest, ExternalEmbedderMetadataRequiresExplicitReopen) {
         EXPECT_FALSE(info->rehydratable);
 
         try {
-            (void)reopened->vault("docs").place_document("beta database");
+            (void)reopened->collection("docs").add_document("beta database");
             FAIL() << "reopen without explicit external embedder should fail";
         } catch (const elips::ConfigError& error) {
             const std::string message = error.what();
@@ -234,7 +234,7 @@ TEST_F(LocalTextEmbedderTest, ExternalEmbedderMetadataRequiresExplicitReopen) {
             .metric(elips::Metric::cosine)
             .text_embedder(std::make_shared<ExternalToyEmbedder>()));
     EXPECT_TRUE(explicit_reopen->config().has_text_embedder());
-    const auto hits = explicit_reopen->vault("docs").seek_text("alpha", 1);
+    const auto hits = explicit_reopen->collection("docs").search_text("alpha", 1);
     ASSERT_EQ(hits.size(), 1U);
 }
 

@@ -28,7 +28,7 @@ Build types: `Debug`, `Release`, `RelWithDebInfo` (default if unspecified).
 
 GPU backends are enabled via CMake options:
 - `ELIPS_GPU_METAL` (default ON on Apple platforms)
-- `ELIPS_GPU_CUDA`, `ELIPS_GPU_HIP`, `ELIPS_GPU_SYCL`, `ELIPS_GPU_VULKAN` (all default OFF)
+- `ELIPS_GPU_CUDA`, `ELIPS_GPU_HIP` (both default OFF, experimental, not hardware-validated)
 
 ## Running Tests
 

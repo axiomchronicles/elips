@@ -6,7 +6,44 @@ All notable changes to ELIPS are documented here. Format follows
 
 ## [Unreleased]
 
+> Re-architecture toward a FAISS-grade, Chroma-friendly API. See `MIGRATION.md`.
+
 ### Added
+- Chroma-style Python entry points `Client()` (ephemeral) and `PersistentClient(path=)`,
+  and the Collection API `add/upsert/get/update/delete/query/count/peek/modify` with
+  `ids/embeddings/documents/metadatas/n_results/where/include/offset` kwargs.
+- Arbitrary string `ids` in the Collection API (deterministic string→RecordID mapping;
+  original id persisted and returned by `get`/`query`).
+- CPU **IVF index family**: `IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer`
+  (previously IVF was GPU-only), with a FAISS-style `index_factory` grammar
+  (`"Flat"`, `"IVF<nlist>,Flat"`, `"IVF<nlist>,PQ<M>"`, `"IVF<nlist>,SQ8"`, `"HNSW<M>"`).
+- FAISS-style **Index API in Python** (`elips.IndexFlat/IndexIVFFlat/IndexIVFPQ/
+  IndexIVFScalarQuantizer/IndexHNSW`, `index_factory`) with numpy float32/C-contiguous
+  I/O and `search → (D float32, I int64)` (k>ntotal padded with -1).
+- `range_search(query, radius)` on `IndexFlat` and `IndexIVFFlat`.
+- Typed exceptions `DimensionMismatchError`, `NotTrainedError`, `CollectionNotFoundError`,
+  `BackendUnavailableError`.
+- EQL now accepts the new verbs `add/search/get/delete` (plus `metadata`, `k`).
+- FAISS-aligned CMake options `ELIPS_ENABLE_METAL/CUDA/ROCM/PYTHON` and `BUILD_TESTING`.
+
+### Changed (BREAKING — old names deprecated this release, removed next minor)
+- Public API renamed to FAISS/Chroma vocabulary across C++, Python, EQL, and CMake
+  (e.g. `Vault`→`Collection`, `ElipsInstance`→`Database`, `IndexPort`→`Index`,
+  `ExactIndex`→`IndexFlat`, `HierarchicalGraphIndex`→`IndexHNSW`, `GpuPort`→`GpuBackend`;
+  `place`→`add`, `seek`→`search`, `erase`→`remove`/`delete`, `fetch`→`get`). Full table in
+  `MIGRATION.md`. All old names still work via deprecation shims.
+- On-disk format is unchanged; existing databases open without migration.
+- IVF indexes now raise `NotTrainedError` on `add`/`search` before `train()` (previously an
+  untrained `search` silently returned no results).
+
+### Removed
+- The SYCL and Vulkan GPU backends (non-compiling stubs) and their ADRs/docs/options.
+  Supported backends are now Metal (validated on Apple Silicon), CUDA and HIP/ROCm
+  (experimental, not hardware-validated), and CPU.
+- Dead `IndexSnapshot*` bindings from the Python surface.
+
+### Deprecated
+- Old public names in all four surfaces (see `MIGRATION.md`); removal scheduled next minor.
 
 ### Fixed
 

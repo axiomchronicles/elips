@@ -299,7 +299,7 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 
 ### GPU Unit Tests (conditional on `ELIPS_GPU_ENABLED`)
 
-#### `tests/unit/gpu/GpuDeviceManagerTest.cpp` — 5 tests
+#### `tests/unit/gpu/GpuDeviceManagerTest.cpp` — 4 tests
 
 | Test | Description |
 |---|---|
@@ -307,7 +307,6 @@ GPU and parity tests are conditionally compiled and only run when `ELIPS_GPU_ENA
 | `selector_chooses_best_available` | `GpuPolicy::Auto` selects a backend when GPUs exist |
 | `policy_cpu_only_returns_no_backend` | `GpuPolicy::CpuOnly` returns nullopt |
 | `can_fit_index_estimation` | Memory estimation for CAGRA graph index |
-| `selector_ranks_cuda_over_vulkan` | CUDA backend preferred over Vulkan |
 
 #### `tests/unit/gpu/GpuMemoryManagerTest.cpp` — 4 tests (1 disabled)
 

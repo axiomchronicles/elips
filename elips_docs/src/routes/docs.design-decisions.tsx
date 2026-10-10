@@ -112,16 +112,6 @@ const GPU_ADRS = [
     "Fallback chain",
     "Backend → device → CPU. The runtime always lands on a working path.",
   ],
-  [
-    "GPU-009",
-    "SYCL portability",
-    "Where SYCL fits, it stays behind the same port — never visible to domain code.",
-  ],
-  [
-    "GPU-010",
-    "Vulkan fallback",
-    "Vulkan compute provides a backstop on platforms without CUDA or Metal.",
-  ],
 ];
 
 function Page() {

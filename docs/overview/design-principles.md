@@ -416,9 +416,9 @@ class GpuIndexPort : public elips::IndexPort {
 This segregation means:
 - A component that only needs memory management can inject `GpuMemoryPort` and
   be tested with a minimal mock — no need to mock 15 unrelated methods.
-- Backend implementations can be built incrementally (e.g., Vulkan only
-  implements `GpuKernelPort` for brute-force, skips `GpuIndexPort` for advanced
-  indexes).
+- Backend implementations can be built incrementally (e.g., a backend can
+  implement only `GpuKernelPort` for brute-force, skipping `GpuIndexPort` for
+  advanced indexes).
 - The `GpuIndexPort` extends `IndexPort`, so GPU indexes plug into the existing
   DI seam without modifying any existing code.
 

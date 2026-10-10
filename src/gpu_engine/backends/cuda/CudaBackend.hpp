@@ -15,7 +15,7 @@
 
 #ifdef ELIPS_CUDA_ENABLED
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
@@ -24,7 +24,7 @@ namespace elips::gpu::cuda {
 // Maturity marker surfaced in device_info().name and headers/logs.
 inline constexpr const char* kCudaMaturity = "EXPERIMENTAL";
 
-class CudaBackend final : public GpuPort {
+class CudaBackend final : public GpuBackend {
 public:
     CudaBackend();
     ~CudaBackend() override;
@@ -52,6 +52,9 @@ public:
     [[nodiscard]] std::expected<void, GpuError>
     top_k(std::span<const float> distances, std::span<uint32_t> indices_out,
           std::span<float> values_out, size_t nq, size_t nb, size_t k) override;
+
+    // ivf_scan() intentionally not overridden: CUDA uses the GpuBackend default
+    // (BackendUnavailable), so the IVF index falls back to its generic path.
 
     void synchronize() override;
     [[nodiscard]] bool is_idle() const noexcept override;

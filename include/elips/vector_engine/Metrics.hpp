@@ -12,6 +12,14 @@ namespace elips {
 //   cosine     -> 1 - dot(a, b)        (inputs assumed L2-normalized on ingest)
 //   euclidean  -> sqrt(sum (a-b)^2)
 //   dot_product-> -dot(a, b)           (negated so larger dot sorts first)
+//
+// METRIC SEMANTICS vs FAISS: ELIPS `euclidean` returns TRUE L2 (the sqrt),
+// whereas FAISS METRIC_L2 returns SQUARED L2 (no sqrt). Ranking is identical --
+// sqrt is monotonic, so k-NN and range ordering match FAISS exactly -- only the
+// reported magnitudes differ, and so does any absolute threshold: a FAISS
+// range radius `r2` in squared units corresponds to an ELIPS radius sqrt(r2).
+// ELIPS keeps true L2 as the default on purpose (interpretable distances); it
+// is not a bug and is not being changed.
 // Scalar reference kernel; SIMD dispatch is a later-phase optimization (Per.2).
 [[nodiscard]] float distance(Metric metric, std::span<const float> a,
                              std::span<const float> b) noexcept;

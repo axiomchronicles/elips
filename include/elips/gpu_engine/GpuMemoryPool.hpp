@@ -7,13 +7,13 @@
 
 #include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
 class GpuMemoryPool {
 public:
-    GpuMemoryPool(GpuPort& backend, size_t total_bytes);
+    GpuMemoryPool(GpuBackend& backend, size_t total_bytes);
     ~GpuMemoryPool();
 
     GpuMemoryPool(const GpuMemoryPool&) = delete;
@@ -34,7 +34,7 @@ private:
         bool free;
     };
 
-    GpuPort& backend_;
+    GpuBackend& backend_;
     GpuBuffer pool_buffer_;
     size_t total_bytes_;
     std::vector<Block> blocks_;

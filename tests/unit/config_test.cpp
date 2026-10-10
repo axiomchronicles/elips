@@ -9,7 +9,7 @@ namespace {
 
 using elips::Config;
 using elips::Durability;
-using elips::GraphParams;
+using elips::HnswParams;
 using elips::IndexType;
 using elips::Metric;
 
@@ -32,7 +32,7 @@ TEST(ConfigTest, FluentBuilderChainSetsAllValues) {
     EXPECT_EQ(c.durability(), Durability::paranoid);
 }
 
-TEST(ConfigTest, GraphParamsDefaults) {
+TEST(ConfigTest, HnswParamsDefaults) {
     Config c;
     const auto& gp = c.graph_params();
     EXPECT_EQ(gp.max_connections, 16U);
@@ -40,8 +40,8 @@ TEST(ConfigTest, GraphParamsDefaults) {
     EXPECT_EQ(gp.ef_search, 50U);
 }
 
-TEST(ConfigTest, CustomGraphParams) {
-    GraphParams gp{32, 400, 100};
+TEST(ConfigTest, CustomHnswParams) {
+    HnswParams gp{32, 400, 100};
     Config c;
     c.graph_params(gp);
 
@@ -87,13 +87,13 @@ TEST(ConfigTest, ToStringValues) {
     EXPECT_EQ(std::string(elips::to_string(Metric::dot_product)), "dot_product");
 }
 
-TEST(ConfigTest, GraphParamsConstructor) {
-    GraphParams p;  // default
+TEST(ConfigTest, HnswParamsConstructor) {
+    HnswParams p;  // default
     EXPECT_EQ(p.max_connections, 16U);
     EXPECT_EQ(p.ef_construction, 200U);
     EXPECT_EQ(p.ef_search, 50U);
 
-    GraphParams custom{64, 500, 200};
+    HnswParams custom{64, 500, 200};
     EXPECT_EQ(custom.max_connections, 64U);
     EXPECT_EQ(custom.ef_construction, 500U);
     EXPECT_EQ(custom.ef_search, 200U);

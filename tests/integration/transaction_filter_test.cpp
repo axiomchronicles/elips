@@ -15,15 +15,15 @@ elips::Payload make_payload(const std::string& cat, std::int64_t year) {
 TEST(FilterTest, FilteredSeekRestrictsByMetadata) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2).metric(
                                           elips::Metric::euclidean));
-    auto& v = db->vault("docs");
-    v.place(elips::Vector{{0.0F, 0.0F}}, make_payload("tech", 2024));
-    v.place(elips::Vector{{0.1F, 0.1F}}, make_payload("finance", 2024));
-    v.place(elips::Vector{{0.2F, 0.2F}}, make_payload("tech", 2019));
+    auto& v = db->collection("docs");
+    v.add(elips::Vector{{0.0F, 0.0F}}, make_payload("tech", 2024));
+    v.add(elips::Vector{{0.1F, 0.1F}}, make_payload("finance", 2024));
+    v.add(elips::Vector{{0.2F, 0.2F}}, make_payload("tech", 2019));
 
     const auto filter =
         elips::Filter().field("category").equals(std::string{"tech"}).field("year").ge(
             std::int64_t{2020});
-    const auto results = v.seek(elips::Vector{{0.0F, 0.0F}}, 10, filter);
+    const auto results = v.search(elips::Vector{{0.0F, 0.0F}}, 10, filter);
 
     ASSERT_EQ(results.size(), 1U);
     EXPECT_EQ(std::get<std::string>(results[0].data.at("category")), "tech");
@@ -32,9 +32,9 @@ TEST(FilterTest, FilteredSeekRestrictsByMetadata) {
 
 TEST(FilterTest, ScanWithFilterAndLimit) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    auto& v = db->vault("docs");
+    auto& v = db->collection("docs");
     for (int i = 0; i < 5; ++i) {
-        v.place(elips::Vector{{static_cast<float>(i), 0.0F}},
+        v.add(elips::Vector{{static_cast<float>(i), 0.0F}},
                 {{"keep", i % 2 == 0}});
     }
     const auto kept = v.scan(elips::Filter().field("keep").equals(true));
@@ -54,28 +54,28 @@ TEST(TransactionTest, CommitAppliesAllWrites) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     {
         auto txn = db->begin_transaction();
-        auto v = txn.vault("docs");
-        v.place(elips::Vector{{1.0F, 0.0F}});
-        v.place(elips::Vector{{0.0F, 1.0F}});
+        auto v = txn.collection("docs");
+        v.add(elips::Vector{{1.0F, 0.0F}});
+        v.add(elips::Vector{{0.0F, 1.0F}});
         txn.commit();
     }
-    EXPECT_EQ(db->vault("docs").info().count, 2U);
+    EXPECT_EQ(db->collection("docs").info().count, 2U);
 }
 
 TEST(TransactionTest, UncommittedTransactionRollsBack) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     {
         auto txn = db->begin_transaction();
-        txn.vault("docs").place(elips::Vector{{1.0F, 0.0F}});
+        txn.collection("docs").add(elips::Vector{{1.0F, 0.0F}});
         // no commit: destructor rolls back
     }
-    EXPECT_EQ(db->vault("docs").info().count, 0U);
+    EXPECT_EQ(db->collection("docs").info().count, 0U);
 }
 
 TEST(TransactionTest, InvalidVectorRejectedAtBufferTime) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     auto txn = db->begin_transaction();
-    EXPECT_THROW(txn.vault("docs").place(elips::Vector{{1.0F}}),
+    EXPECT_THROW(txn.collection("docs").add(elips::Vector{{1.0F}}),
                  elips::DimensionMismatch);
 }
 

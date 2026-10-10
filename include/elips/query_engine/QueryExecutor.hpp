@@ -10,7 +10,7 @@
 #include "elips/query_engine/AST.hpp"
 
 namespace elips {
-class ElipsInstance;
+class Database;
 }
 
 namespace elips::eql {
@@ -18,7 +18,7 @@ namespace elips::eql {
 // Execute a parsed statement against a database. Read statements return their
 // rows; insert returns a single row carrying the new id; delete returns empty.
 [[nodiscard]] std::vector<SearchResult> execute(
-    const Statement& statement, ElipsInstance& db,
+    const Statement& statement, Database& db,
     const std::map<std::string, Vector>& bindings);
 
 }  // namespace elips::eql

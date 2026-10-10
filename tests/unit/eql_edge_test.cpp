@@ -48,7 +48,7 @@ TEST(EqlEdgeTest, TokenizePunctuationTokens) {
 TEST(EqlEdgeTest, ComplexQueryParsesCorrectly) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(3).metric(
                                           elips::Metric::euclidean));
-    db->vault("docs");
+    db->collection("docs");
     db->query(R"(place in docs vector [1.0, 2.0, 3.0] data {"a": 1, "b": "x"})");
     db->query(R"(place in docs vector [4.0, 5.0, 6.0] data {"a": 2, "b": "y"})");
 
@@ -63,14 +63,14 @@ TEST(EqlEdgeTest, ComplexQueryParsesCorrectly) {
 
 TEST(EqlEdgeTest, FetchNonExistentReturnsEmpty) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    db->vault("v");
+    db->collection("v");
     auto results = db->query(R"(fetch from v id "00000000-0000-7000-8000-000000000000" yield)");
     EXPECT_TRUE(results.empty());
 }
 
 TEST(EqlEdgeTest, ScanWithLimitAndOffsetParses) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    db->vault("v");
+    db->collection("v");
     for (int i = 0; i < 10; ++i)
         db->query("place in v vector [" + std::to_string(i) + ", 0]");
 
@@ -81,7 +81,7 @@ TEST(EqlEdgeTest, ScanWithLimitAndOffsetParses) {
 TEST(EqlEdgeTest, ThresholdSearchParses) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2).metric(
                                           elips::Metric::euclidean));
-    db->vault("v");
+    db->collection("v");
     db->query("place in v vector [1.0, 0.0]");
     db->query("place in v vector [5.0, 0.0]");
 
@@ -119,7 +119,7 @@ TEST(EqlEdgeTest, MixedBooleanFilter) {
 
 TEST(EqlEdgeTest, EmptyBindingsIsSafe) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
-    db->vault("v");
+    db->collection("v");
     auto results = db->query("seek in v nearest [1.0, 0.0] yield");
     EXPECT_TRUE(results.empty());
 }

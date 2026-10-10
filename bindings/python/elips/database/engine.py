@@ -1,7 +1,10 @@
-r"""Typed database facade over the native :class:`elips.Database` handle.
+r"""Typed database facade over the native :class:`elips.native.Database` handle.
 
-:class:`Engine` is a context manager that hands out :class:`~elips.Collection`
-handles and exposes WAL replay, checkpointing, and transactions.
+:class:`Engine` (and its Chroma-named subclasses :class:`elips.Client` /
+:class:`elips.PersistentClient`) is a context manager that hands out
+:class:`~elips.Collection` handles and exposes WAL replay and checkpointing.
+Transactions are not a facade method: reach for them on the native handle,
+``engine.native.begin_transaction()``.
 
 Examples::
 
@@ -21,6 +24,7 @@ from typing import Self
 from elips._internal.protocols import Embedder
 from elips._native import Config, Database, replay_wal
 from elips.collection.collection import Collection
+from elips.exceptions import CollectionNotFoundError
 from elips.records.models import WalRecord
 
 DEFAULT_TEXT_SLOT = "__elips_text__"
@@ -29,7 +33,10 @@ DEFAULT_TEXT_SLOT = "__elips_text__"
 class Engine:
     r"""Engine(db, *, default_embedder=None) -> Engine
 
-    High-level wrapper around :class:`~elips.Database`.
+    High-level wrapper around a native :class:`~elips.native.Database`.
+
+    Transactions are not surfaced here; use
+    ``engine.native.begin_transaction()`` on the native handle.
 
     Args:
         db (Database): Open ELIPS database handle.
@@ -135,6 +142,62 @@ class Engine:
 
     #: Prior name for :meth:`collection`.
     arena = collection
+
+    # ---- Chroma Client surface ----
+
+    def get_or_create_collection(
+        self,
+        name: str,
+        *,
+        metadata: object = None,
+        configuration: object = None,
+        embedder: Embedder | None = None,
+    ) -> Collection:
+        """Return the named collection, creating it on first write (Chroma).
+
+        ``metadata``/``configuration`` are accepted for Chroma compatibility
+        but ignored: ELIPS index configuration is set at the database level.
+        """
+        return self.collection(name, embedder=embedder)
+
+    def create_collection(
+        self,
+        name: str,
+        *,
+        metadata: object = None,
+        configuration: object = None,
+        embedder: Embedder | None = None,
+    ) -> Collection:
+        """Create a new collection; raise if one with ``name`` already exists."""
+        if name in self._db.list_vaults():
+            raise ValueError(f"collection {name!r} already exists")
+        return self.collection(name, embedder=embedder)
+
+    def get_collection(
+        self, name: str, *, embedder: Embedder | None = None
+    ) -> Collection:
+        """Return an existing collection, or raise :class:`CollectionNotFoundError`."""
+        if name not in self._db.list_vaults():
+            raise CollectionNotFoundError(f"collection {name!r} does not exist")
+        return self.collection(name, embedder=embedder)
+
+    def list_collections(self) -> list[str]:
+        """Return the names of every collection that currently exists (Chroma)."""
+        return self._db.list_vaults()
+
+    def delete_collection(self, name: str) -> None:
+        """Chroma collection drop -- ELIPS has no vault-drop operation yet."""
+        raise NotImplementedError(
+            "delete_collection is not supported: ELIPS cannot drop a collection"
+        )
+
+    def reset(self) -> None:
+        """Chroma database reset -- not supported by ELIPS."""
+        raise NotImplementedError("reset is not supported")
+
+    def query_eql(self, eql: str, bindings: dict | None = None) -> object:
+        """Execute an EQL statement against the native handle."""
+        return self._db.query(eql, bindings or {})
 
     def checkpoint(self) -> None:
         r"""checkpoint() -> None

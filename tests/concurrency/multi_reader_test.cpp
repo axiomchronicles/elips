@@ -30,7 +30,7 @@ TEST_F(ConcurrencyTest, MultipleReadersCanOpenSameDatabase) {
     std::string p = path();
     {
         auto writer = elips::open(p, elips::Config{}.dimension(2));
-        writer->vault("v").place(elips::Vector{{1.0F, 0.0F}});
+        writer->collection("v").add(elips::Vector{{1.0F, 0.0F}});
         writer->checkpoint();
         writer->close();
     }
@@ -43,7 +43,7 @@ TEST_F(ConcurrencyTest, MultipleReadersCanOpenSameDatabase) {
         threads.emplace_back([&]() {
             try {
                 auto db = elips::open(p);
-                if (db->vault("v").info().count == 1U) {
+                if (db->collection("v").info().count == 1U) {
                     successes.fetch_add(1);
                 }
                 db->close();
@@ -59,9 +59,9 @@ TEST_F(ConcurrencyTest, MultipleReadersCanOpenSameDatabase) {
 
 TEST_F(ConcurrencyTest, ConcurrentReadsOnInMemory) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(3));
-    auto& v = db->vault("shared");
+    auto& v = db->collection("shared");
     for (int i = 0; i < 100; ++i)
-        v.place(elips::Vector{{static_cast<float>(i), 0.0F, 0.0F}});
+        v.add(elips::Vector{{static_cast<float>(i), 0.0F, 0.0F}});
 
     constexpr int kThreads = 8;
     constexpr int kQueries = 50;
@@ -71,7 +71,7 @@ TEST_F(ConcurrencyTest, ConcurrentReadsOnInMemory) {
     for (int t = 0; t < kThreads; ++t) {
         threads.emplace_back([&]() {
             for (int q = 0; q < kQueries; ++q) {
-                auto hits = v.seek(elips::Vector{{0.0F, 0.0F, 0.0F}}, 10);
+                auto hits = v.search(elips::Vector{{0.0F, 0.0F, 0.0F}}, 10);
                 totalHits.fetch_add(hits.size());
             }
         });
@@ -84,13 +84,13 @@ TEST_F(ConcurrencyTest, ConcurrentReadsOnInMemory) {
 TEST_F(ConcurrencyTest, SequentialTransactionsWorkReliably) {
     std::string p = path();
     auto db = elips::open(p, elips::Config{}.dimension(2));
-    auto& v = db->vault("txn");
+    auto& v = db->collection("txn");
 
     constexpr int kIterations = 100;
     for (int i = 0; i < kIterations; ++i) {
         auto txn = db->begin_transaction();
-        auto tv = txn.vault("txn");
-        tv.place(elips::Vector{{static_cast<float>(i), 0.0F}});
+        auto tv = txn.collection("txn");
+        tv.add(elips::Vector{{static_cast<float>(i), 0.0F}});
         txn.commit();
     }
     EXPECT_EQ(v.info().count, kIterations);
@@ -100,9 +100,9 @@ TEST_F(ConcurrencyTest, ConcurrentReadAttemptsOnPersistentDb) {
     std::string p = path();
     {
         auto writer = elips::open(p, elips::Config{}.dimension(3));
-        auto& v = writer->vault("data");
+        auto& v = writer->collection("data");
         for (int i = 0; i < 20; ++i)
-            v.place(elips::Vector{{static_cast<float>(i), 0.0F, 0.0F}});
+            v.add(elips::Vector{{static_cast<float>(i), 0.0F, 0.0F}});
         writer->checkpoint();
         writer->close();
     }
@@ -116,7 +116,7 @@ TEST_F(ConcurrencyTest, ConcurrentReadAttemptsOnPersistentDb) {
         threads.emplace_back([&]() {
             try {
                 auto db = elips::open(p);
-                auto hits = db->vault("data").seek(
+                auto hits = db->collection("data").search(
                     elips::Vector{{0.0F, 0.0F, 0.0F}}, 10);
                 if (hits.size() == 10U) successes.fetch_add(1);
                 db->close();

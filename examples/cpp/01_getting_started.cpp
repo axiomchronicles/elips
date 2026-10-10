@@ -13,7 +13,7 @@ int main() {
             .dimension(128)
             .metric(elips::Metric::cosine));
 
-    auto& docs = db->vault("documents");
+    auto& docs = db->collection("documents");
     if (const auto info = db->config().text_embedder_info(); info.has_value()) {
         std::cout << "text embedder: " << info->provider << "/"
                   << info->model << "@" << info->revision << '\n';
@@ -25,29 +25,29 @@ int main() {
     chunk.char_start = 0;
     chunk.char_end = 17;
 
-    docs.place_document("alpha design note",
+    docs.add_document("alpha design note",
                         {{"kind", std::string{"design"}}},
                         std::nullopt,
                         chunk);
-    docs.place_document("beta incident runbook",
+    docs.add_document("beta incident runbook",
                         {{"kind", std::string{"ops"}}});
 
     std::cout << "text probe:\n";
-    for (const auto& hit : docs.seek_text("alpha", 2)) {
+    for (const auto& hit : docs.search_text("alpha", 2)) {
         const auto title = hit.document.has_value() ? hit.document->text : "";
         std::cout << "  " << title << " distance=" << hit.distance << '\n';
     }
 
     std::cout << "\nhybrid probe:\n";
     for (const auto& hit :
-         docs.seek_hybrid(elips::Vector{{0.0F, 1.0F}}, "alpha", 2)) {
+         docs.hybrid_search(elips::Vector{{0.0F, 1.0F}}, "alpha", 2)) {
         const auto kind = std::get<std::string>(hit.data.at("kind"));
         std::cout << "  " << kind << " distance=" << hit.distance << '\n';
     }
 
     const auto filter =
         elips::Filter().field("kind").equals(std::string{"design"});
-    const auto plan = docs.explain_seek(elips::Vector{{1.0F, 0.0F}},
+    const auto plan = docs.explain_query(elips::Vector{{1.0F, 0.0F}},
                                         1,
                                         filter,
                                         std::nullopt,

@@ -3,7 +3,7 @@
 
 namespace elips::gpu {
 
-GpuIngestionPipeline::GpuIngestionPipeline(GpuPort& backend)
+GpuIngestionPipeline::GpuIngestionPipeline(GpuBackend& backend)
     : backend_(backend) {}
 
 std::expected<void, GpuError>

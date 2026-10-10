@@ -95,7 +95,7 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@v5
 
       - name: Configure CMake
-        run: cmake -S . -B build_cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_CLI=ON -DELIPS_BUILD_PYTHON=OFF -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_BENCH=OFF
+        run: cmake -S . -B build_cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DELIPS_BUILD_CLI=ON -DELIPS_ENABLE_PYTHON=OFF -DBUILD_TESTING=OFF -DELIPS_BUILD_BENCH=OFF
 
       - name: Build elips_cli
         run: cmake --build build_cli --config Release -j

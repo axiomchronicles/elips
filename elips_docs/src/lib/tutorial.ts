@@ -119,7 +119,7 @@ cmake --build build -j`,
           "Python 3.10+",
           "C++23 toolchain: clang 17 / gcc 13 / MSVC 19.38",
           "CMake ≥ 3.24",
-          "Optional GPU: CUDA 12 / HIP 6 / Metal / SYCL / Vulkan — selected at build time",
+          "Optional GPU: Metal / CUDA 12 / HIP 6 — selected at build time (CUDA/HIP experimental)",
         ],
       },
       { kind: "h", text: "Verify" },
@@ -1098,7 +1098,7 @@ public:
     level: "Advanced",
     title: "Backends, device probe, selection",
     eyebrow: "Chapter XV · GPU",
-    oneLiner: "Metal, CUDA, HIP, SYCL, Vulkan — each behind a compile-time flag.",
+    oneLiner: "Metal, CUDA, HIP — each behind a compile-time flag.",
     blocks: [
       {
         kind: "lede",
@@ -1106,7 +1106,7 @@ public:
       },
       {
         kind: "p",
-        text: "Probe order (docs/internals/gpu-engine.md): Metal (Apple), CUDA, HIP, SYCL, Vulkan. Each probe init+inspect+shutdowns the backend inside a try/catch. Devices are then sorted by CAGRA support, then by total device memory descending.",
+        text: "Probe order (docs/internals/gpu-engine.md): Metal (Apple), CUDA, HIP. Each probe init+inspect+shutdowns the backend inside a try/catch. Devices are then sorted by CAGRA support, then by total device memory descending.",
       },
       {
         kind: "ul",

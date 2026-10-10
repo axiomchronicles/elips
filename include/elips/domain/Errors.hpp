@@ -11,11 +11,17 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Vector dimension does not match the database/vault configuration.
+// Vector dimension does not match the database/collection configuration.
 class DimensionMismatch : public ElipsError {
 public:
     using ElipsError::ElipsError;
 };
+
+// `*Error`-suffixed spelling (Phase 5 naming alignment), matching the Python
+// alias `DimensionMismatchError = DimensionMismatch`: same type, so a throw of
+// either is caught by either and pybind keeps translating it to the native
+// `DimensionMismatch` Python class.
+using DimensionMismatchError = DimensionMismatch;
 
 // Vector contains NaN/Inf or is otherwise unusable.
 class InvalidVector : public ElipsError {
@@ -29,7 +35,17 @@ public:
     using ElipsError::ElipsError;
 };
 
-// Requested record/vault does not exist.
+// An IVF-family index was used (add/search) before train() learned its coarse
+// quantizer. Derives from ConfigError: before-train use has always surfaced as
+// a configuration error here, so `catch (const ConfigError&)` and the Python
+// layer's ConfigError translation keep catching it, while callers that want the
+// specific condition can catch NotTrainedError directly.
+class NotTrainedError : public ConfigError {
+public:
+    using ConfigError::ConfigError;
+};
+
+// Requested record/collection does not exist.
 class NotFound : public ElipsError {
 public:
     using ElipsError::ElipsError;
@@ -37,6 +53,15 @@ public:
 
 // Persistence/IO failure.
 class StorageError : public ElipsError {
+public:
+    using ElipsError::ElipsError;
+};
+
+// A requested compute backend (e.g. a GPU device) was required but is not
+// available, and no CPU fallback was permitted. Mirrors the Python
+// `BackendUnavailableError`; surfaces the GPU policy failure as a typed error
+// instead of a silent CPU demotion (redesign ground rule #9).
+class BackendUnavailableError : public ElipsError {
 public:
     using ElipsError::ElipsError;
 };

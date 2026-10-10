@@ -42,25 +42,20 @@ has_gpu: bool = hasattr(_core, "GpuDevice")
 def _public_names() -> tuple[str, ...]:
     """Every public symbol the extension exposes, in sorted order."""
 
-    return tuple(sorted(name for name in dir(_core) if not name.startswith("_")))
+    return tuple(
+        sorted(name for name in dir(_core) if not name.startswith("_"))
+    )
 
 
 # Engine internals that used to sit in the public namespace, mapped to the
-# module that owns them now. `None` marks a type with no public replacement: it
-# is reachable here because the extension defines it, not because callers are
-# meant to reach for it.
+# module that owns them now.
 #
 # The EQL AST moved rather than disappeared -- a parse still returns these
-# types, so `elips.query` owns them. The index snapshots are different: nothing
-# in the binding returns one, so they were only ever constructible placeholders.
+# types, so `elips.query` owns them.
 DEMOTED: dict[str, str | None] = {
     "DeleteStatement": "elips.query",
     "FetchStatement": "elips.query",
-    "IndexSnapshot": None,
-    "IndexSnapshotKind": None,
     "InsertStatement": "elips.query",
-    "IvfSnapshot": None,
-    "PqSnapshot": None,
     "ScanStatement": "elips.query",
     "SearchStatement": "elips.query",
     "Token": "elips.query",

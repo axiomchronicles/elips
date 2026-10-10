@@ -1,23 +1,24 @@
 r"""ELIPS -- embedded, local-storage-first vector retrieval.
 
-The names exported here are the API: :func:`connect` opens a database,
-:class:`Engine` hands out :class:`Collection` objects, and a collection reads
-and writes :class:`Row` / :class:`Hit` records.
+The names exported here are the API. :class:`Client` opens an ephemeral
+in-memory database and :class:`PersistentClient` opens one on disk; a client
+hands out :class:`Collection` objects, and a collection reads and writes
+:class:`Row` / :class:`Hit` records. The pre-Phase-5 openers :func:`connect` /
+:func:`open` / :class:`Engine` remain as deprecated-but-working shims.
 
 Native handles (:class:`Database`, :class:`Vault`, :class:`Filter`) sit one
 level down, under :mod:`elips.native`, and are reachable from any high-level
-object through its ``native`` attribute. They used to be exported here as
-co-equal names, which left no way to tell whether :class:`Vault` or
-:class:`Collection` was the one to reach for.
+object through its ``native`` attribute.
 
 Examples::
 
     >>> import elips
-    >>> with elips.connect(":memory:", dimension=2) as db:
-    ...     docs = db.collection("documents")
-    ...     _ = docs.add(text="alpha design note", meta={"kind": "design"})
-    ...     docs.search("alpha", top=1)[0].text
+    >>> client = elips.PersistentClient(":memory:", dimension=2)
+    >>> docs = client.get_or_create_collection("documents")
+    >>> _ = docs.add(text="alpha design note", metadatas=[{"kind": "design"}])
+    >>> docs.query(query_texts="alpha", n_results=1)[0].text
     'alpha design note'
+    >>> client.close()
 """
 
 from __future__ import annotations
@@ -30,30 +31,40 @@ from elips._native import (
     ChunkInfo,
     Codec,
     Config,
-    ConfigError,
-    DimensionMismatch,
     DocumentAttachment,
-    ElipsError,
     EmbeddingLineage,
     Filter,
     GraphParams,
-    InvalidVector,
     LocalEmbedderConfig,
-    LockConflict,
-    NotFound,
-    ParseError,
     QuantParams,
     QueryPlan,
-    StorageError,
     distance,
     generate_id,
     is_valid_id,
     magnitude,
     normalize,
 )
+from elips.client import Client, PersistentClient
 from elips.collection import Arena, Collection
 from elips.config import connect, connect_with_config
 from elips.database import Engine
+from elips.exceptions import (
+    BackendUnavailableError,
+    CollectionNotFoundError,
+    ConfigError,
+    DimensionMismatch,
+    DimensionMismatchError,
+    ElipsError,
+    InvalidVector,
+    InvalidVectorError,
+    LockConflict,
+    LockConflictError,
+    NotFound,
+    NotFoundError,
+    NotTrainedError,
+    ParseError,
+    StorageError,
+)
 from elips.gpu import Accelerator, AcceleratorSpec, accelerator, accelerators
 from elips.records import CollectionHealth, Hit, RecordInput, Row, WalRecord
 
@@ -112,6 +123,8 @@ def __dir__() -> list[str]:
 
 __all__ = [
     # opening a database
+    "Client",
+    "PersistentClient",
     "connect",
     "connect_with_config",
     "Config",
@@ -154,9 +167,16 @@ __all__ = [
     "ElipsError",
     "ConfigError",
     "DimensionMismatch",
+    "DimensionMismatchError",
     "InvalidVector",
+    "InvalidVectorError",
     "LockConflict",
+    "LockConflictError",
     "NotFound",
+    "NotFoundError",
+    "CollectionNotFoundError",
+    "NotTrainedError",
+    "BackendUnavailableError",
     "ParseError",
     "StorageError",
     # prior name for Collection

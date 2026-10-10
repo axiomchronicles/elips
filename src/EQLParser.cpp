@@ -12,11 +12,13 @@ public:
 
     Statement parse_statement() {
         const std::string& kw = peek().text;
-        if (is_word("seek")) return parse_search();
-        if (is_word("fetch")) return parse_fetch();
+        // New verbs are primary; the old ones remain accepted as deprecated
+        // synonyms so existing EQL queries keep working.
+        if (is_word("search") || is_word("seek")) return parse_search();
+        if (is_word("get") || is_word("fetch")) return parse_get();
         if (is_word("scan")) return parse_scan();
-        if (is_word("place")) return parse_insert();
-        if (is_word("erase")) return parse_delete();
+        if (is_word("add") || is_word("place")) return parse_add();
+        if (is_word("delete") || is_word("erase")) return parse_delete();
         throw ParseError{"EQL: expected a statement keyword, got '" + kw + "'"};
     }
 
@@ -48,6 +50,13 @@ private:
     void expect_word(std::string_view w) {
         if (!match_word(w)) {
             throw ParseError{"EQL: expected '" + std::string(w) + "'"};
+        }
+    }
+    // Consume a verb keyword, accepting either the new (primary) spelling or a
+    // deprecated alias, so old-vocabulary queries keep parsing.
+    void expect_verb(std::string_view primary, std::string_view alias) {
+        if (!match_word(primary) && !match_word(alias)) {
+            throw ParseError{"EQL: expected '" + std::string(primary) + "'"};
         }
     }
     void expect_punct(std::string_view p) {
@@ -172,14 +181,14 @@ private:
     }
 
     SearchStatement parse_search() {
-        expect_word("seek");
+        expect_verb("search", "seek");
         expect_word("in");
         SearchStatement stmt;
-        stmt.vault = expect_identifier();
+        stmt.collection = expect_identifier();
         expect_word("nearest");
         stmt.query = parse_vector_ref();
         while (!is_word("yield") && !at_end()) {
-            if (match_word("top")) {
+            if (match_word("k") || match_word("top")) {
                 stmt.top = static_cast<int>(expect_number());
             } else if (match_word("threshold")) {
                 stmt.threshold = expect_number();
@@ -194,7 +203,7 @@ private:
                 stmt.projection = parse_projection();
             } else {
                 throw ParseError{"EQL: unexpected token '" + peek().text +
-                                 "' in seek"};
+                                 "' in search"};
             }
         }
         expect_word("yield");
@@ -213,11 +222,11 @@ private:
         return fields;
     }
 
-    FetchStatement parse_fetch() {
-        expect_word("fetch");
+    GetStatement parse_get() {
+        expect_verb("get", "fetch");
         expect_word("from");
-        FetchStatement stmt;
-        stmt.vault = expect_identifier();
+        GetStatement stmt;
+        stmt.collection = expect_identifier();
         expect_word("id");
         stmt.id = expect_string();
         expect_word("yield");
@@ -228,7 +237,7 @@ private:
         expect_word("scan");
         expect_word("in");
         ScanStatement stmt;
-        stmt.vault = expect_identifier();
+        stmt.collection = expect_identifier();
         while (!is_word("yield") && !at_end()) {
             if (match_word("where")) {
                 stmt.where = parse_filter();
@@ -245,24 +254,24 @@ private:
         return stmt;
     }
 
-    InsertStatement parse_insert() {
-        expect_word("place");
+    AddStatement parse_add() {
+        expect_verb("add", "place");
         expect_word("in");
-        InsertStatement stmt;
-        stmt.vault = expect_identifier();
+        AddStatement stmt;
+        stmt.collection = expect_identifier();
         expect_word("vector");
         stmt.vector = parse_vector_literal();
-        if (match_word("data")) {
+        if (match_word("metadata") || match_word("data")) {
             stmt.data = parse_json_object();
         }
         return stmt;
     }
 
     DeleteStatement parse_delete() {
-        expect_word("erase");
+        expect_verb("delete", "erase");
         expect_word("from");
         DeleteStatement stmt;
-        stmt.vault = expect_identifier();
+        stmt.collection = expect_identifier();
         expect_word("id");
         stmt.id = expect_string();
         return stmt;

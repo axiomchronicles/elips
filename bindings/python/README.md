@@ -44,10 +44,10 @@ for hit in arena.probe_text("alpha", top=2):
 - **Vector Search**: Optimized HNSW (`graph`) and `exact` index backends.
 - **Embedded Deployment**: Simple SQLite-like single-writer/multi-reader lock model.
 - **Local Embedding**: Built-in local text embedding using local models.
-- **Metadata Filters**: Rich metadata equality filters via `MetadataIndex` and `Filter`.
+- **Metadata Filters**: Rich metadata equality filters via `MetadataFilterIndex` and `Filter`.
 - **Hybrid Retrieval**: Combine dense semantic search and document retrieval out of the box.
 - **Segmented Persistence**: Durable writes with WAL crash recovery and snapshot checkpoints.
-- **GPU Acceleration**: Optional Metal backend on Apple Silicon and CUDA/Vulkan backends on Linux.
+- **GPU Acceleration**: Optional Metal backend on Apple Silicon; experimental CUDA/HIP backends on Linux (build from source, not hardware-validated).
 
 ## License
 

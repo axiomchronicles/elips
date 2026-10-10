@@ -157,8 +157,8 @@ GpuBruteForceIndex gpu_idx(**backend, metric, dim, config);
 gpu_idx.build_from_batch(db_vecs, ids, GpuIndexBuildParams{});
 ```
 
-`GpuSelector::select()` chooses the best available backend (CUDA, Metal,
-Vulkan) based on the device probes and `GpuConfig::policy`.
+`GpuSelector::select()` chooses the best available backend (CUDA, HIP,
+Metal) based on the device probes and `GpuConfig::policy`.
 
 ### Interpreting GPU Results
 

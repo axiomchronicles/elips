@@ -12,7 +12,7 @@
 #include "elips/gpu_engine/GpuHybridIndex.hpp"
 #include "elips/gpu_engine/GpuIVFFlatIndex.hpp"
 #include "elips/gpu_engine/GpuIVFPQIndex.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 
 namespace elips::gpu {
 namespace {
@@ -61,11 +61,11 @@ GpuIndexBuildParams make_graph_build_params() {
     return params;
 }
 
-void populate_exact_index(ExactIndex& index,
+void populate_exact_index(IndexFlat& index,
                           std::span<const RecordID> ids,
                           std::span<const float> vectors) {
     for (size_t row = 0; row < ids.size(); ++row) {
-        index.insert(
+        index.add_with_ids(
             ids[row],
             std::span<const float>{
                 vectors.data() + row * static_cast<size_t>(kDimension),
@@ -73,7 +73,7 @@ void populate_exact_index(ExactIndex& index,
     }
 }
 
-std::vector<RecordID> hit_ids(const std::vector<IndexPort::Hit>& hits) {
+std::vector<RecordID> hit_ids(const std::vector<Index::Hit>& hits) {
     std::vector<RecordID> ids;
     ids.reserve(hits.size());
     for (const auto& [id, distance] : hits) {
@@ -83,7 +83,7 @@ std::vector<RecordID> hit_ids(const std::vector<IndexPort::Hit>& hits) {
     return ids;
 }
 
-std::unique_ptr<GpuIndexPort> make_brute_force_child(test::RecordingBackend& backend,
+std::unique_ptr<GpuIndex> make_brute_force_child(test::RecordingBackend& backend,
                                                      const GpuConfig& config) {
     return std::make_unique<GpuBruteForceIndex>(
         backend, Metric::euclidean, kDimension, config);
@@ -123,18 +123,18 @@ TEST(GpuIVFFlatIndexTest, cpu_transfer_round_trip_rehydrates_exact_index) {
     const auto vectors = sample_vectors();
     auto config = make_ivf_config();
 
-    ExactIndex cpu_source(Metric::euclidean, kDimension);
+    IndexFlat cpu_source(Metric::euclidean, kDimension);
     populate_exact_index(cpu_source, ids, vectors);
 
     GpuIVFFlatIndex gpu_index(backend, Metric::euclidean, kDimension, config);
     auto imported = gpu_index.import_from_cpu_index(cpu_source);
     ASSERT_TRUE(imported.has_value());
-    EXPECT_EQ(gpu_index.size(), ids.size());
+    EXPECT_EQ(gpu_index.ntotal(), ids.size());
 
-    ExactIndex cpu_roundtrip(Metric::euclidean, kDimension);
+    IndexFlat cpu_roundtrip(Metric::euclidean, kDimension);
     auto exported = gpu_index.export_to_cpu_index(cpu_roundtrip);
     ASSERT_TRUE(exported.has_value());
-    EXPECT_EQ(cpu_roundtrip.size(), ids.size());
+    EXPECT_EQ(cpu_roundtrip.ntotal(), ids.size());
 
     const std::array<float, kDimension> query{5.2F, 5.1F, 5.0F, 5.0F};
     const auto hits = cpu_roundtrip.search(query, 1);
@@ -182,23 +182,23 @@ TEST(GpuGraphIndexTest, cpu_transfer_builds_real_graph_search_state) {
     config.graph_params.intermediate_graph_degree = 8;
     config.default_ef_search_gpu = 12;
 
-    ExactIndex cpu_source(Metric::euclidean, kDimension);
+    IndexFlat cpu_source(Metric::euclidean, kDimension);
     populate_exact_index(cpu_source, ids, vectors);
 
     GpuGraphIndex graph_index(backend, Metric::euclidean, kDimension, config);
     auto imported = graph_index.import_from_cpu_index(cpu_source);
     ASSERT_TRUE(imported.has_value());
-    EXPECT_EQ(graph_index.size(), ids.size());
+    EXPECT_EQ(graph_index.ntotal(), ids.size());
 
     const std::array<float, kDimension> query{0.0F, 0.0F, 0.0F, 0.0F};
     const auto hits = graph_index.search(query, 2);
     ASSERT_FALSE(hits.empty());
     EXPECT_EQ(hits.front().first, ids.front());
 
-    ExactIndex roundtrip(Metric::euclidean, kDimension);
+    IndexFlat roundtrip(Metric::euclidean, kDimension);
     auto exported = graph_index.export_to_cpu_index(roundtrip);
     ASSERT_TRUE(exported.has_value());
-    EXPECT_EQ(roundtrip.size(), ids.size());
+    EXPECT_EQ(roundtrip.ntotal(), ids.size());
 }
 
 TEST(GpuHybridIndexTest, import_from_cpu_keeps_gpu_and_cpu_mirror_in_sync) {
@@ -208,25 +208,25 @@ TEST(GpuHybridIndexTest, import_from_cpu_keeps_gpu_and_cpu_mirror_in_sync) {
     auto config = make_ivf_config();
     config.algorithm = GpuIndexAlgorithm::IvfFlat;
 
-    ExactIndex cpu_source(Metric::euclidean, kDimension);
+    IndexFlat cpu_source(Metric::euclidean, kDimension);
     populate_exact_index(cpu_source, ids, vectors);
 
-    auto cpu_mirror = std::make_unique<ExactIndex>(Metric::euclidean, kDimension);
+    auto cpu_mirror = std::make_unique<IndexFlat>(Metric::euclidean, kDimension);
     GpuHybridIndex hybrid(
         backend, std::move(cpu_mirror), Metric::euclidean, kDimension, config);
     auto imported = hybrid.import_from_cpu_index(cpu_source);
     ASSERT_TRUE(imported.has_value());
-    EXPECT_EQ(hybrid.size(), ids.size());
+    EXPECT_EQ(hybrid.ntotal(), ids.size());
 
     const std::array<float, kDimension> query{5.0F, 5.0F, 5.0F, 5.0F};
     const auto hits = hybrid.search(query, 2);
     ASSERT_FALSE(hits.empty());
     EXPECT_EQ(hits.front().first, ids[2]);
 
-    ExactIndex cpu_roundtrip(Metric::euclidean, kDimension);
+    IndexFlat cpu_roundtrip(Metric::euclidean, kDimension);
     auto exported = hybrid.export_to_cpu_index(cpu_roundtrip);
     ASSERT_TRUE(exported.has_value());
-    EXPECT_EQ(cpu_roundtrip.size(), ids.size());
+    EXPECT_EQ(cpu_roundtrip.ntotal(), ids.size());
 
     auto snapshot = hybrid.export_snapshot();
     ASSERT_TRUE(snapshot.has_value());
@@ -239,14 +239,14 @@ TEST(GpuDistributedIndexTest, sharded_index_merges_results_from_children) {
     const auto vectors = sample_vectors();
     GpuConfig config;
 
-    std::vector<std::unique_ptr<GpuIndexPort>> children;
+    std::vector<std::unique_ptr<GpuIndex>> children;
     children.push_back(make_brute_force_child(backend, config));
     children.push_back(make_brute_force_child(backend, config));
 
     GpuDistributedIndex distributed(std::move(children), DistributedMode::shard);
     auto built = distributed.build_from_batch(vectors, ids, GpuIndexBuildParams{});
     ASSERT_TRUE(built.has_value());
-    EXPECT_EQ(distributed.size(), ids.size());
+    EXPECT_EQ(distributed.ntotal(), ids.size());
 
     const std::array<float, kDimension> query{-4.1F, -4.0F, -4.0F, -4.0F};
     const auto hits = distributed.search(query, 2);
@@ -257,7 +257,7 @@ TEST(GpuDistributedIndexTest, sharded_index_merges_results_from_children) {
     ASSERT_TRUE(snapshot.has_value());
     EXPECT_EQ(snapshot->kind, IndexSnapshotKind::gpu_distributed);
 
-    std::vector<std::unique_ptr<GpuIndexPort>> restored_children;
+    std::vector<std::unique_ptr<GpuIndex>> restored_children;
     restored_children.push_back(make_brute_force_child(backend, config));
     restored_children.push_back(make_brute_force_child(backend, config));
     GpuDistributedIndex restored(std::move(restored_children), DistributedMode::shard);
@@ -275,7 +275,7 @@ TEST(GpuDistributedIndexTest, replicated_index_keeps_logical_size_single_copy) {
     const auto vectors = sample_vectors();
     GpuConfig config;
 
-    std::vector<std::unique_ptr<GpuIndexPort>> children;
+    std::vector<std::unique_ptr<GpuIndex>> children;
     children.push_back(make_brute_force_child(backend, config));
     children.push_back(make_brute_force_child(backend, config));
 
@@ -283,7 +283,7 @@ TEST(GpuDistributedIndexTest, replicated_index_keeps_logical_size_single_copy) {
     auto built = distributed.build_from_batch(vectors, ids, GpuIndexBuildParams{});
     ASSERT_TRUE(built.has_value());
 
-    EXPECT_EQ(distributed.size(), ids.size());
+    EXPECT_EQ(distributed.ntotal(), ids.size());
     const std::array<float, kDimension> query{0.1F, 0.1F, 0.0F, 0.0F};
     const auto hits = distributed.search(query, 1);
     ASSERT_EQ(hits.size(), 1U);

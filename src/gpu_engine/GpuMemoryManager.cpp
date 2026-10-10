@@ -16,7 +16,7 @@ namespace {
 
 } // namespace
 
-GpuMemoryManager::GpuMemoryManager(GpuPort& backend)
+GpuMemoryManager::GpuMemoryManager(GpuBackend& backend)
     : backend_(backend) {}
 
 GpuMemoryManager::~GpuMemoryManager() {

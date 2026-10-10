@@ -11,7 +11,7 @@
 namespace elips::gpu {
 namespace {
 
-std::unique_ptr<GpuIndexPort> make_gpu_index(GpuPort& backend, elips::Metric metric,
+std::unique_ptr<GpuIndex> make_gpu_index(GpuBackend& backend, elips::Metric metric,
                                              uint16_t dimension,
                                              const GpuConfig& config) {
     switch (config.algorithm) {
@@ -40,8 +40,8 @@ std::unique_ptr<GpuIndexPort> make_gpu_index(GpuPort& backend, elips::Metric met
 
 }  // namespace
 
-GpuHybridIndex::GpuHybridIndex(GpuPort& backend,
-                               std::unique_ptr<elips::IndexPort> cpu_index,
+GpuHybridIndex::GpuHybridIndex(GpuBackend& backend,
+                               std::unique_ptr<elips::Index> cpu_index,
                                elips::Metric metric,
                                uint16_t dimension,
                                const GpuConfig& config)
@@ -49,9 +49,9 @@ GpuHybridIndex::GpuHybridIndex(GpuPort& backend,
     , gpu_index_(make_gpu_index(backend, metric, dimension, config))
 {}
 
-void GpuHybridIndex::insert(const RecordID& id, std::span<const float> vector) {
-    cpu_index_->insert(id, vector);
-    gpu_index_->insert(id, vector);
+void GpuHybridIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
+    cpu_index_->add_with_ids(id, vector);
+    gpu_index_->add_with_ids(id, vector);
 }
 
 void GpuHybridIndex::remove(const RecordID& id) {
@@ -59,16 +59,16 @@ void GpuHybridIndex::remove(const RecordID& id) {
     gpu_index_->remove(id);
 }
 
-std::vector<IndexPort::Hit> GpuHybridIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuHybridIndex::search(std::span<const float> query,
                                                     std::size_t k) const {
     auto gpu_hits = gpu_index_->search(query, k);
-    if (!gpu_hits.empty() || gpu_index_->size() == 0 || k == 0) {
+    if (!gpu_hits.empty() || gpu_index_->ntotal() == 0 || k == 0) {
         return gpu_hits;
     }
     return cpu_index_->search(query, k);
 }
 
-std::size_t GpuHybridIndex::size() const noexcept { return cpu_index_->size(); }
+std::size_t GpuHybridIndex::ntotal() const noexcept { return cpu_index_->ntotal(); }
 std::string_view GpuHybridIndex::type_name() const noexcept { return "gpu_hybrid"; }
 
 void GpuHybridIndex::vacuum() { cpu_index_->vacuum(); }
@@ -103,7 +103,7 @@ GpuHybridIndex::search_batch(std::span<const float> queries, size_t k, size_t ef
 }
 
 std::expected<void, GpuError>
-GpuHybridIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuHybridIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -120,7 +120,7 @@ GpuHybridIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
 }
 
 std::expected<void, GpuError>
-GpuHybridIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuHybridIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* cpu_transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     auto* cpu_mirror_transfer =

@@ -132,8 +132,6 @@ Result:
 | Metal | Yes | Yes | Yes | Yes |
 | CUDA | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
 | HIP | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
-| SYCL | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
-| Vulkan | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
 | CPU fallback | Yes | N/A | N/A | Yes |
 
 Notes:

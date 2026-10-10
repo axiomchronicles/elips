@@ -12,7 +12,7 @@
 | Platform | Status |
 |---|---|
 | macOS (ARM64 / x86_64) | Full support — CPU + Metal GPU backend |
-| Linux (x86_64) | Full support — CPU + CUDA/ROCm/SYCL/Vulkan GPU backends |
+| Linux (x86_64) | Full support — CPU + CUDA/ROCm GPU backends (experimental, not hardware-validated) |
 | Windows (x86_64) | Supported (MSVC) |
 
 GPU support is optional and controlled at build time. The Python package functions without any GPU backend — only CPU types are imported when no GPU is configured.
@@ -38,8 +38,6 @@ Add one or more GPU backend flags to the CMake invocation:
 | `-DELIPS_GPU_METAL=ON` | Apple Metal (macOS) — on by default on Apple platforms |
 | `-DELIPS_GPU_CUDA=ON` | NVIDIA CUDA |
 | `-DELIPS_GPU_HIP=ON` | AMD ROCm/HIP |
-| `-DELIPS_GPU_SYCL=ON` | Intel oneAPI/SYCL |
-| `-DELIPS_GPU_VULKAN=ON` | Vulkan Compute |
 
 ```bash
 cmake -S . -B build -G Ninja -DELIPS_BUILD_PYTHON=ON -DELIPS_GPU_CUDA=ON
@@ -131,8 +129,6 @@ The `_core` extension is the pybind11-compiled C++ module. The `.pyi` stub provi
 | `ELIPS_GPU_METAL` | `ON` (Apple) | Metal GPU backend |
 | `ELIPS_GPU_CUDA` | `OFF` | NVIDIA CUDA backend |
 | `ELIPS_GPU_HIP` | `OFF` | AMD ROCm backend |
-| `ELIPS_GPU_SYCL` | `OFF` | Intel oneAPI backend |
-| `ELIPS_GPU_VULKAN` | `OFF` | Vulkan compute backend |
 
 ## Troubleshooting
 

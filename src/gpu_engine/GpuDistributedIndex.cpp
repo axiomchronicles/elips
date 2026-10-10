@@ -39,24 +39,24 @@ std::vector<std::vector<float>> split_vectors(std::span<const float> vectors,
 }  // namespace
 
 GpuDistributedIndex::GpuDistributedIndex(
-    std::vector<std::unique_ptr<GpuIndexPort>> indexes, DistributedMode mode)
+    std::vector<std::unique_ptr<GpuIndex>> indexes, DistributedMode mode)
     : indexes_(std::move(indexes)), mode_(mode) {}
 
-void GpuDistributedIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuDistributedIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     if (indexes_.empty()) {
         return;
     }
 
     if (mode_ == DistributedMode::replicate) {
         for (auto& index : indexes_) {
-            index->insert(id, vector);
+            index->add_with_ids(id, vector);
         }
         return;
     }
 
     const auto shard =
         next_replica_.fetch_add(1, std::memory_order_relaxed) % indexes_.size();
-    indexes_[shard]->insert(id, vector);
+    indexes_[shard]->add_with_ids(id, vector);
 }
 
 void GpuDistributedIndex::remove(const RecordID& id) {
@@ -65,7 +65,7 @@ void GpuDistributedIndex::remove(const RecordID& id) {
     }
 }
 
-std::vector<IndexPort::Hit> GpuDistributedIndex::merge_hits(
+std::vector<Index::Hit> GpuDistributedIndex::merge_hits(
     const std::vector<std::vector<Hit>>& shard_hits, std::size_t k) const {
     std::vector<Hit> merged;
     for (const auto& hits : shard_hits) {
@@ -82,7 +82,7 @@ std::vector<IndexPort::Hit> GpuDistributedIndex::merge_hits(
     return merged;
 }
 
-std::vector<IndexPort::Hit> GpuDistributedIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuDistributedIndex::search(std::span<const float> query,
                                                          std::size_t k) const {
     if (indexes_.empty() || k == 0) {
         return {};
@@ -102,13 +102,13 @@ std::vector<IndexPort::Hit> GpuDistributedIndex::search(std::span<const float> q
     return merge_hits(shard_hits, k);
 }
 
-std::size_t GpuDistributedIndex::size() const noexcept {
+std::size_t GpuDistributedIndex::ntotal() const noexcept {
     std::size_t total = 0;
     for (const auto& index : indexes_) {
-        total += index->size();
+        total += index->ntotal();
     }
     if (mode_ == DistributedMode::replicate && !indexes_.empty()) {
-        return indexes_.front()->size();
+        return indexes_.front()->ntotal();
     }
     return total;
 }
@@ -207,7 +207,7 @@ GpuDistributedIndex::search_batch(std::span<const float> queries, size_t k,
 }
 
 std::expected<void, GpuError>
-GpuDistributedIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuDistributedIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -224,7 +224,7 @@ GpuDistributedIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const 
 }
 
 std::expected<void, GpuError>
-GpuDistributedIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuDistributedIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     if (!transfer) {

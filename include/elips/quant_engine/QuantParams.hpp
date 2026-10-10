@@ -11,7 +11,7 @@ namespace elips::quant {
 
 class Quantizer;
 
-// A trained codec is immutable and shared: vaults and indexes observe the same
+// A trained codec is immutable and shared: collections and indexes observe the same
 // instance rather than each copying a codebook that, for 8-bit PQ, is 256
 // centroids per subspace.
 using QuantizerPtr = std::shared_ptr<const Quantizer>;
@@ -28,7 +28,7 @@ enum class CodecId : std::uint8_t {
 [[nodiscard]] const char* to_string(CodecId codec) noexcept;
 [[nodiscard]] CodecId codec_from_string(const char* name);
 
-// Tunable parameters for the quantizers. Mirrors GraphParams: a plain struct of
+// Tunable parameters for the quantizers. Mirrors HnswParams: a plain struct of
 // defaults that a caller overrides selectively.
 struct QuantParams {
     CodecId codec{CodecId::none};

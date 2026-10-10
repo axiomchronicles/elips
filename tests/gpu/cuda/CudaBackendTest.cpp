@@ -13,10 +13,9 @@
 #include <span>
 #include <vector>
 
-#include "elips/Config.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
@@ -24,7 +23,7 @@ namespace {
 
 // Selects the CUDA backend specifically (preferred_backend == "cuda"), or
 // returns nullptr when no NVIDIA device is available.
-std::unique_ptr<GpuPort> select_cuda() {
+std::unique_ptr<GpuBackend> select_cuda() {
     GpuDeviceManager manager;
     auto devices = manager.probe_all_devices();
     GpuConfig config;
@@ -38,7 +37,7 @@ std::unique_ptr<GpuPort> select_cuda() {
 class CudaBackendTest : public ::testing::Test {
 protected:
     void SetUp() override { backend_ = select_cuda(); }
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
 };
 
 TEST_F(CudaBackendTest, initialize_reports_experimental_cuda_device) {

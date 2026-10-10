@@ -44,8 +44,8 @@ TEST(GpuBruteForceIndexTest, insert_and_remove_keep_search_state_consistent) {
     const RecordID far = RecordID::generate();
     const RecordID near = RecordID::generate();
 
-    index.insert(far, std::vector<float>{10.0F, 10.0F});
-    index.insert(near, std::vector<float>{0.0F, 0.0F});
+    index.add_with_ids(far, std::vector<float>{10.0F, 10.0F});
+    index.add_with_ids(near, std::vector<float>{0.0F, 0.0F});
 
     auto hits = index.search(std::vector<float>{0.1F, 0.1F}, 2);
     ASSERT_EQ(hits.size(), 2U);
