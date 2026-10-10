@@ -5,6 +5,7 @@
 #include <pybind11/stl.h>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -39,6 +40,8 @@
 #include "elips/gpu_engine/QueryBatcher.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
+#include "elips/gpu_engine/BruteForceKnn.hpp"
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
 #include "elips/gpu_engine/GpuBackend.hpp"
@@ -3138,6 +3141,94 @@ Supported specs mirror FAISS token spellings:
     "Flat", "IVF<nlist>,Flat", "IVF<nlist>,PQ<M>", "IVF<nlist>,SQ8",
     "HNSW<M>".  e.g. ``index_factory(128, "IVF32,Flat")``.
 )doc");
+
+#ifdef ELIPS_GPU_ENABLED
+    // Standalone brute-force k-NN over raw arrays -- no index object. Same numpy
+    // contract as the Index API: float32/C-contiguous in; (D float32[nq,k],
+    // I int64[nq,k]) out with -1 label / +inf distance padding for k > nb.
+    m.def("bf_knn",
+          [](const FloatArray& xq, const FloatArray& xb, std::size_t k,
+             const std::string& metric,
+             const std::string& device) -> py::tuple {
+              if (k == 0) throw py::value_error("bf_knn: k must be > 0");
+
+              auto two_d = [](const FloatArray& a, const char* name,
+                              std::size_t& n, std::size_t& d) -> const float* {
+                  if (a.ndim() == 1) {
+                      n = 1;
+                      d = static_cast<std::size_t>(a.shape(0));
+                      return a.data();
+                  }
+                  if (a.ndim() == 2) {
+                      n = static_cast<std::size_t>(a.shape(0));
+                      d = static_cast<std::size_t>(a.shape(1));
+                      return a.data();
+                  }
+                  throw py::value_error(std::string(name) +
+                                        ": expected a 1-D or 2-D float32 array");
+              };
+
+              std::size_t nq = 0, dq = 0, nb = 0, db = 0;
+              const float* qp = two_d(xq, "xq", nq, dq);
+              const float* bp = two_d(xb, "xb", nb, db);
+              if (dq != db) {
+                  throw elips::DimensionMismatch{
+                      "bf_knn: xq and xb must share the vector dimension"};
+              }
+              const auto mt = parse_index_metric(metric);
+
+              // Resolve the backend. "cpu" forces the CPU path; "metal" requires
+              // a real Metal device; "auto" uses Metal when present else CPU.
+              std::unique_ptr<elips::gpu::GpuBackend> backend;
+              if (device == "metal" || device == "auto") {
+                  elips::gpu::GpuDeviceManager mgr;
+                  elips::gpu::BackendSelector sel;
+                  elips::gpu::GpuConfig cfg;
+                  cfg.policy = elips::gpu::GpuPolicy::Auto;
+                  auto chosen = sel.select(cfg, mgr.probe_all_devices());
+                  if (chosen.has_value() &&
+                      (*chosen)->device_info().backend == "metal") {
+                      backend = std::move(*chosen);
+                  }
+                  if (device == "metal" && !backend) {
+                      throw py::value_error(
+                          "bf_knn: device='metal' requested but no Metal "
+                          "device is available");
+                  }
+              } else if (device != "cpu") {
+                  throw py::value_error(
+                      "bf_knn: device must be 'cpu', 'metal', or 'auto'");
+              }
+
+              auto res = elips::gpu::bf_knn(
+                  std::span<const float>(qp, nq * dq), nq,
+                  std::span<const float>(bp, nb * db), nb, dq, k, mt,
+                  backend.get());
+              if (!res.has_value()) {
+                  throw py::value_error("bf_knn: invalid arguments");
+              }
+
+              py::array_t<float> dists({static_cast<py::ssize_t>(nq),
+                                        static_cast<py::ssize_t>(k)});
+              py::array_t<std::int64_t> labels({static_cast<py::ssize_t>(nq),
+                                                static_cast<py::ssize_t>(k)});
+              std::memcpy(dists.mutable_data(), res->distances.data(),
+                          nq * k * sizeof(float));
+              std::memcpy(labels.mutable_data(), res->labels.data(),
+                          nq * k * sizeof(std::int64_t));
+              return py::make_tuple(std::move(dists), std::move(labels));
+          },
+          py::arg("xq"), py::arg("xb"), py::arg("k"), py::arg("metric") = "l2",
+          py::arg("device") = "auto",
+          R"doc(Brute-force exact k-NN over raw arrays, with no index build.
+
+``xq`` (nq, d) queries and ``xb`` (nb, d) database are float32/C-contiguous.
+Returns ``(D, I)``: float32 distances and int64 row-index labels, each
+``(nq, k)``; slots past ``nb`` (k > nb) hold label -1 and a +inf distance.
+``device`` is 'auto' (Metal when available, else CPU), 'cpu', or 'metal'.
+Cosine assumes L2-normalized inputs, matching the Index API.
+)doc");
+#endif
 
     // =====================  Phase 5 naming aliases  =====================
     // The C++ core already carries the new vocabulary; expose it in Python

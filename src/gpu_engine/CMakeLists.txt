@@ -20,6 +20,7 @@ add_library(elips_gpu STATIC
     GpuIVFPQIndex.cpp
     GpuBruteForceIndex.cpp
     GpuHybridIndex.cpp
+    BruteForceKnn.cpp
 )
 
 target_include_directories(elips_gpu

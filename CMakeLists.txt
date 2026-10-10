@@ -224,7 +224,8 @@ if(ELIPS_GPU_ENABLED)
     target_compile_definitions(elips_tests PRIVATE ELIPS_GPU_ENABLED)
     if(APPLE AND ELIPS_ENABLE_METAL)
         target_sources(elips_tests PRIVATE
-            tests/integration/gpu/MetalRealKernelParityTest.cpp)
+            tests/integration/gpu/MetalRealKernelParityTest.cpp
+            tests/integration/gpu/MetalBruteForceKnnParityTest.cpp)
         target_link_libraries(elips_tests PRIVATE elips_gpu_metal)
         find_library(METAL_FW Metal)
         find_library(MPS_FW MetalPerformanceShaders)

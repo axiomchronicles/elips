@@ -1776,6 +1776,20 @@ def IndexHNSW(d: int, M: int = ..., metric: str = ...) -> Index:
 def index_factory(d: int, spec: str, metric: str = ...) -> Index:
     """Build an index from a FAISS-style factory string."""
 
+def bf_knn(
+    xq: object,
+    xb: object,
+    k: int,
+    metric: str = ...,
+    device: str = ...,
+) -> tuple[object, object]:
+    """Brute-force exact k-NN over raw arrays, no index build.
+
+    Returns ``(D, I)``: float32 distances and int64 row-index labels, each
+    ``(nq, k)``, with -1 / +inf padding for ``k > nb``. ``device`` is
+    'auto', 'cpu', or 'metal'. Present only in GPU-enabled builds.
+    """
+
 # -- Phase 5 naming aliases ---------------------------------------------------
 # The modern vocabulary is Vault/VaultInfo/TransactionVault; these are the
 # kept-working legacy spellings of the same types.
