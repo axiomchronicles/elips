@@ -14,8 +14,9 @@ namespace {
 void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
                         std::string_view label) {
     if (vector.size() != dimension) {
-        throw DimensionMismatch{std::string(label) +
-                                " dimension does not match index"};
+        throw DimensionMismatch{std::string(label) + ": expected d=" +
+                                std::to_string(dimension) + ", got " +
+                                std::to_string(vector.size())};
     }
 }
 
@@ -84,6 +85,37 @@ std::vector<Index::Hit> IndexFlat::search(std::span<const float> query,
         [](const Hit& lhs, const Hit& rhs) { return lhs.second < rhs.second; });
     scored.resize(take);
     return scored;
+}
+
+std::vector<Index::Hit> IndexFlat::range_search(std::span<const float> query,
+                                                float radius) const {
+    validate_dimension(query, dimension_, "query");
+
+    std::vector<Hit> hits;
+    if (compressed()) {
+        const auto lut = quantizer_->make_lut(query);
+        for (std::size_t i = 0; i < ids_.size(); ++i) {
+            const std::span<const std::uint8_t> code{
+                codes_.data() + (i * row_width_), row_width_};
+            const float d = quantizer_->lut_distance(lut, code);
+            if (d <= radius) {
+                hits.emplace_back(ids_[i], d);
+            }
+        }
+    } else {
+        for (std::size_t i = 0; i < ids_.size(); ++i) {
+            const std::span<const float> row{data_.data() + (i * dimension_),
+                                             dimension_};
+            const float d = distance(metric_, query, row);
+            if (d <= radius) {
+                hits.emplace_back(ids_[i], d);
+            }
+        }
+    }
+
+    std::sort(hits.begin(), hits.end(),
+              [](const Hit& lhs, const Hit& rhs) { return lhs.second < rhs.second; });
+    return hits;
 }
 
 std::expected<IndexSnapshot, std::string> IndexFlat::export_snapshot() const {

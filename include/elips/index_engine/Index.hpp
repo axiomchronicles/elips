@@ -3,10 +3,12 @@
 
 #include <cstddef>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "elips/domain/Errors.hpp"
 #include "elips/domain/RecordID.hpp"
 
 namespace elips {
@@ -43,6 +45,19 @@ public:
     // Search path: up to k nearest, sorted ascending by distance.
     [[nodiscard]] virtual std::vector<Hit> search(std::span<const float> query,
                                                   std::size_t k) const = 0;
+
+    // Range search: every record whose ordering-normalized distance to `query`
+    // is <= `radius`, sorted ascending. Unlike search(k) the result size is
+    // data-dependent. Supported by the exhaustive/flat indexes; the default
+    // throws for index types that cannot answer it (e.g. ADC-only IVFPQ/SQ,
+    // graph HNSW) rather than silently degrading.
+    [[nodiscard]] virtual std::vector<Hit> range_search(
+        std::span<const float> query, float radius) const {
+        (void)query;
+        (void)radius;
+        throw ElipsError{"range_search not supported by " +
+                         std::string(type_name())};
+    }
 
     [[nodiscard]] virtual std::size_t ntotal() const noexcept = 0;
     [[nodiscard]] virtual std::string_view type_name() const noexcept = 0;

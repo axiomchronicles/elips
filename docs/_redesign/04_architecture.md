@@ -36,6 +36,18 @@ two layers (Collection built on Index). Metal validated first; CUDA/HIP experime
 ## Open questions
 _(record here with a recommended default, then proceed)_
 
+## Concurrency contract (Phase 6.7)
+- **Process level:** single-writer / multi-reader via advisory file locks. A second writer fails with
+  a lock conflict; read-only opens take a shared lock and reject writes. Tested: `SingleWriterTest`,
+  `ConcurrencyTest` (multi-reader), `single_writer_test.cpp` / `multi_reader_test.cpp`.
+- **In-process (threads):** concurrent readers are safe; writes are serialized under a single writer.
+  Tested: `M2Test` thread-safety suite (concurrent writer+readers on one collection, concurrent
+  erase+search, concurrent collection creation). TSan build available via `-DELIPS_SANITIZE=thread`.
+- **Threading policy:** search is currently single-threaded (no OpenMP/pool). A parallel-search thread
+  pool (FAISS parallelizes queries) is a **Phase 8 performance item**, deferred until benchmarked —
+  correctness and the documented contract do not depend on it. Callers may parallelize across
+  independent read-only handles.
+
 ## Implementation roadmap (Phases 6–10) — planned after the Phase 1–5 milestone
 
 Phases 1–5 are done/committed/green (inventory, prune, FAISS study, gap analysis, full deep

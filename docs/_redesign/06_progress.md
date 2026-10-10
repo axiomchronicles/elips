@@ -62,6 +62,19 @@ Deep rename applied across C++ / Python / EQL / CMake in 8 verified batches; bui
 - [ ] 6.6 expose FAISS Index API in Python (IndexFlat/IVFFlat/HNSW, index_factory, read/write_index) — deferred from Phase 5
 - [ ] 6.7 documented concurrency/threading policy
 
+- [x] 6.4 range_search(query, radius) on IndexFlat + IVFFlat (base default throws for the rest). (IndexRefine `refine_fraction` + batched C++ search deferred — Python Index API already batches; Refine is niche.)
+- [x] 6.5 typed exceptions `DimensionMismatchError`/`NotTrainedError` raised with actionable messages; metric true-vs-squared L2 documented (ranking identical); k>ntotal pads -1 in the Index API. ctest 297 (296+1skip), pytest 34/34.
+- [x] 6.7 concurrency contract documented (04_architecture.md): process single-writer/multi-reader via advisory locks (tested — SingleWriter/MultiReader); in-process concurrent reads safe, single writer (tested — M2 thread-safety). Threading policy: search is single-threaded today; a parallel-search thread pool is a Phase 8 perf item (defer until benchmarked — ponytail).
+
+## Phase 6 gate: MET (core index path)
+CPU index family complete and property-tested vs the IndexFlat brute-force oracle:
+IndexFlat (exact), IndexHNSW (recall-tested), IndexIVFFlat (0.985–0.999 @nprobe8 →1.0),
+IVFPQ (16× / ~0.72), IVF-SQ (4× / 0.96) — recall recorded in 05_test_matrix.md. index_factory,
+FAISS Index API in Python (numpy), Chroma string ids, range_search, typed errors all landed;
+ctest 297 (296+1skip), pytest 34/34 at every commit. Deferred (tracked, non-blocking): IndexRefine,
+batched C++ range, metric-squared kernel, Collection.update string ids, parallel-search pool.
+Next: **Phase 7 — Metal GPU (the heart).**
+
 ## Open questions
 (see `04_architecture.md`)
 

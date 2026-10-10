@@ -18,8 +18,9 @@ constexpr std::size_t kTrainIters = 25;
 void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
                         std::string_view label) {
     if (vector.size() != dimension) {
-        throw DimensionMismatch{std::string(label) +
-                                " dimension does not match index"};
+        throw DimensionMismatch{std::string(label) + ": expected d=" +
+                                std::to_string(dimension) + ", got " +
+                                std::to_string(vector.size())};
     }
 }
 
@@ -61,7 +62,7 @@ std::size_t IndexIVFFlat::assign(std::span<const float> vector) const noexcept {
 void IndexIVFFlat::add_with_ids(const RecordID& id,
                                 std::span<const float> vector) {
     if (!trained_) {
-        throw ConfigError{"IndexIVFFlat::add_with_ids before train()"};
+        throw NotTrainedError{"IndexIVFFlat::add_with_ids before train()"};
     }
     validate_dimension(vector, dimension_, "vector");
     InvList& list = lists_[assign(vector)];
@@ -89,7 +90,10 @@ void IndexIVFFlat::remove(const RecordID& id) {
 std::vector<Index::Hit> IndexIVFFlat::search(std::span<const float> query,
                                              std::size_t k) const {
     validate_dimension(query, dimension_, "query");
-    if (!trained_ || ntotal_ == 0 || k == 0) {
+    if (!trained_) {
+        throw NotTrainedError{"IndexIVFFlat::search before train()"};
+    }
+    if (ntotal_ == 0 || k == 0) {
         return {};
     }
 
@@ -122,6 +126,48 @@ std::vector<Index::Hit> IndexIVFFlat::search(std::span<const float> query,
         [](const Hit& lhs, const Hit& rhs) { return lhs.second < rhs.second; });
     scored.resize(take);
     return scored;
+}
+
+std::vector<Index::Hit> IndexIVFFlat::range_search(std::span<const float> query,
+                                                   float radius) const {
+    validate_dimension(query, dimension_, "query");
+    if (!trained_) {
+        throw NotTrainedError{"IndexIVFFlat::range_search before train()"};
+    }
+
+    std::vector<Hit> hits;
+    if (ntotal_ == 0) {
+        return hits;
+    }
+
+    // Same coarse-probe set as search(): rank centroids, probe the nearest
+    // nprobe lists, keep everything within radius.
+    std::vector<std::pair<float, std::size_t>> coarse;
+    coarse.reserve(nlist_);
+    for (std::size_t c = 0; c < nlist_; ++c) {
+        coarse.emplace_back(distance(metric_, query, centroid(c)), c);
+    }
+    const std::size_t probe = std::min(std::max<std::size_t>(1, nprobe), nlist_);
+    std::partial_sort(
+        coarse.begin(), coarse.begin() + static_cast<std::ptrdiff_t>(probe),
+        coarse.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
+    for (std::size_t p = 0; p < probe; ++p) {
+        const InvList& list = lists_[coarse[p].second];
+        for (std::size_t i = 0; i < list.ids.size(); ++i) {
+            const std::span<const float> row{list.data.data() + (i * dimension_),
+                                             dimension_};
+            const float d = distance(metric_, query, row);
+            if (d <= radius) {
+                hits.emplace_back(list.ids[i], d);
+            }
+        }
+    }
+
+    std::sort(hits.begin(), hits.end(),
+              [](const Hit& lhs, const Hit& rhs) { return lhs.second < rhs.second; });
+    return hits;
 }
 
 void IndexIVFFlat::reset() {

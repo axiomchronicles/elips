@@ -37,6 +37,8 @@ public:
     void remove(const RecordID& id) override;
     [[nodiscard]] std::vector<Hit> search(std::span<const float> query,
                                           std::size_t k) const override;
+    [[nodiscard]] std::vector<Hit> range_search(std::span<const float> query,
+                                                 float radius) const override;
 
     [[nodiscard]] std::size_t ntotal() const noexcept override { return ids_.size(); }
     [[nodiscard]] std::string_view type_name() const noexcept override {

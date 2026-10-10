@@ -18,8 +18,9 @@ constexpr std::size_t kTrainIters = 25;
 void validate_dimension(std::span<const float> vector, std::uint16_t dimension,
                         std::string_view label) {
     if (vector.size() != dimension) {
-        throw DimensionMismatch{std::string(label) +
-                                " dimension does not match index"};
+        throw DimensionMismatch{std::string(label) + ": expected d=" +
+                                std::to_string(dimension) + ", got " +
+                                std::to_string(vector.size())};
     }
 }
 
@@ -89,7 +90,7 @@ std::size_t IndexIVFPQ::assign(std::span<const float> vector) const noexcept {
 void IndexIVFPQ::add_with_ids(const RecordID& id,
                               std::span<const float> vector) {
     if (!trained_) {
-        throw ConfigError{"IndexIVFPQ::add_with_ids before train()"};
+        throw NotTrainedError{"IndexIVFPQ::add_with_ids before train()"};
     }
     validate_dimension(vector, dimension_, "vector");
 
@@ -129,7 +130,10 @@ void IndexIVFPQ::remove(const RecordID& id) {
 std::vector<Index::Hit> IndexIVFPQ::search(std::span<const float> query,
                                            std::size_t k) const {
     validate_dimension(query, dimension_, "query");
-    if (!trained_ || ntotal_ == 0 || k == 0) {
+    if (!trained_) {
+        throw NotTrainedError{"IndexIVFPQ::search before train()"};
+    }
+    if (ntotal_ == 0 || k == 0) {
         return {};
     }
 

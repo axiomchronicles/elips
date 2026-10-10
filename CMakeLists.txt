@@ -187,6 +187,8 @@ if(BUILD_TESTING)
         tests/unit/index_ivfpq_test.cpp
         tests/unit/index_ivfsq_test.cpp
         tests/unit/index_factory_test.cpp
+        tests/unit/typed_errors_test.cpp
+        tests/unit/range_search_test.cpp
         tests/unit/hnsw_edge_cases_test.cpp
         tests/unit/filter_edge_test.cpp
         tests/unit/scan_test.cpp

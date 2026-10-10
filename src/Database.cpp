@@ -822,7 +822,10 @@ Collection::Collection(std::string name, const Config& config
 
 Vector Collection::prepare(const Vector& vector) const {
     if (vector.dimension() != config_.dimension()) {
-        throw DimensionMismatch{"vector dimension does not match collection"};
+        throw DimensionMismatch{"vector dimension does not match collection: "
+                                "expected d=" +
+                                std::to_string(config_.dimension()) + ", got " +
+                                std::to_string(vector.dimension())};
     }
     if (!all_finite(vector.values())) {
         throw InvalidVector{"vector contains NaN or Inf"};
@@ -1884,7 +1887,10 @@ void Transaction::enqueue_place(std::string collection, const Vector& vector,
                                 Payload payload,
                                 std::optional<RecordID> id) {
     if (vector.dimension() != db_->config().dimension()) {
-        throw DimensionMismatch{"vector dimension does not match database"};
+        throw DimensionMismatch{"vector dimension does not match database: "
+                                "expected d=" +
+                                std::to_string(db_->config().dimension()) +
+                                ", got " + std::to_string(vector.dimension())};
     }
     if (!all_finite(vector.values())) {
         throw InvalidVector{"vector contains NaN or Inf"};
