@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+
+# ELIPS CMake package config. Consumers do:
+#     find_package(elips REQUIRED)
+#     target_link_libraries(app PRIVATE elips::elips_core)
+#
+# The imported targets (elips::elips_core and, on GPU builds, elips::elips_gpu /
+# elips::elips_gpu_metal) carry their own include dirs and interface link
+# requirements, so no manual include_directories is needed. Apple-system
+# frameworks (Metal, Foundation) are referenced by absolute path and need no
+# find_dependency.
+include(CMakeFindDependencyMacro)
+include("${CMAKE_CURRENT_LIST_DIR}/elipsTargets.cmake")
+
+check_required_components(elips)
