@@ -12,12 +12,44 @@ TEST(EqlTest, ParsesSearchStatement) {
     const auto stmt = elips::eql::parse(
         "seek in docs nearest $q top 5 where year >= 2020 project title yield");
     const auto& s = std::get<elips::eql::SearchStatement>(stmt);
-    EXPECT_EQ(s.vault, "docs");
+    EXPECT_EQ(s.collection, "docs");
     EXPECT_EQ(s.query.binding, "q");
     ASSERT_TRUE(s.top.has_value());
     EXPECT_EQ(*s.top, 5);
     ASSERT_EQ(s.projection.size(), 1U);
     EXPECT_EQ(s.projection[0], "title");
+}
+
+// Exercises the Phase-5 vocabulary (add/search/get/delete/metadata/k) to prove
+// the new keywords parse and execute with the same semantics as the old ones.
+TEST(EqlTest, NewVocabularyAddSearchGetDelete) {
+    auto db = elips::open(":memory:", elips::Config{}.dimension(3).metric(
+                                          elips::Metric::euclidean));
+
+    // New-vocab parse check: add ... metadata ... and search ... k N.
+    const auto parsed = elips::eql::parse(
+        R"(search in docs nearest $q k 3 where year >= 2020 yield)");
+    const auto& ss = std::get<elips::eql::SearchStatement>(parsed);
+    EXPECT_EQ(ss.collection, "docs");
+    ASSERT_TRUE(ss.top.has_value());
+    EXPECT_EQ(*ss.top, 3);
+
+    const auto added =
+        db->query(R"(add in mem vector [1.0, 0.0, 0.0] metadata {"tag": "a"})");
+    ASSERT_EQ(added.size(), 1U);
+    const std::string id = added[0].id.to_string();
+
+    const std::map<std::string, elips::Vector> bindings{
+        {"q", elips::Vector{{0.9F, 0.1F, 0.0F}}}};
+    const auto hits = db->query("search in mem nearest $q k 1 yield", bindings);
+    ASSERT_EQ(hits.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(hits[0].data.at("tag")), "a");
+
+    const auto got = db->query("get from mem id \"" + id + "\" yield");
+    ASSERT_EQ(got.size(), 1U);
+
+    (void)db->query("delete from mem id \"" + id + "\"");
+    EXPECT_EQ(db->collection("mem").info().count, 0U);
 }
 
 TEST(EqlTest, PlaceThenSeekViaEql) {

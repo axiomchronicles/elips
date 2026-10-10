@@ -542,9 +542,11 @@ doing their own pre-processing.
         });
 
     py::class_<elips::eql::SearchStatement>(
-        m, "SearchStatement", "A parsed EQL ``SEARCH`` statement.")
+        m, "SearchStatement", "A parsed EQL ``search`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::SearchStatement::vault)
+        .def_readwrite("collection", &elips::eql::SearchStatement::collection)
+        .def_readwrite("vault", &elips::eql::SearchStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("query", &elips::eql::SearchStatement::query)
         .def_readwrite("top", &elips::eql::SearchStatement::top,
                        "Result limit, or ``None`` when unspecified.")
@@ -557,54 +559,68 @@ doing their own pre-processing.
         .def_readwrite("projection", &elips::eql::SearchStatement::projection,
                        "Requested fields; empty means all fields.")
         .def("__repr__", [](const elips::eql::SearchStatement& s) {
-            return "<SearchStatement vault='" + s.vault + "'>";
+            return "<SearchStatement collection='" + s.collection + "'>";
         });
 
-    py::class_<elips::eql::FetchStatement>(
-        m, "FetchStatement", "A parsed EQL ``FETCH`` statement.")
+    py::class_<elips::eql::GetStatement>(
+        m, "GetStatement", "A parsed EQL ``get`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::FetchStatement::vault)
-        .def_readwrite("id", &elips::eql::FetchStatement::id)
-        .def("__repr__", [](const elips::eql::FetchStatement& s) {
-            return "<FetchStatement vault='" + s.vault + "' id='" + s.id + "'>";
+        .def_readwrite("collection", &elips::eql::GetStatement::collection)
+        .def_readwrite("vault", &elips::eql::GetStatement::collection,
+                       "Deprecated alias of ``collection``.")
+        .def_readwrite("id", &elips::eql::GetStatement::id)
+        .def("__repr__", [](const elips::eql::GetStatement& s) {
+            return "<GetStatement collection='" + s.collection + "' id='" +
+                   s.id + "'>";
         });
+    // Deprecated pre-Phase-5 Python name; same underlying C++ type.
+    m.attr("FetchStatement") = m.attr("GetStatement");
 
     py::class_<elips::eql::ScanStatement>(
-        m, "ScanStatement", "A parsed EQL ``SCAN`` statement.")
+        m, "ScanStatement", "A parsed EQL ``scan`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::ScanStatement::vault)
+        .def_readwrite("collection", &elips::eql::ScanStatement::collection)
+        .def_readwrite("vault", &elips::eql::ScanStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("where", &elips::eql::ScanStatement::where)
         .def_readwrite("offset", &elips::eql::ScanStatement::offset)
         .def_readwrite("limit", &elips::eql::ScanStatement::limit)
         .def("__repr__", [](const elips::eql::ScanStatement& s) {
-            return "<ScanStatement vault='" + s.vault + "'>";
+            return "<ScanStatement collection='" + s.collection + "'>";
         });
 
-    py::class_<elips::eql::InsertStatement>(
-        m, "InsertStatement", "A parsed EQL ``INSERT`` statement.")
+    py::class_<elips::eql::AddStatement>(
+        m, "AddStatement", "A parsed EQL ``add`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::InsertStatement::vault)
-        .def_readwrite("vector", &elips::eql::InsertStatement::vector)
+        .def_readwrite("collection", &elips::eql::AddStatement::collection)
+        .def_readwrite("vault", &elips::eql::AddStatement::collection,
+                       "Deprecated alias of ``collection``.")
+        .def_readwrite("vector", &elips::eql::AddStatement::vector)
         .def_property(
             "data",
-            [](const elips::eql::InsertStatement& s) {
+            [](const elips::eql::AddStatement& s) {
                 return from_payload(s.data);
             },
-            [](elips::eql::InsertStatement& s, const py::dict& data) {
+            [](elips::eql::AddStatement& s, const py::dict& data) {
                 s.data = to_payload(data);
             },
             "Payload to store with the record.")
-        .def("__repr__", [](const elips::eql::InsertStatement& s) {
-            return "<InsertStatement vault='" + s.vault + "'>";
+        .def("__repr__", [](const elips::eql::AddStatement& s) {
+            return "<AddStatement collection='" + s.collection + "'>";
         });
+    // Deprecated pre-Phase-5 Python name; same underlying C++ type.
+    m.attr("InsertStatement") = m.attr("AddStatement");
 
     py::class_<elips::eql::DeleteStatement>(
-        m, "DeleteStatement", "A parsed EQL ``DELETE`` statement.")
+        m, "DeleteStatement", "A parsed EQL ``delete`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::DeleteStatement::vault)
+        .def_readwrite("collection", &elips::eql::DeleteStatement::collection)
+        .def_readwrite("vault", &elips::eql::DeleteStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("id", &elips::eql::DeleteStatement::id)
         .def("__repr__", [](const elips::eql::DeleteStatement& s) {
-            return "<DeleteStatement vault='" + s.vault + "' id='" + s.id + "'>";
+            return "<DeleteStatement collection='" + s.collection + "' id='" +
+                   s.id + "'>";
         });
 
     m.def("parse_eql",
