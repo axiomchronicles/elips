@@ -13,6 +13,12 @@
 # On an arm64 host the amd64 ROCm image runs under emulation (slow) — allow a
 # long timeout. On real x86_64 CI it compiles natively in seconds.
 #
+# CI-ONLY. The .hip translation units compiled cleanly with hipcc under
+# arm64->amd64 emulation (ROCm 7.16, gfx908) during development; the full
+# emulated cmake build is heavy and can exhaust the local Docker VM disk, so
+# this is intended to run on a real x86_64 ROCm CI runner. Recorded command is
+# below unchanged.
+#
 # Usage:  scripts/ci/compile_hip.sh
 # Env overrides:
 #   ROCM_IMAGE        container image (default rocm/dev-ubuntu-24.04:latest)
@@ -52,7 +58,7 @@ docker run --rm "${PLATFORM_ARG[@]}" \
         export PATH=/opt/rocm/bin:$PATH
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends cmake ninja-build g++ >/dev/null
-        echo ">> toolchain:"; hipcc --version | head -1; cmake --version | head -1
+        echo ">> toolchain:"; (hipcc --version || true) | head -1; (cmake --version || true) | head -1
         cmake -S /src -B /build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DELIPS_ENABLE_ROCM=ON \
