@@ -7,6 +7,8 @@
 #include "elips/index_engine/IndexFlat.hpp"
 #include "elips/index_engine/IndexHNSW.hpp"
 #include "elips/index_engine/IndexIVFFlat.hpp"
+#include "elips/index_engine/IndexIVFPQ.hpp"
+#include "elips/index_engine/IndexIVFScalarQuantizer.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
@@ -67,13 +69,30 @@ std::unique_ptr<Index> index_factory(std::uint16_t dimension, Metric metric,
     }
     if (spec.starts_with("IVF")) {
         const std::size_t comma = spec.find(',');
-        if (comma == std::string_view::npos || spec.substr(comma + 1) != "Flat") {
-            throw ConfigError{"index_factory: only 'IVF<nlist>,Flat' is "
-                              "supported for IVF, got '" +
+        if (comma == std::string_view::npos) {
+            throw ConfigError{"index_factory: IVF spec needs a ',<coarse>' "
+                              "suffix, got '" +
                               std::string(spec) + "'"};
         }
         const std::size_t nlist = parse_uint(spec, "IVF", comma);
-        return std::make_unique<IndexIVFFlat>(metric, dimension, nlist);
+        const std::string_view sub = spec.substr(comma + 1);
+        if (sub == "Flat") {
+            return std::make_unique<IndexIVFFlat>(metric, dimension, nlist);
+        }
+        if (sub == "SQ8") {
+            return std::make_unique<IndexIVFScalarQuantizer>(metric, dimension,
+                                                             nlist);
+        }
+        if (sub.starts_with("PQ")) {
+            // "IVF<nlist>,PQ<M>" -> IVFPQ with pq_dim=M, 8-bit codes. The ctor
+            // rejects an M that does not divide the dimension.
+            const std::size_t m = parse_uint(sub, "PQ", std::string_view::npos);
+            return std::make_unique<IndexIVFPQ>(
+                metric, dimension, nlist, static_cast<std::uint32_t>(m));
+        }
+        throw ConfigError{"index_factory: IVF supports 'Flat', 'PQ<M>', 'SQ8' "
+                          "coarse suffixes, got '" +
+                          std::string(spec) + "'"};
     }
     throw ConfigError{"index_factory: unknown spec '" + std::string(spec) + "'"};
 }

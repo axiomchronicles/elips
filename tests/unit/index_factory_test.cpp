@@ -42,6 +42,44 @@ TEST(IndexFactoryTest, IvfFlatSpec) {
     EXPECT_FALSE(idx->search(std::vector<float>{0, 0}, 2).empty());
 }
 
+TEST(IndexFactoryTest, IvfPqSpec) {
+    auto idx = index_factory(32, Metric::euclidean, "IVF64,PQ8");
+    EXPECT_EQ(idx->type_name(), "ivfpq");
+    EXPECT_FALSE(idx->is_trained());
+
+    std::vector<float> train;
+    for (int i = 0; i < 256; ++i) {
+        for (int d = 0; d < 32; ++d) {
+            train.push_back(static_cast<float>((i * 31 + d * 7) % 17));
+        }
+    }
+    idx->train(train, 256);
+    EXPECT_TRUE(idx->is_trained());
+    idx->add_with_ids(RecordID::generate(), std::vector<float>(32, 0.0F));
+    idx->add_with_ids(RecordID::generate(), std::vector<float>(32, 5.0F));
+    EXPECT_EQ(idx->ntotal(), 2U);
+    EXPECT_FALSE(idx->search(std::vector<float>(32, 0.0F), 2).empty());
+}
+
+TEST(IndexFactoryTest, IvfSq8Spec) {
+    auto idx = index_factory(32, Metric::euclidean, "IVF64,SQ8");
+    EXPECT_EQ(idx->type_name(), "ivfsq");
+    EXPECT_FALSE(idx->is_trained());
+
+    std::vector<float> train;
+    for (int i = 0; i < 256; ++i) {
+        for (int d = 0; d < 32; ++d) {
+            train.push_back(static_cast<float>((i * 13 + d * 5) % 19));
+        }
+    }
+    idx->train(train, 256);
+    EXPECT_TRUE(idx->is_trained());
+    idx->add_with_ids(RecordID::generate(), std::vector<float>(32, 0.0F));
+    idx->add_with_ids(RecordID::generate(), std::vector<float>(32, 5.0F));
+    EXPECT_EQ(idx->ntotal(), 2U);
+    EXPECT_FALSE(idx->search(std::vector<float>(32, 0.0F), 2).empty());
+}
+
 TEST(IndexFactoryTest, HnswSpec) {
     auto idx = index_factory(8, Metric::euclidean, "HNSW32");
     EXPECT_EQ(idx->type_name(), "graph");
