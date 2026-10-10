@@ -13,7 +13,8 @@ Running checklist. Update at every gate. Dates are absolute (today: 2026-10-10).
 | 5 | Naming & public API redesign | DONE (2026-10-10) | ☑ |
 | 6 | Core engine maturity | DONE (2026-10-10) | ☑ |
 | 7 | GPU acceleration redesign | DONE (2026-10-10) | ☑ |
-| 8 | Build / packaging / test infra | IN PROGRESS (2026-10-10) | ☐ |
+| 8 | Build / packaging / test infra | DONE (2026-10-10) | ☑ |
+| 9 | Documentation | IN PROGRESS (2026-10-11) | ☐ |
 | 8 | Build / packaging / test infra | not started | ☐ |
 | 9 | Documentation | not started | ☐ |
 | 10 | Release readiness | not started | ☐ |
@@ -93,8 +94,10 @@ Metal: real GPU Flat distance+topk, GPU IVF scan, bf_knn — all with real-M4 pa
 
 ## Phase 8 checklist (build / packaging / test infra)
 - [x] 8B CI + test infra: `.github/workflows` jobs (docs-snippets, cuda-compile + hip-compile EXPERIMENTAL/continue-on-error calling the compile scripts; macOS CPU+Metal & Linux CPU & ASan/TSan already present); `scripts/run_doc_snippets.py` (extracts+runs python doc fences, honors `no-exec`, `--selftest`); `benchmarks/datasets.py` (fixed-seed random + optional SIFT1M); new python tests `test_gpu_memory_cycles.py` (Metal create/destroy, RSS plateau) + `test_bf_knn_large.py`. ctest 307, pytest 263 (+4). Merged.
-- [ ] 8A build + packaging (ELIPS_OPT_LEVEL / C_API / install-export / latent CMake fixes / pyproject numpy+version) — agent running.
-- NOTE (cleanup, Phase 9/10): repo-wide `ruff` is **pre-existing red** at HEAD (17 check errors + format on bench/others) — track + fix in a lint pass.
+- [x] 8A build + packaging: `ELIPS_OPT_LEVEL` (generic|neon|avx2|avx512, real SIMD flags), `ELIPS_ENABLE_C_API` (extern-C shim `include/elips/c_api/elips.h` + `elips_c_demo`), `install(EXPORT elipsTargets)` + `elips::` namespace + `find_package(elips)` config (working consumer in `cmake/consumer_smoke/`), **latent breaks fixed** (GPU_TESTS guard, duplicate-library link warning eliminated → 0 warnings), **version SSOT 1.1.0** (CMake project → compile def → `elips.__version__` + setup.py + pyproject dynamic), numpy>=1.21 dep + cpu/gpu wheel-split rationale (`docs/_redesign/08_build_packaging.md`). Fresh build clean, ctest 307, pytest 263, `elips.__version__==1.1.0`. Merged.
+
+## Phase 8 gate: MET
+FAISS-style CMake (opt-levels, options, install/export + find_package), packaging (numpy dep, version SSOT, wheel-split rationale), test infra (CI matrix incl. EXPERIMENTAL cuda/hip compile jobs, sanitizer, docs-snippet runner, dataset helper, GPU memory-cycle tests). Clean fresh build, ctest 307, pytest 263. Follow-ups tracked: CUDA/HIP kernel-file naming + abi3 wheel + `dd` dispatch + ruff lint pass.
 
 ## Open questions
 (see `04_architecture.md`)
