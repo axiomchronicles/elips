@@ -5,11 +5,11 @@ import { CodeBlock } from "../components/Code";
 export const Route = createFileRoute("/docs/cpp/transaction")({
   head: () => ({
     meta: [
-      { title: "C++ Transactions — Atomic Multi-Vault Operations" },
+      { title: "C++ Transactions — Atomic Multi-Collection Operations" },
       {
         name: "description",
         content:
-          "Complete reference for C++ elips::Transaction and elips::TransactionVault: pending operations, atomic two-phase commits, undo rollback logs, and exception safety.",
+          "Complete reference for C++ elips::Transaction and elips::TransactionCollection: pending operations, atomic two-phase commits, undo rollback logs, and exception safety.",
       },
     ],
   }),
@@ -24,41 +24,41 @@ function Page() {
       toc={[
         { id: "overview", label: "Overview" },
         { id: "transaction-class", label: "Transaction Class" },
-        { id: "transaction-vault", label: "TransactionVault Class" },
+        { id: "transaction-vault", label: "TransactionCollection Class" },
         { id: "write-protocol", label: "Two-Phase Write Protocol" },
         { id: "exception-safety", label: "RAII & Exception Safety" },
         { id: "code-example", label: "Complete Code Example" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS supports atomic, multi-vault transaction write batching via <code>elips::Transaction</code> and <code>elips::TransactionVault</code>.
+        ELIPS supports atomic, multi-collection transaction write batching via <code>elips::Transaction</code> and <code>elips::TransactionCollection</code>.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        Transactions guarantee Atomicity, Consistency, Isolation, and Durability (ACID) for write operations across multiple vaults. Either all vector insertions and erasures are committed to disk and memory atomically, or none are applied.
+        Transactions guarantee Atomicity, Consistency, Isolation, and Durability (ACID) for write operations across multiple collections. Either all vector insertions and removals are committed to disk and memory atomically, or none are applied.
       </p>
 
       <h2 id="transaction-class">Transaction Class</h2>
       <CodeBlock lang="cpp">{`class Transaction {
 public:
-    explicit Transaction(ElipsInstance& db);
+    explicit Transaction(Database& db);
     ~Transaction(); // Automatically rolls back if commit() was not called
 
-    TransactionVault vault(const std::string& name);
+    TransactionCollection collection(const std::string& name);
     void commit();
     void rollback() noexcept;
 };`}</CodeBlock>
 
-      <h2 id="transaction-vault">TransactionVault Class</h2>
-      <CodeBlock lang="cpp">{`class TransactionVault {
+      <h2 id="transaction-vault">TransactionCollection Class</h2>
+      <CodeBlock lang="cpp">{`class TransactionCollection {
 public:
-    RecordID place(
+    RecordID add(
         const Vector& vector,
         Payload payload = {},
         std::optional<RecordID> id = std::nullopt
     );
-    void erase(const RecordID& id);
+    void remove(const RecordID& id);
 };`}</CodeBlock>
 
       <h2 id="write-protocol">Two-Phase Write Protocol</h2>
@@ -73,7 +73,7 @@ public:
           <strong>WAL Logging:</strong> All batched operations are written to the Write-Ahead Log (WAL) with a transaction sequence marker.
         </li>
         <li>
-          <strong>Memory Application:</strong> Vectors are inserted into HNSW indices and payload stores across target vaults.
+          <strong>Memory Application:</strong> Vectors are inserted into HNSW indices and payload stores across target collections.
         </li>
         <li>
           <strong>Rollback Recovery:</strong> If any stage fails (e.g. disk write failure), all in-memory changes are rolled back using internal undo buffers.
@@ -89,20 +89,20 @@ public:
       <CodeBlock lang="cpp">{`#include <elips/elips.hpp>
 #include <iostream>
 
-void atomic_transfer(elips::ElipsInstance& db) {
+void atomic_transfer(elips::Database& db) {
     // Begin transaction handle
     auto txn = db.begin_transaction();
 
     try {
-        // Enqueue operations across multiple vaults
-        auto users = txn.vault("users");
-        auto logs = txn.vault("logs");
+        // Enqueue operations across multiple collections
+        auto users = txn.collection("users");
+        auto logs = txn.collection("logs");
 
         elips::Vector user_vec = {0.1f, 0.2f, 0.3f, 0.4f};
         elips::Vector log_vec = {0.9f, 0.8f, 0.7f, 0.6f};
 
-        users.place(user_vec, {{"user_id", std::string("u_100")}});
-        logs.place(log_vec, {{"action", std::string("user_created")}});
+        users.add(user_vec, {{"user_id", std::string("u_100")}});
+        logs.add(log_vec, {{"action", std::string("user_created")}});
 
         // Commit atomically
         txn.commit();

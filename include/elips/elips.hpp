@@ -16,15 +16,15 @@
 #include "elips/domain/RecordID.hpp"
 #include "elips/domain/SearchResult.hpp"
 #include "elips/domain/Vector.hpp"
-#include "elips/index_engine/IndexPort.hpp"
+#include "elips/index_engine/Index.hpp"
 #include "elips/kernel/LockManager.hpp"
 #include "elips/metadata/Filter.hpp"
-#include "elips/metadata/MetadataIndex.hpp"
+#include "elips/metadata/MetadataFilterIndex.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #endif
 
 #if defined(_WIN32) && defined(__MINGW32__)
@@ -83,8 +83,8 @@ using SharedMutex = std::shared_mutex;
 class WAL;
 class Transaction;
 
-// Summary statistics for a vault.
-struct VaultInfo {
+// Summary statistics for a collection.
+struct CollectionInfo {
     std::size_t count{0};
     std::uint16_t dimension{0};
     Metric metric{Metric::cosine};
@@ -119,25 +119,25 @@ struct QueryPlan {
 // threads on the same object. Readers share access; mutators are exclusive.
 // A cross-process `flock` (see LockManager) keeps other *processes* out; this
 // mutex is what keeps threads inside this process from racing.
-class Vault {
+class Collection {
 public:
-    Vault(std::string name, const Config& config
+    Collection(std::string name, const Config& config
 #ifdef ELIPS_GPU_ENABLED
-          , gpu::GpuPort* gpu_backend = nullptr
+          , gpu::GpuBackend* gpu_backend = nullptr
 #endif
     );
 
-    RecordID place(const Vector& vector, Payload payload = {},
+    RecordID add(const Vector& vector, Payload payload = {},
                    std::optional<RecordID> id = std::nullopt,
                    std::optional<DocumentAttachment> document = std::nullopt,
                    std::optional<ChunkInfo> chunk = std::nullopt,
                    std::optional<EmbeddingLineage> lineage = std::nullopt);
-    RecordID place_document(
+    RecordID add_document(
         std::string text, Payload payload = {},
         std::optional<RecordID> id = std::nullopt,
         std::optional<ChunkInfo> chunk = std::nullopt,
         std::optional<EmbeddingLineage> lineage = std::nullopt);
-    void place_many(const std::vector<Record>& records);
+    void add_many(const std::vector<Record>& records);
 
     // Stores a record as-is, bypassing normalization and encoding when it
     // already carries a code. This is the load path: snapshot, segment, and WAL
@@ -146,18 +146,18 @@ public:
     // generation of loss per reopen, unbounded across restarts.
     void place_record(const Record& record);
 
-    [[nodiscard]] std::vector<SearchResult> seek(
+    [[nodiscard]] std::vector<SearchResult> search(
         const Vector& query, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt) const;
-    [[nodiscard]] std::vector<SearchResult> seek_text(
+    [[nodiscard]] std::vector<SearchResult> search_text(
         std::string_view text, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt) const;
-    [[nodiscard]] std::vector<SearchResult> seek_hybrid(
+    [[nodiscard]] std::vector<SearchResult> hybrid_search(
         const Vector& query, std::string_view text, std::size_t top,
         const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt,
         float lexical_weight = 0.25F) const;
-    [[nodiscard]] QueryPlan explain_seek(
+    [[nodiscard]] QueryPlan explain_query(
         const Vector& query, std::size_t top, const Filter& filter = Filter{},
         std::optional<float> threshold = std::nullopt,
         bool has_text_component = false) const;
@@ -166,14 +166,14 @@ public:
         const Filter& filter = Filter{}, std::size_t offset = 0,
         std::size_t limit = std::numeric_limits<std::size_t>::max()) const;
 
-    [[nodiscard]] std::optional<Record> fetch(const RecordID& id) const;
-    bool erase(const RecordID& id);
+    [[nodiscard]] std::optional<Record> get(const RecordID& id) const;
+    bool remove(const RecordID& id);
 
-    [[nodiscard]] VaultInfo info() const noexcept;
+    [[nodiscard]] CollectionInfo info() const noexcept;
     [[nodiscard]] const std::string& name() const noexcept { return name_; }
 
     // Snapshot of the record store. Returns a copy because the live map is
-    // guarded by the vault mutex and a reference could be mutated underneath a
+    // guarded by the collection mutex and a reference could be mutated underneath a
     // concurrent reader.
     [[nodiscard]] std::map<RecordID, Record> records() const;
 
@@ -184,29 +184,29 @@ public:
 
     // Reclaim index space held by deleted records. Cheap no-op when there is
     // nothing tombstoned; the graph index also self-compacts once tombstones
-    // pass GraphParams::compaction_ratio.
+    // pass HnswParams::compaction_ratio.
     void vacuum();
     // Records deleted from the index but not yet reclaimed.
     [[nodiscard]] std::size_t pending_removals() const noexcept;
 
-    // Trains a codebook over the resident vectors and compresses the vault in
+    // Trains a codebook over the resident vectors and compresses the collection in
     // place, freeing the fp32 copies. Requires a codec to have been selected in
-    // the config; throws ConfigError otherwise, or if the vault is empty or has
+    // the config; throws ConfigError otherwise, or if the collection is empty or has
     // already been quantized.
     //
     // Product quantization cannot encode the first record -- a codebook has to
     // be learned from real data first -- so compression is an explicit
     // transition rather than something the config alone turns on. Before it, a
-    // vault ingests and serves full fp32; after it, inserts encode on arrival.
+    // collection ingests and serves full fp32; after it, inserts encode on arrival.
     // Queries work correctly in both states.
     //
     // This is a maintenance operation in the same class as compact(): it holds
-    // the vault's writer lock for its whole duration, so concurrent writes block
+    // the collection's writer lock for its whole duration, so concurrent writes block
     // (reads too, briefly). Training samples at most quant::train_sample_cap
     // rows, so its cost tracks the dimension and codebook size rather than the
-    // vault size, but encoding is still linear in the record count.
-    void quantize();
-    [[nodiscard]] bool quantized() const noexcept;
+    // collection size, but encoding is still linear in the record count.
+    void train();
+    [[nodiscard]] bool is_trained() const noexcept;
     [[nodiscard]] quant::CodecId codec() const noexcept;
 
     // Effective configuration, including any attached codebook. Checkpointing
@@ -229,6 +229,63 @@ public:
     // and undo must work even when the WAL write is what failed.
     void restore_for_undo(const RecordID& id,
                           const std::optional<Record>& previous);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to add")]] RecordID place(
+        const Vector& vector, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt,
+        std::optional<DocumentAttachment> document = std::nullopt,
+        std::optional<ChunkInfo> chunk = std::nullopt,
+        std::optional<EmbeddingLineage> lineage = std::nullopt) {
+        return add(vector, std::move(payload), std::move(id),
+                   std::move(document), std::move(chunk), std::move(lineage));
+    }
+    [[deprecated("renamed to add_document")]] RecordID place_document(
+        std::string text, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt,
+        std::optional<ChunkInfo> chunk = std::nullopt,
+        std::optional<EmbeddingLineage> lineage = std::nullopt) {
+        return add_document(std::move(text), std::move(payload), std::move(id),
+                            std::move(chunk), std::move(lineage));
+    }
+    [[deprecated("renamed to add_many")]] void place_many(
+        const std::vector<Record>& records) {
+        add_many(records);
+    }
+    [[deprecated("renamed to search")]] std::vector<SearchResult> seek(
+        const Vector& query, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt) const {
+        return search(query, top, filter, threshold);
+    }
+    [[deprecated("renamed to search_text")]] std::vector<SearchResult> seek_text(
+        std::string_view text, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt) const {
+        return search_text(text, top, filter, threshold);
+    }
+    [[deprecated("renamed to hybrid_search")]] std::vector<SearchResult>
+    seek_hybrid(const Vector& query, std::string_view text, std::size_t top,
+                const Filter& filter = Filter{},
+                std::optional<float> threshold = std::nullopt,
+                float lexical_weight = 0.25F) const {
+        return hybrid_search(query, text, top, filter, threshold, lexical_weight);
+    }
+    [[deprecated("renamed to explain_query")]] QueryPlan explain_seek(
+        const Vector& query, std::size_t top, const Filter& filter = Filter{},
+        std::optional<float> threshold = std::nullopt,
+        bool has_text_component = false) const {
+        return explain_query(query, top, filter, threshold, has_text_component);
+    }
+    [[deprecated("renamed to get")]] std::optional<Record> fetch(
+        const RecordID& id) const {
+        return get(id);
+    }
+    [[deprecated("renamed to remove")]] bool erase(const RecordID& id) {
+        return remove(id);
+    }
+    [[deprecated("renamed to train")]] void quantize() { train(); }
+    [[deprecated("renamed to is_trained")]] bool quantized() const noexcept {
+        return is_trained();
+    }
 
 private:
     [[nodiscard]] QueryPlan plan_seek(
@@ -268,38 +325,38 @@ private:
 
     std::string name_;
     Config config_;
-    std::unique_ptr<IndexPort> index_;
+    std::unique_ptr<Index> index_;
     std::map<RecordID, Record> records_;
-    MetadataIndex metadata_index_;
+    MetadataFilterIndex metadata_index_;
     WAL* wal_{nullptr};
     bool read_only_{false};
     bool sealed_{false};
 #ifdef ELIPS_GPU_ENABLED
-    gpu::GpuPort* gpu_backend_{nullptr};
+    gpu::GpuBackend* gpu_backend_{nullptr};
 #endif
     // Guards every member above. Mutable so const (read) methods can share-lock.
     mutable SharedMutex mutex_;
 };
 
-// Top-level database handle. One per directory. Owns all vaults and persistence.
+// Top-level database handle. One per directory. Owns all collections and persistence.
 // Checkpoints automatically on destruction for on-disk databases.
 //
 // Thread safety: safe to share across threads. The instance mutex guards the
-// vault registry and lifecycle state; each Vault carries its own reader/writer
-// lock, so concurrent searches on the same vault do not serialize.
-class ElipsInstance {
+// collection registry and lifecycle state; each Collection carries its own reader/writer
+// lock, so concurrent searches on the same collection do not serialize.
+class Database {
 public:
-    ElipsInstance(std::string path, Config config, bool persistent,
+    Database(std::string path, Config config, bool persistent,
                   std::optional<LockManager> lock = std::nullopt);
-    ~ElipsInstance();
+    ~Database();
 
-    ElipsInstance(const ElipsInstance&) = delete;
-    ElipsInstance& operator=(const ElipsInstance&) = delete;
-    ElipsInstance(ElipsInstance&&) = delete;
-    ElipsInstance& operator=(ElipsInstance&&) = delete;
+    Database(const Database&) = delete;
+    Database& operator=(const Database&) = delete;
+    Database(Database&&) = delete;
+    Database& operator=(Database&&) = delete;
 
-    Vault& vault(const std::string& name);
-    [[nodiscard]] std::vector<std::string> list_vaults() const;
+    Collection& collection(const std::string& name);
+    [[nodiscard]] std::vector<std::string> list_collections() const;
 
     [[nodiscard]] Transaction begin_transaction();
 
@@ -310,12 +367,12 @@ public:
     void checkpoint();
     void compact();
 
-    // Compresses a vault (or every vault) in place. See Vault::quantize().
+    // Compresses a vault (or every collection) in place. See Collection::quantize().
     // For a persistent database this checkpoints afterwards, publishing the
     // codebook and the encoded records durably before the WAL is truncated.
-    void quantize(const std::string& vault_name);
+    void train(const std::string& collection_name);
     void quantize_all();
-    // Reclaim tombstoned index space across every vault. Unlike compact(), this
+    // Reclaim tombstoned index space across every collection. Unlike compact(), this
     // does not rewrite the on-disk snapshot and works on in-memory databases.
     void vacuum();
     void close();
@@ -333,18 +390,36 @@ public:
     [[nodiscard]] gpu::GpuMetricsSnapshot gpu_stats() const;
     void set_gpu_available(bool available) noexcept { gpu_available_ = available; }
     void set_gpu_info(gpu::GpuDeviceInfo info) noexcept { gpu_info_ = info; }
-    void set_gpu_backend(std::unique_ptr<gpu::GpuPort> backend) noexcept {
+    void set_gpu_backend(std::unique_ptr<gpu::GpuBackend> backend) noexcept {
         gpu_backend_ = std::move(backend);
     }
 #endif
 
-    Vault& adopt_vault(std::unique_ptr<Vault> vault);
+    Collection& adopt_collection(std::unique_ptr<Collection> collection);
     void attach_wal(std::unique_ptr<WAL> wal);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to collection")]] Collection& vault(
+        const std::string& name) {
+        return collection(name);
+    }
+    [[deprecated("renamed to list_collections")]]
+    std::vector<std::string> list_vaults() const {
+        return list_collections();
+    }
+    [[deprecated("renamed to train")]] void quantize(
+        const std::string& collection_name) {
+        train(collection_name);
+    }
+    [[deprecated("renamed to adopt_collection")]] Collection& adopt_vault(
+        std::unique_ptr<Collection> collection) {
+        return adopt_collection(std::move(collection));
+    }
 
 private:
     friend class Transaction;
 
-    Vault& vault_locked(const std::string& name);
+    Collection& collection_locked(const std::string& name);
     void checkpoint_locked();
 
     std::string path_;
@@ -357,38 +432,48 @@ private:
     gpu::GpuDeviceInfo gpu_info_;
     gpu::GpuMetricsSnapshot gpu_stats_;
     bool gpu_available_{false};
-    // Vaults and GPU indexes only observe the backend, so the owner must
-    // outlive every vault teardown path.
-    std::unique_ptr<gpu::GpuPort> gpu_backend_;
+    // Collections and GPU indexes only observe the backend, so the owner must
+    // outlive every collection teardown path.
+    std::unique_ptr<gpu::GpuBackend> gpu_backend_;
 #endif
-    std::map<std::string, std::unique_ptr<Vault>> vaults_;
-    // Guards the vault registry, the WAL handle, and lifecycle flags. Vault
+    std::map<std::string, std::unique_ptr<Collection>> collections_;
+    // Guards the collection registry, the WAL handle, and lifecycle flags. Collection
     // contents have their own finer-grained lock.
     mutable std::recursive_mutex mutex_;
 };
 
-[[nodiscard]] std::unique_ptr<ElipsInstance> open(const std::string& path,
+[[nodiscard]] std::unique_ptr<Database> open(const std::string& path,
                                                   const Config& config = {});
 
 class Transaction;
 
-class TransactionVault {
+class TransactionCollection {
 public:
-    RecordID place(const Vector& vector, Payload payload = {},
+    RecordID add(const Vector& vector, Payload payload = {},
                    std::optional<RecordID> id = std::nullopt);
-    void erase(const RecordID& id);
+    void remove(const RecordID& id);
+
+    // --- Deprecated name shims (Phase 5 rename); removed next minor. ---
+    [[deprecated("renamed to add")]] RecordID place(
+        const Vector& vector, Payload payload = {},
+        std::optional<RecordID> id = std::nullopt) {
+        return add(vector, std::move(payload), std::move(id));
+    }
+    [[deprecated("renamed to remove")]] void erase(const RecordID& id) {
+        remove(id);
+    }
 
 private:
     friend class Transaction;
-    TransactionVault(Transaction& txn, std::string vault)
-        : txn_(&txn), vault_(std::move(vault)) {}
+    TransactionCollection(Transaction& txn, std::string collection)
+        : txn_(&txn), collection_(std::move(collection)) {}
     Transaction* txn_;
-    std::string vault_;
+    std::string collection_;
 };
 
 class Transaction {
 public:
-    explicit Transaction(ElipsInstance& db) : db_(&db) {}
+    explicit Transaction(Database& db) : db_(&db) {}
     ~Transaction();
 
     Transaction(const Transaction&) = delete;
@@ -396,41 +481,51 @@ public:
     Transaction(Transaction&&) = delete;
     Transaction& operator=(Transaction&&) = delete;
 
-    [[nodiscard]] TransactionVault vault(const std::string& name) {
-        return TransactionVault{*this, name};
+    [[nodiscard]] TransactionCollection collection(const std::string& name) {
+        return TransactionCollection{*this, name};
+    }
+    [[deprecated("renamed to collection")]] TransactionCollection vault(
+        const std::string& name) {
+        return collection(name);
     }
 
     // Applies every enqueued op or none: a failure partway through (read-only
-    // vault, disk-full WAL write) undoes the ops already applied and rethrows.
+    // collection, disk-full WAL write) undoes the ops already applied and rethrows.
     void commit();
     // Discards the batch. Safe to call after a failed commit(); the failed
     // commit has already restored the pre-batch state.
     void rollback() noexcept { ops_.clear(); done_ = true; }
 
 private:
-    friend class TransactionVault;
+    friend class TransactionCollection;
     struct PendingOp {
         bool is_erase{false};
-        std::string vault;
+        std::string collection;
         Vector vector;
         Payload payload;
         std::optional<RecordID> id;
     };
-    // What the vault held before an op was applied, so it can be restored.
+    // What the collection held before an op was applied, so it can be restored.
     struct UndoEntry {
-        std::string vault;
+        std::string collection;
         RecordID id;
         std::optional<Record> previous;  // nullopt = record did not exist
     };
-    void enqueue_place(std::string vault, const Vector& vector, Payload payload,
+    void enqueue_place(std::string collection, const Vector& vector, Payload payload,
                        std::optional<RecordID> id);
-    void enqueue_erase(std::string vault, const RecordID& id);
+    void enqueue_erase(std::string collection, const RecordID& id);
     void undo(const std::vector<UndoEntry>& entries) noexcept;
 
-    ElipsInstance* db_;
+    Database* db_;
     std::vector<PendingOp> ops_;
     bool done_{false};
 };
+
+using ElipsInstance [[deprecated("renamed to Database")]] = Database;
+using Vault [[deprecated("renamed to Collection")]] = Collection;
+using VaultInfo [[deprecated("renamed to CollectionInfo")]] = CollectionInfo;
+using TransactionVault [[deprecated("renamed to TransactionCollection")]] =
+    TransactionCollection;
 
 }  // namespace elips
 

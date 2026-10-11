@@ -9,13 +9,13 @@ export const Route = createFileRoute("/docs/python-sdk")({
       {
         name: "description",
         content:
-          "The complete ELIPS Python surface — low-level bindings, the modern Engine/Arena wrapper, embedders, EQL, transactions, and read-only serving.",
+          "The ELIPS Python surface — the Chroma-style Client/Collection API, the FAISS-style Index API, embedders, EQL, transactions, and read-only serving.",
       },
       { property: "og:title", content: "Python SDK — ELIPS" },
       {
         property: "og:description",
         content:
-          "Database, Vault, Config, Filter, EQL, embedders, and the modern Engine/Arena wrapper.",
+          "Client, Collection, the FAISS Index API, Config, Filter, EQL, embedders, and persistence.",
       },
       { property: "og:url", content: "/docs/python-sdk" },
     ],
@@ -32,26 +32,27 @@ function Page() {
       toc={[
         { id: "install", label: "Install & build" },
         { id: "two-layers", label: "Two surfaces" },
-        { id: "low-level", label: "Low-level API" },
-        { id: "modern", label: "Modern wrapper" },
+        { id: "client", label: "Client API" },
+        { id: "collection", label: "Collection API" },
+        { id: "index", label: "FAISS Index API" },
         { id: "config", label: "Config" },
-        { id: "ingestion", label: "Ingestion" },
         { id: "query", label: "Query & planner" },
         { id: "eql", label: "EQL from Python" },
         { id: "txn", label: "Transactions" },
         { id: "embedders", label: "Embedders" },
         { id: "lifecycle", label: "Persistence & lifecycle" },
         { id: "errors", label: "Errors" },
-        { id: "typing", label: "Typing" },
         { id: "pitfalls", label: "Pitfalls" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS ships two Python surfaces over the same C++ core. The low-level bindings (
-        <code>open</code> / <code>Database</code> / <code>Vault</code> / <code>Config</code>) mirror
-        the runtime one-to-one. The modern wrapper (<code>connect</code> / <code>Engine</code> /{" "}
-        <code>Arena</code>) adds typed text-first ergonomics on top. Both speak to the same vaults,
-        the same WAL, and the same planner.
+        ELIPS ships two Python surfaces over the same C++ core. The high-level surface is{" "}
+        <strong>Chroma-style</strong>: <code>Client</code> / <code>PersistentClient</code> hand out{" "}
+        <code>Collection</code> objects whose methods are{" "}
+        <code>add/upsert/get/update/delete/query</code>. Alongside it is a{" "}
+        <strong>FAISS-style</strong> <code>Index</code> API (<code>IndexFlat</code>,{" "}
+        <code>IndexIVFFlat</code>, <code>bf_knn</code>, …) for raw array search. Both speak to the
+        same vectors, the same WAL, and the same planner.
       </p>
 
       <h2 id="install">Install &amp; build</h2>
@@ -60,7 +61,7 @@ function Page() {
         and put the package on <code>PYTHONPATH</code>:
       </p>
       <CodeBlock lang="bash">
-        {`cmake -S . -B build -G Ninja -DELIPS_BUILD_PYTHON=ON
+        {`cmake -S . -B build -G Ninja -DELIPS_ENABLE_PYTHON=ON
 cmake --build build --target elips_pymodule
 export PYTHONPATH=$PWD/bindings/python`}
       </CodeBlock>
@@ -68,173 +69,127 @@ export PYTHONPATH=$PWD/bindings/python`}
       <h2 id="two-layers">Two surfaces, one core</h2>
       <ul>
         <li>
-          <strong>Low-level</strong>: <code>open()</code>, <code>open_with_config()</code>,{" "}
-          <code>Database</code>, <code>Vault</code>, <code>Config</code>. Pick this when you need
-          exact parity with the C++ runtime — full control over <code>Durability</code>,{" "}
-          <code>AccessMode</code>, GPU settings, and the embedder.
+          <strong>Chroma-style</strong>: <code>Client()</code>, <code>PersistentClient()</code>,{" "}
+          <code>Collection</code>, <code>RecordInput</code>, <code>Row</code>, <code>Hit</code>.
+          Pick this for typed, text-first ingestion and retrieval. The pre-1.1 openers{" "}
+          <code>connect()</code> / <code>open()</code> / <code>Engine</code> and the collection
+          verbs <code>write</code>/<code>probe</code>/<code>seek</code> remain as deprecated shims.
         </li>
         <li>
-          <strong>Modern</strong>: <code>connect()</code>, <code>Engine</code>, <code>Arena</code>,{" "}
-          <code>RecordInput</code>, <code>Row</code>, <code>Hit</code>. Pick this for typed,
-          text-first ingestion and retrieval.
+          <strong>FAISS-style</strong>: <code>IndexFlat</code>, <code>IndexIVFFlat</code>,{" "}
+          <code>IndexIVFPQ</code>, <code>IndexHNSW</code>, <code>index_factory</code>, and{" "}
+          <code>bf_knn</code>. Pick this when you want raw NumPy-array search with FAISS semantics
+          and no record store.
         </li>
       </ul>
 
-      <h2 id="low-level">Low-level API</h2>
+      <h2 id="client">Client API</h2>
       <CodeBlock lang="python">
         {`import elips
 
-db = elips.open("/tmp/elips-sdk", dimension=128, metric="cosine")
-docs = db.vault("documents")
-docs.place_document("alpha design note", {"kind": "design"})
-docs.place_document("beta runbook", {"kind": "ops"})
+client = elips.PersistentClient("/tmp/elips-sdk", dimension=128, metric="cosine")
+docs = client.get_or_create_collection("documents")
 
-hits = docs.seek_text("alpha", top=2)
-print(hits[0].document.text, db.config.text_embedder_info.model)
-
-plan = docs.explain_seek(
-    [1.0, 0.0],
-    top=1,
-    where=elips.Filter().field("kind").equals("design"),
-    has_text_component=True,
+docs.add(
+    ids=["a", "b"],
+    documents=["alpha design note", "beta runbook"],
+    metadatas=[{"kind": "design"}, {"kind": "ops"}],
 )
-print(plan.strategy, plan.metadata_accelerated)`}
-      </CodeBlock>
 
-      <h3>
-        <code>elips.open()</code>
-      </h3>
-      <CodeBlock lang="python">
-        {`def open(
-    path: str,
-    dimension: int = 0,
-    metric: str = "cosine",
-    index: str = "graph",
-    access_mode: str = "read_write",
-    embedder = None,
-    use_default_text_embedder: bool = True,
-) -> Database`}
+hits = docs.query(query_texts="alpha", n_results=2)
+print(hits[0].text, hits[0].distance)
+client.close()`}
       </CodeBlock>
       <ul>
         <li>
-          <code>path</code> — filesystem directory or <code>":memory:"</code>.
+          <code>Client(**settings)</code> — ephemeral in-memory;{" "}
+          <code>PersistentClient(path, **settings)</code> — on disk. See{" "}
+          <Link to="/docs/python/connect">Opening a database</Link>.
         </li>
         <li>
-          <code>dimension</code> — required for new databases and every in-memory open. Existing
-          databases reuse the persisted identity.
+          <code>create_collection</code> / <code>get_collection</code> /{" "}
+          <code>get_or_create_collection</code> / <code>list_collections</code> — Chroma collection
+          management. <code>delete_collection</code> raises (ELIPS cannot drop a collection yet).
         </li>
         <li>
-          <code>metric</code> — <code>"cosine"</code>, <code>"euclidean"</code>, or{" "}
-          <code>"dot_product"</code>.
+          <code>checkpoint()</code>, <code>compact()</code>, <code>vacuum()</code>,{" "}
+          <code>pending_writes()</code>, <code>query_eql()</code>, <code>close()</code>, and the{" "}
+          <code>with</code> context manager.
         </li>
         <li>
-          <code>index</code> — <code>"graph"</code> (HNSW) or <code>"exact"</code>.
-        </li>
-        <li>
-          <code>access_mode</code> — <code>"read_write"</code> or <code>"read_only"</code>;
-          read-only requires an existing database.
-        </li>
-        <li>
-          <code>embedder</code> — optional Python callable or <code>LocalEmbedderConfig</code>.
-        </li>
-        <li>
-          <code>use_default_text_embedder</code> — attach the built-in local embedder automatically
-          when no explicit embedder is supplied.
+          <code>client.native</code> — the low-level <code>Database</code> handle; the explicit
+          escape hatch.
         </li>
       </ul>
 
-      <h3>
-        <code>Database</code>
-      </h3>
+      <h2 id="collection">Collection API</h2>
+      <CodeBlock lang="python">
+        {`# Column form (Chroma)
+docs.add(
+    ids=["x"],
+    embeddings=[[1.0, 0.0]],
+    documents=["gamma appendix"],
+    metadatas=[{"kind": "appendix"}],
+)
+
+# Single record
+docs.add(embedding=[0.0, 1.0], metadata={"kind": "ops"}, id="y")
+
+# Read, update, delete
+rows = docs.get(ids=["x"], include=["embeddings"])
+docs.update(ids=["x"], metadatas=[{"kind": "appendix", "rev": 2}])
+docs.delete(ids=["y"])
+
+print(docs.count(), docs.peek(5))`}
+      </CodeBlock>
+      <p>
+        The canonical methods are <code>add</code>, <code>upsert</code>, <code>get</code>,{" "}
+        <code>update</code>, <code>delete</code>, <code>query</code>, <code>count</code>, and{" "}
+        <code>peek</code>. <code>add</code> has upsert semantics (re-adding an id overwrites it).
+        ELIPS adds <code>explain()</code>, <code>health()</code>, <code>freeze()</code>,{" "}
+        <code>vacuum()</code>, <code>rebuild()</code>, and <code>compress()</code> (alias{" "}
+        <code>train</code>). Reads return <code>Row</code> / <code>Hit</code> dataclasses with{" "}
+        <code>.key</code>, <code>.meta</code>, <code>.text</code>, and (on hits){" "}
+        <code>.distance</code>. See <Link to="/docs/python/arena">Collection</Link>.
+      </p>
+
+      <h2 id="index">FAISS Index API</h2>
+      <p>
+        For raw array search without the record store, ELIPS exposes a FAISS-style index surface:
+      </p>
+      <CodeBlock lang="python">
+        {`import numpy as np, elips
+
+xb = np.random.rand(100_000, 128).astype("float32")
+xq = np.random.rand(1_000, 128).astype("float32")
+
+index = elips.IndexIVFFlat(128, 316, "l2")
+index.train(xb)
+index.add(xb)
+index.nprobe = 128
+D, I = index.search(xq, 10)      # distances, int64 labels
+
+# Exact brute force, no build — CPU or Apple GPU
+D, I = elips.bf_knn(xq, xb, 10, metric="l2", device="metal")`}
+      </CodeBlock>
       <ul>
         <li>
-          <code>vault(name)</code> — return (lazily creating) a <code>Vault</code>.
+          Constructors: <code>IndexFlat(d, metric)</code>,{" "}
+          <code>IndexIVFFlat(d, nlist, metric)</code>,{" "}
+          <code>IndexIVFPQ(d, nlist, M, metric)</code>,{" "}
+          <code>IndexIVFScalarQuantizer(d, nlist, metric)</code>,{" "}
+          <code>IndexHNSW(d, M, metric)</code>, and <code>index_factory(d, spec, metric)</code>.
         </li>
         <li>
-          <code>list_vaults()</code> — current vault names.
+          Methods: <code>train</code>, <code>add</code>, <code>add_with_ids</code>,{" "}
+          <code>search(x, k)</code>, <code>reset</code>; properties <code>ntotal</code>,{" "}
+          <code>d</code>, <code>is_trained</code>, and the settable <code>nprobe</code>.
         </li>
         <li>
-          <code>begin_transaction()</code> — atomic batched writes.
-        </li>
-        <li>
-          <code>query(eql, bindings={"{}"})</code> — execute one EQL statement.
-        </li>
-        <li>
-          <code>checkpoint()</code> — flush manifest/segments or snapshot and truncate the WAL.
-        </li>
-        <li>
-          <code>compact()</code> — rebuild every vault index and checkpoint.
-        </li>
-        <li>
-          <code>close()</code> — graceful shutdown; idempotent.
-        </li>
-        <li>
-          <code>abandon()</code> — testing hook that suppresses checkpoint so the next open must
-          recover from the WAL.
-        </li>
-        <li>
-          <code>config</code> — effective <code>Config</code> including persisted
-          dimension/metric/index and resolved embedder metadata.
-        </li>
-        <li>
-          <code>gpu_info()</code> / <code>gpu_stats()</code> — available only in GPU builds.
+          <code>bf_knn</code> is present only in GPU-enabled builds; <code>device="metal"</code>{" "}
+          runs the Apple-GPU exact path. See <Link to="/docs/benchmarks">benchmarks</Link>.
         </li>
       </ul>
-
-      <h3>
-        <code>Vault</code>
-      </h3>
-      <CodeBlock lang="python">
-        {`rid = docs.place(
-    [1.0, 0.0],
-    {"kind": "design"},
-    document=elips.DocumentAttachment(text="alpha design note"),
-    chunk=chunk,
-    lineage=lineage,
-)
-
-# Text-first — requires a configured text embedder
-rid = docs.place_document("alpha design note", {"kind": "design"})
-
-# Mixed batch
-docs.place_many([
-    {"vector": [1.0, 0.0], "data": {"kind": "vector-only"}},
-    {"text": "alpha design note", "data": {"kind": "text-first"}},
-])`}
-      </CodeBlock>
-      <p>
-        Query surfaces — <code>seek</code>, <code>seek_text</code>, <code>seek_hybrid</code> — all
-        accept <code>top</code>, <code>where</code>, and <code>threshold</code>. Hybrid takes an
-        extra <code>lexical_weight</code> (default <code>0.25</code>). Every hit returns{" "}
-        <code>id</code>, <code>distance</code>, <code>data</code>, <code>document</code>,{" "}
-        <code>chunk</code>, and <code>lineage</code> from the authoritative record store.
-      </p>
-
-      <h2 id="modern">Modern wrapper</h2>
-      <CodeBlock lang="python">
-        {`engine = elips.connect(
-    "/tmp/elips-modern",
-    dimension=128,
-    metric="cosine",
-)
-arena = engine.arena("documents")
-
-keys = arena.write_many([
-    elips.RecordInput(text="alpha design note", meta={"kind": "design"}),
-    {"text": "beta runbook", "meta": {"kind": "ops"}},
-])
-
-rows = arena.pull(keys, include_vectors=True)
-hits = arena.probe_text("alpha", top=2)
-hybrid = arena.probe_hybrid([0.0, 1.0], "alpha", top=2)`}
-      </CodeBlock>
-      <p>
-        <code>Arena</code> prefers the native core text APIs when the database config has a resolved
-        text embedder. If the wrapper is given a Python callable instead, it falls back to
-        Python-side embedding plus <code>seek_hybrid</code>. If neither exists, text-first calls
-        raise <code>ConfigError</code> / <code>ValueError</code> — ELIPS never silently degrades to
-        lexical-only behaviour.
-      </p>
 
       <h2 id="config">Config</h2>
       <CodeBlock lang="python">
@@ -246,64 +201,46 @@ hybrid = arena.probe_hybrid([0.0, 1.0], "alpha", top=2)`}
     .metadata_acceleration(True)
     .auto_text_embedder(True)
 )
-db = elips.open_with_config("/tmp/elips-quickstart", config)`}
+client = elips.connect_with_config("/tmp/elips-quickstart", config)`}
       </CodeBlock>
       <ul>
         <li>
           <code>segmented_storage(True)</code> — default. Writes <code>elips.manifest</code> +
-          per-vault segment files.
+          per-collection segment files.
         </li>
         <li>
           <code>metadata_acceleration(True)</code> — equality and set-membership filters narrow
-          candidates through <code>MetadataIndex</code>.
+          candidates through the metadata filter index.
         </li>
         <li>
           <code>auto_text_embedder(True)</code> — provisions the built-in local embedder for new
           databases.
         </li>
         <li>
-          <code>local_text_embedder(...)</code> — pin a rehydratable local embedder that ELIPS
-          restores automatically on reopen.
-        </li>
-        <li>
-          <code>text_embedder(callable, ...)</code> — attach a Python callable embedder. ELIPS
-          persists metadata only; reopening without the same callable makes text-first APIs raise{" "}
-          <code>ConfigError</code>.
+          <code>local_text_embedder(...)</code> / <code>text_embedder(callable, ...)</code> — pin a
+          rehydratable local embedder, or attach a Python callable (metadata-only persistence).
         </li>
       </ul>
-
-      <h2 id="ingestion">Ingestion patterns</h2>
-      <CodeBlock lang="python">
-        {`# 1. Vector with attached document
-attachment = elips.DocumentAttachment(text="gamma appendix", mime_type="text/plain")
-docs.place([1.0, 0.0], {"kind": "appendix"}, document=attachment)
-
-# 2. Text-first
-docs.place_document("alpha design note", {"kind": "design"})
-
-# 3. Explicit chunk coordinates
-chunk = elips.ChunkInfo()
-chunk.document_key = "doc-alpha"
-chunk.ordinal = 0
-chunk.char_start = 0
-chunk.char_end = 17
-docs.place_document("alpha design note", {"kind": "design"}, chunk=chunk)`}
-      </CodeBlock>
 
       <h2 id="query">Query &amp; planner</h2>
       <CodeBlock lang="python">
         {`# Vector
-hits = docs.seek([1.0, 0.0], top=2)
+hits = docs.query(query_embeddings=[1.0, 0.0], n_results=2)
 
 # Text-first
-hits = docs.seek_text("alpha", top=2)
+hits = docs.query(query_texts="alpha", n_results=2)
 
 # Hybrid (vector + lexical overlap from attached documents)
-hits = docs.seek_hybrid([0.0, 1.0], "alpha", top=2, lexical_weight=0.35)
+hits = docs.query(
+    query_embeddings=[0.0, 1.0],
+    query_texts="alpha",
+    n_results=2,
+    lexical_weight=0.35,
+)
 
 # Inspect the plan
 where = elips.Filter().field("kind").equals("design")
-plan = docs.explain_seek([1.0, 0.0], top=1, where=where, has_text_component=True)
+plan = docs.explain([1.0, 0.0], top=1, where=where, has_text_component=True)
 print(plan.strategy.name, plan.metadata_accelerated, plan.candidate_count)`}
       </CodeBlock>
       <p>
@@ -314,33 +251,33 @@ print(plan.strategy.name, plan.metadata_accelerated, plan.candidate_count)`}
 
       <h2 id="eql">EQL from Python</h2>
       <CodeBlock lang="python">
-        {`rows = db.query(
-    "seek in documents nearest $q top 5 where kind = \\"design\\" yield",
-    bindings={"q": [1.0, 0.0]},
+        {`rows = client.query_eql(
+    'search in documents nearest $q k 5 where kind = "design" yield',
+    {"q": [1.0, 0.0]},
 )`}
       </CodeBlock>
       <p>
-        Text-first retrieval is not exposed through EQL — use <code>Vault.seek_text</code> /{" "}
-        <code>seek_hybrid</code>. See <Link to="/docs/eql">EQL reference</Link>.
+        EQL is a small lowercase DSL — bindings use <code>$name</code>. Text-first retrieval is not
+        exposed through EQL; use <code>Collection.query(query_texts=...)</code>. See the{" "}
+        <Link to="/docs/eql">EQL reference</Link>.
       </p>
 
       <h2 id="txn">Transactions</h2>
       <CodeBlock lang="python">
-        {`with db.begin_transaction() as txn:
+        {`with client.native.begin_transaction() as txn:
     v = txn.vault("documents")
     v.place([1.0, 0.0], {"tag": "a"})
     v.place([0.0, 1.0], {"tag": "b"})
     # clean exit → commit; raised exception → auto-rollback`}
       </CodeBlock>
       <p>
-        Transactions buffer <code>place</code> and <code>erase</code> calls and validate eagerly
-        (dimension &amp; finiteness). Commit applies operations in order, each one WAL-appended
-        before the in-memory mutation. See{" "}
+        Transactions live on the native handle (<code>client.native.begin_transaction()</code>) and
+        validate eagerly (dimension &amp; finiteness). Commit applies operations in order, each
+        WAL-appended before the in-memory mutation. See{" "}
         <Link to="/docs/internals/transaction-engine">Transaction engine</Link>.
       </p>
 
       <h2 id="embedders">Embedders</h2>
-      <p>Three options, in order of preference:</p>
       <ol>
         <li>
           <strong>Default local embedder</strong> — automatically attached on new databases.
@@ -367,67 +304,62 @@ print(plan.strategy.name, plan.metadata_accelerated, plan.candidate_count)`}
           <code>compact()</code> — rebuild indexes then checkpoint.
         </li>
         <li>
-          <code>close()</code> — checkpoint and release locks.
+          <code>vacuum()</code> — reclaim index space held by deleted records.
         </li>
         <li>
-          <code>abandon()</code> — testing hook that leaves recovery work in the WAL.
+          <code>close()</code> — checkpoint and release locks.
         </li>
       </ul>
       <CodeBlock lang="python">
-        {`reader = elips.open("/tmp/elips-sdk", access_mode="read_only")
-print(reader.vault("documents").seek_text("alpha", top=1)[0].data)`}
+        {`reader = elips.PersistentClient("/tmp/elips-sdk", access_mode="read_only")
+docs = reader.get_collection("documents")
+print(docs.query(query_texts="alpha", n_results=1)[0].meta)`}
       </CodeBlock>
       <p>
-        Read-only opens take a shared advisory lock and reject <code>place</code>,{" "}
-        <code>place_document</code>, <code>erase</code>, <code>rebuild_index</code>, and
-        compaction-driven mutation with <code>StorageError</code>.
+        Read-only opens take a shared advisory lock and reject writes with{" "}
+        <code>StorageError</code>.
       </p>
 
       <h2 id="errors">Errors</h2>
       <ul>
         <li>
-          <code>ConfigError</code> — invalid config, dimension mismatch, missing text embedder on
-          text-first calls, or read-only open against a missing database.
+          <code>ConfigError</code> — invalid config, missing text embedder on text-first calls, or
+          read-only open against a missing database.
         </li>
         <li>
           <code>DimensionMismatch</code> / <code>InvalidVector</code> — eager-validated on every{" "}
-          <code>place</code>.
+          <code>add</code>.
+        </li>
+        <li>
+          <code>CollectionNotFoundError</code> — <code>get_collection</code> on an absent name.
+        </li>
+        <li>
+          <code>NotTrainedError</code> / <code>BackendUnavailableError</code> — untrained index use,
+          or an absent GPU backend requested without <code>fallback</code>.
         </li>
         <li>
           <code>LockConflict</code> — another writer already holds the database.
         </li>
         <li>
-          <code>StorageError</code> — IO failure or mutation attempted in read-only mode.
-        </li>
-        <li>
-          <code>NotFound</code> — missing record.
-        </li>
-        <li>
-          <code>ParseError</code> — malformed EQL.
+          <code>StorageError</code> — IO failure or mutation in read-only mode;{" "}
+          <code>NotFound</code> — missing record; <code>ParseError</code> — malformed EQL.
         </li>
       </ul>
-
-      <h2 id="typing">Typing</h2>
-      <p>
-        The package ships <code>py.typed</code> and a complete <code>_core.pyi</code> stub,
-        including the modern wrapper classes, so IDEs and type checkers see the full public API.
-      </p>
 
       <h2 id="pitfalls">Pitfalls</h2>
       <ul>
         <li>
-          Calling <code>seek_text</code> / <code>place_document</code> without a configured embedder
-          raises <code>ConfigError</code> — by design, not silent fallback.
+          Text-first calls (<code>query(query_texts=...)</code>, text-only <code>add</code>) without
+          a configured embedder raise <code>ConfigError</code> — by design, not silent fallback.
         </li>
         <li>
-          Reopening a database that was created with a Python-callable embedder requires the same
-          callable; without it text-first APIs fail.
+          Reopening a database created with a Python-callable embedder requires the same callable.
         </li>
         <li>
-          <code>":memory:"</code> opens require <code>dimension &gt; 0</code> every time.
+          <code>Client()</code> and in-memory opens require <code>dimension &gt; 0</code>.
         </li>
         <li>
-          Only one read-write opener at a time per database directory. Use{" "}
+          Only one read-write opener at a time per directory. Use{" "}
           <code>access_mode="read_only"</code> for shared-reader serving.
         </li>
       </ul>

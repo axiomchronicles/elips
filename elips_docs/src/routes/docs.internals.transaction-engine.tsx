@@ -16,7 +16,7 @@ export const Route = createFileRoute("/docs/internals/transaction-engine")({
       {
         property: "og:description",
         content:
-          "Transaction / TransactionVault, eager validation, commit and rollback, and the Python context-manager binding.",
+          "Transaction / TransactionCollection, eager validation, commit and rollback, and the Python context-manager binding.",
       },
       { property: "og:url", content: "/docs/internals/transaction-engine" },
     ],
@@ -44,7 +44,7 @@ function Page() {
     >
       <p className="text-[18px] text-ink">
         ELIPS transactions are atomic write batches under the single-writer model.{" "}
-        <code>Transaction</code> buffers <code>place</code> and <code>erase</code> calls; commit
+        <code>Transaction</code> buffers <code>add</code> and <code>remove</code> calls; commit
         applies them in order, each one WAL-appended before the in-memory mutation. The destructor
         auto-rolls back if neither <code>commit()</code> nor <code>rollback()</code> ran.
       </p>
@@ -53,35 +53,35 @@ function Page() {
       <CodeBlock lang="cpp">
         {`namespace elips {
 
-class TransactionVault {
+class TransactionCollection {
 public:
-    RecordID place(const Vector& vector, Payload payload = {},
-                   std::optional<RecordID> id = std::nullopt);
-    void     erase(const RecordID& id);
+    RecordID add(const Vector& vector, Payload payload = {},
+                 std::optional<RecordID> id = std::nullopt);
+    void     remove(const RecordID& id);
 
 private:
     friend class Transaction;
-    TransactionVault(Transaction& txn, std::string vault)
-        : txn_(&txn), vault_(std::move(vault)) {}
+    TransactionCollection(Transaction& txn, std::string collection)
+        : txn_(&txn), collection_(std::move(collection)) {}
 
     Transaction* txn_;
-    std::string  vault_;
+    std::string  collection_;
 };
 
 class Transaction {
 public:
-    explicit Transaction(ElipsInstance& db);
+    explicit Transaction(Database& db);
     ~Transaction();                          // auto-rolls back if !done_
 
-    TransactionVault vault(std::string name);
+    TransactionCollection collection(std::string name);
     void commit();
     void rollback() noexcept;
 
 private:
-    void enqueue_place(std::string vault, const Vector&, Payload, std::optional<RecordID>);
-    void enqueue_erase(std::string vault, RecordID);
+    void enqueue_add(std::string collection, const Vector&, Payload, std::optional<RecordID>);
+    void enqueue_remove(std::string collection, RecordID);
 
-    ElipsInstance*           db_;
+    Database*                db_;
     std::vector<PendingOp>   ops_;
     bool                     done_{false};
 };
@@ -92,30 +92,30 @@ private:
       <h2 id="pendingop">PendingOp queue</h2>
       <CodeBlock lang="cpp">
         {`struct PendingOp {
-    bool                       is_erase{false};   // true = erase, false = place
-    std::string                vault;             // target vault name
-    Vector                     vector;            // empty for erase
-    Payload                    payload;           // empty for erase
+    bool                       is_remove{false};  // true = remove, false = add
+    std::string                collection;        // target collection name
+    Vector                     vector;            // empty for remove
+    Payload                    payload;           // empty for remove
     std::optional<RecordID>    id;                // pre-generated or explicit
 };`}
       </CodeBlock>
       <p>
-        Inserts capture vector + payload + pre-generated id; erases capture only the target id. The
+        Inserts capture vector + payload + pre-generated id; removes capture only the target id. The
         buffer is <code>std::vector&lt;PendingOp&gt;</code> — operations apply in the order they
         were enqueued.
       </p>
 
       <h2 id="eager">Eager validation</h2>
       <CodeBlock lang="cpp">
-        {`void Transaction::enqueue_place(std::string vault, const Vector& vector,
-                                Payload payload, std::optional<RecordID> id) {
+        {`void Transaction::enqueue_add(std::string collection, const Vector& vector,
+                              Payload payload, std::optional<RecordID> id) {
     if (vector.dimension() != db_->config().dimension()) {
         throw DimensionMismatch{"vector dimension does not match database"};
     }
     if (!all_finite(vector.values())) {
         throw InvalidVector{"vector contains NaN or Inf"};
     }
-    ops_.push_back(PendingOp{false, std::move(vault), vector,
+    ops_.push_back(PendingOp{false, std::move(collection), vector,
                              std::move(payload), std::move(id)});
 }`}
       </CodeBlock>
@@ -128,10 +128,10 @@ private:
 
       <h2 id="ids">RecordID pre-generation</h2>
       <CodeBlock lang="cpp">
-        {`RecordID TransactionVault::place(const Vector& vector, Payload payload,
-                                 std::optional<RecordID> id) {
+        {`RecordID TransactionCollection::add(const Vector& vector, Payload payload,
+                                    std::optional<RecordID> id) {
     const RecordID assigned = id.value_or(RecordID::generate());
-    txn_->enqueue_place(vault_, vector, std::move(payload), assigned);
+    txn_->enqueue_add(collection_, vector, std::move(payload), assigned);
     return assigned;          // returned before commit
 }`}
       </CodeBlock>
@@ -144,11 +144,11 @@ private:
       <CodeBlock lang="cpp">
         {`void Transaction::commit() {
     for (auto& op : ops_) {
-        Vault& vault = db_->vault(op.vault);
-        if (op.is_erase) {
-            vault.erase(*op.id);                          // WAL + index + store
+        Collection& collection = db_->collection(op.collection);
+        if (op.is_remove) {
+            collection.remove(*op.id);                        // WAL + index + store
         } else {
-            vault.place(op.vector, op.payload, op.id);    // prepare + WAL + index + store
+            collection.add(op.vector, op.payload, op.id);     // prepare + WAL + index + store
         }
     }
     ops_.clear();
@@ -180,23 +180,23 @@ Transaction::~Transaction() {
       <h2 id="python">Python context manager</h2>
       <CodeBlock lang="python">
         {`with db.begin_transaction() as txn:
-    v = txn.vault("data")
-    v.place(vector1, {"tag": "a"})
-    v.place(vector2, {"tag": "b"})
+    c = txn.collection("data")
+    c.add(vector1, {"tag": "a"})
+    c.add(vector2, {"tag": "b"})
     # clean exit  → __exit__ calls commit()
     # raised exc  → __exit__ does NOT commit; destructor rolls back`}
       </CodeBlock>
       <p>
         The binding uses a <code>TransactionHolder</code> that keeps the Python{" "}
         <code>Database</code> reference alive for the transaction's lifetime, so the C++{" "}
-        <code>ElipsInstance</code> outlives the <code>Transaction</code> as required.
+        <code>Database</code> outlives the <code>Transaction</code> as required.
       </p>
 
       <h2 id="isolation">Isolation level</h2>
       <p>
         Atomic batched writes under a single-writer lock — effectively <strong>serializable</strong>{" "}
         isolation. All transactions are serialised by the database lock. Reads within a transaction
-        do <em>not</em> see uncommitted writes; <code>seek</code> always reads from the committed
+        do <em>not</em> see uncommitted writes; <code>search</code> always reads from the committed
         state.
       </p>
       <ul>

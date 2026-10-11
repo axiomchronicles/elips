@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/configuration")({
       {
         name: "description",
         content:
-          "Dimension, metric, index type, durability, segmented storage, and embedder configuration in ELIPS.",
+          "Dimension, metric, index, durability, segmented storage, and embedder configuration in ELIPS.",
       },
       { property: "og:title", content: "Configuration — ELIPS" },
       { property: "og:description", content: "All ELIPS configuration knobs in one place." },
@@ -35,32 +35,34 @@ function Page() {
       ]}
     >
       <p className="text-[18px] text-ink">
-        <code>Config</code> is a fluent builder. It is immutable after <code>open()</code>, and a
-        subset of its values become the durable <em>identity</em> of the database, persisted in the{" "}
-        <code>IDENTITY</code> file.
+        Settings are passed as keyword arguments to <code>elips.Client</code> /{" "}
+        <code>elips.PersistentClient</code> (the native <code>Config</code> builder mirrors them in
+        C++). A subset of these values become the durable <em>identity</em> of the database,
+        persisted in the <code>IDENTITY</code> file, and cannot change after first open.
       </p>
 
       <h2 id="identity">Identity (frozen at first open)</h2>
       <p>
         Three values are durable: <strong>dimension</strong>, <strong>metric</strong>, and
-        <strong> index type</strong>. Reopening with a conflicting value raises{" "}
+        <strong> index</strong>. Reopening with a conflicting value raises{" "}
         <code>ConfigError</code>.
       </p>
       <CodeBlock lang="python">
-        {`db = elips.open(
+        {`db = elips.PersistentClient(
     "/var/lib/myapp/elips",
     dimension=384,
-    metric="cosine",       # "cosine" | "euclidean" | "dot"
-    index="graph",         # "graph" (HNSW) | "exact"
+    metric="cosine",       # "cosine" | "euclidean" | "dot_product"
+    index="graph",         # "graph" (HNSW) | "exact" (flat)
 )`}
       </CodeBlock>
 
       <h2 id="indexes">Indexes</h2>
       <p>
         <code>graph</code> is the default — a Hierarchical Navigable Small World graph backed by{" "}
-        <code>HierarchicalGraphIndex</code>. <code>exact</code> performs a brute-force scan and is
-        suitable for small vaults, test workloads, and ground-truth measurement. Both implement the
-        same <code>IndexPort</code> contract; see <Link to="/docs/algorithms">Algorithms</Link>.
+        <code>IndexHNSW</code>. <code>exact</code> performs a brute-force scan (<code>IndexFlat</code>
+        ) and is suitable for small collections, test workloads, and ground-truth measurement. Both
+        implement the same <code>Index</code> contract; see{" "}
+        <Link to="/docs/algorithms">Algorithms</Link>.
       </p>
       <CodeBlock lang="cpp">
         {`auto db = elips::open(
@@ -68,10 +70,14 @@ function Page() {
     elips::Config{}
         .dimension(128)
         .metric(elips::Metric::cosine)
-        .graph_params({.M = 16, .ef_construction = 200, .ef_search = 64}));`}
+        .hnsw_params({.M = 16, .ef_construction = 200, .ef_search = 64}));`}
       </CodeBlock>
 
       <h2 id="durability">Durability</h2>
+      <p>
+        Durability is a native <code>Config</code> / <code>Durability</code> setting — it is not a{" "}
+        <code>Client</code> keyword argument. It controls when WAL appends reach disk:
+      </p>
       <table>
         <thead>
           <tr>
@@ -143,8 +149,9 @@ function Page() {
         serving.
       </p>
       <CodeBlock lang="python">
-        {`reader = elips.open("/var/lib/myapp/elips", access_mode="read_only")
-print(reader.vault("documents").seek_text("alpha", top=1)[0].data)`}
+        {`reader = elips.PersistentClient("/var/lib/myapp/elips", access_mode="read_only")
+docs = reader.get_collection("documents")
+print(docs.query(query_texts="alpha", n_results=1)[0].meta)`}
       </CodeBlock>
     </DocsShell>
   );

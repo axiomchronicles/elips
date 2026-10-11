@@ -10,14 +10,14 @@
 #include <vector>
 
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 namespace {
 
-// Minimal GpuPort that hands out real host memory, so pointer arithmetic in the
+// Minimal GpuBackend that hands out real host memory, so pointer arithmetic in the
 // suballocator (splitting, adjacency, coalescing) is exercised for real.
-class FakeBackend final : public GpuPort {
+class FakeBackend final : public GpuBackend {
 public:
     ~FakeBackend() override {
         for (auto& [ptr, bytes] : owned_) {

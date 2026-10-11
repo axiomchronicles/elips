@@ -41,7 +41,11 @@ function Page() {
 
       <h2 id="durability-levels">Durability Levels</h2>
       <p>
-        Durability levels determine how aggressively ELIPS forces the operating system to flush writes to physical media. You can configure this using the <code>durability()</code> builder on the <code>Config</code> object:
+        Durability levels determine how aggressively ELIPS forces the operating
+        system to flush writes to physical media. Durability is a{" "}
+        <strong>native <code>Config</code>/<code>Durability</code> concept</strong>{" "}
+        — it is configured on a <code>Config</code> object, not as a keyword
+        argument to the client constructor:
       </p>
       <ul>
         <li>
@@ -73,15 +77,18 @@ config = elips.Config().durability("relaxed")
 config = elips.Config().durability("ephemeral")`}</CodeBlock>
 
       <p>
-        You can inspect the currently active durability via properties on the config object: <code>config.durability_enum</code> and <code>config.durability_val</code>.
+        You can inspect the currently active durability via the config object's{" "}
+        <code>durability_val</code> property.
       </p>
-      <CodeBlock lang="python">{`# Throughput-optimized (relaxed)
-config = elips.Config().dimension(128).durability("relaxed")
-db = elips.open_with_config("/data/staging", config)
+      <CodeBlock lang="python">{`import elips
 
-# In-memory (no WAL at all)
-db = elips.open(":memory:", dimension=128)
-print(db.persistent)  # False`}</CodeBlock>
+# Throughput-optimized (relaxed) — apply a full Config via the
+# legacy connect_with_config path:
+config = elips.Config().dimension(128).durability("relaxed")
+client = elips.connect_with_config("/data/staging", config)  # legacy Config-object open
+
+# In-memory, no WAL at all:
+client = elips.Client(dimension=128)`}</CodeBlock>
 
       <h2 id="what-changed">Storage Improvements (F1-F4)</h2>
       <p>
@@ -116,17 +123,17 @@ print(db.persistent)  # False`}</CodeBlock>
       <h2 id="transaction-examples">Transaction Examples</h2>
       <CodeBlock lang="python">{`import elips
 
-# Configure maximum durability
+# Configure maximum durability on a native Config
 config = (
     elips.Config()
     .dimension(384)
     .metric("cosine")
     .durability("paranoid")
 )
-db = elips.open_with_config("/data/critical", config)
+client = elips.connect_with_config("/data/critical", config)  # legacy Config-object open
 
-# Transaction - all or nothing using a context manager
-with db.begin_transaction() as txn:
+# Native transaction - all or nothing using a context manager
+with client.native.begin_transaction() as txn:
     v = txn.vault("docs")
     v.place([1.0, 0.0], {"title": "A"})
     v.place([0.0, 1.0], {"title": "B"})
@@ -134,7 +141,7 @@ with db.begin_transaction() as txn:
     # Exception: both writes rolled back
 
 # Failed commit restores state automatically
-txn = db.begin_transaction()
+txn = client.native.begin_transaction()
 v = txn.vault("docs")
 v.place([1.0, 0.0], {"title": "C"})
 try:
@@ -165,23 +172,21 @@ except elips.StorageError:
       </p>
       <CodeBlock lang="python">{`# Read-only serving (shared readers)
 # A separate process might hold the exclusive writer lock
-reader = elips.open("/data/critical", access_mode="read_only")
-results = reader.vault("docs").seek([1.0, 0.0], top=5)`}</CodeBlock>
+reader = elips.PersistentClient("/data/critical", access_mode="read_only")
+results = reader.collection("docs").query(query_embeddings=[1.0, 0.0], n_results=5)`}</CodeBlock>
 
       <h2 id="monitoring-durability">Monitoring Durability</h2>
       <p>
-        You can inspect operations that are currently in the WAL but not yet checkpointed using <code>vault.pending_writes()</code>. This returns a typed list of <code>WalRecord</code> objects, which is extremely useful for monitoring durability lag and deciding when to force a checkpoint.
+        You can inspect operations that are currently in the WAL but not yet checkpointed using <code>client.pending_writes()</code>. This returns a typed list of <code>WalRecord</code> objects, which is extremely useful for monitoring durability lag and deciding when to force a checkpoint.
       </p>
 
       <h2 id="crash-recovery">Crash Recovery</h2>
       <p>
-        Recovery after an unclean shutdown happens automatically. When you call <code>elips.open()</code>, ELIPS replays the WAL to recover any committed transactions that were not yet checkpointed. 
+        Recovery after an unclean shutdown happens automatically. When you reopen a database with <code>elips.PersistentClient()</code>, ELIPS replays the WAL to recover any committed transactions that were not yet checkpointed.
       </p>
-      <CodeBlock lang="python">{`# Simulate unclean shutdown by abandoning the handle
-db.abandon()  # Leaves WAL on disk, bypassing clean shutdown
-
-# Next open() replays the WAL automatically
-db2 = elips.open("/data/critical")`}</CodeBlock>
+      <CodeBlock lang="python">{`# After an unclean shutdown (crash or hard kill), the WAL is left on disk.
+# Reopening replays it automatically — no special call is needed:
+client = elips.PersistentClient("/data/critical")`}</CodeBlock>
 
       <h2 id="pitfalls">Common Pitfalls</h2>
       <ul>

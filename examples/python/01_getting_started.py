@@ -1,7 +1,7 @@
 """ELIPS v2 getting started with the modern Python API.
 
 Run from the repo root after building the bindings:
-    cmake -S . -B build -G Ninja -DELIPS_BUILD_PYTHON=ON
+    cmake -S . -B build -G Ninja -DELIPS_ENABLE_PYTHON=ON
     cmake --build build --target elips_pymodule
     PYTHONPATH=bindings/python python3 examples/python/01_getting_started.py
 """

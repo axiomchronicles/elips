@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/python/eql")({
       {
         name: "description",
         content:
-          "Complete reference for executing ELIPS Query Language (EQL) in Python: parameter bindings, SEARCH, SCAN, FETCH, INSERT, DELETE, and hybrid projections.",
+          "Reference for executing ELIPS Query Language (EQL) from Python: $-bindings and the real lowercase grammar — search, get, scan, add, delete.",
       },
     ],
   }),
@@ -23,94 +23,102 @@ function Page() {
       title="Python EQL Integration"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "query-methods", label: "db.query() & engine.query()" },
-        { id: "parameter-bindings", label: "Parameter Bindings" },
-        { id: "eql-statements", label: "EQL Statement Syntax" },
-        { id: "hybrid-eql", label: "Hybrid EQL Queries" },
-        { id: "code-examples", label: "Code Examples" },
+        { id: "query-methods", label: "query_eql() & native query()" },
+        { id: "parameter-bindings", label: "Parameter bindings" },
+        { id: "eql-statements", label: "EQL statement syntax" },
+        { id: "code-examples", label: "Code examples" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS Query Language (EQL) brings a declarative, SQL-like query interface to vector search. You can execute EQL statements directly in Python via <code>db.query()</code> or <code>engine.query()</code>.
+        EQL is a small, expression-oriented DSL — not SQL. It has a lexer, a recursive-descent
+        parser, an AST, and an executor, and it produces the same <code>Filter</code> and{" "}
+        <code>QueryPlan</code> objects the SDK builders produce. You run it from Python with{" "}
+        <code>client.query_eql()</code> or directly on the native handle with{" "}
+        <code>client.native.query()</code>.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        EQL allows developers to combine vector similarity search, boolean metadata filtering, pagination, and projection into a single declarative query string with parameterized vector placeholders.
+        A statement starts with a verb — <code>search</code>, <code>get</code>, <code>scan</code>,{" "}
+        <code>add</code>, or <code>delete</code> — all lowercase and case-sensitive. Query vectors
+        are supplied as <code>$name</code> placeholders bound through the <code>bindings</code>{" "}
+        argument. See the full grammar on the <Link to="/docs/eql">EQL reference</Link>.
       </p>
 
-      <h2 id="query-methods">db.query() & engine.query()</h2>
-      <CodeBlock lang="python">{`# Execution via low-level Database handle
-results = db.query(
-    "SEARCH FROM documents SEEK :q TOP 10 WHERE category = 'tech'",
-    bindings={":q": query_vector}
+      <h2 id="query-methods">query_eql() &amp; native query()</h2>
+      <CodeBlock lang="python">{`# High-level client (Client / PersistentClient)
+results = client.query_eql(
+    'search in documents nearest $q k 10 where category = "tech" yield',
+    {"q": query_vector},
 )
 
-# Execution via modern Engine handle
-hits = engine.query(
-    "SEARCH FROM articles SEEK :vec TOP 5 WHERE rating >= 4.5",
-    bindings={":vec": [0.1] * 1536}
+# Or straight to the native Database handle
+results = client.native.query(
+    'search in articles nearest $vec k 5 where rating >= 4.5 yield',
+    {"vec": [0.1] * 128},
 )`}</CodeBlock>
 
-      <h2 id="parameter-bindings">Parameter Bindings</h2>
+      <h2 id="parameter-bindings">Parameter bindings</h2>
       <p>
-        Vector parameter placeholders start with a colon <code>:name</code> and are supplied via the <code>bindings</code> parameter as a Python dictionary of float lists or NumPy 1D vectors.
+        Vector placeholders start with a dollar sign <code>$name</code> and are supplied through the{" "}
+        <code>bindings</code> dictionary as float lists or NumPy 1-D vectors. (The old{" "}
+        <code>:name</code> colon form never existed in the grammar.)
       </p>
       <CodeBlock lang="python">{`import numpy as np
 
-vec_query = np.random.randn(384).astype(np.float32).tolist()
+vec_query = np.random.randn(128).astype(np.float32).tolist()
 
-hits = engine.query(
+results = client.query_eql(
     """
-    SEARCH FROM product_embeddings
-    SEEK :target_vec
-    TOP 20
-    WHERE price <= 100.0 AND in_stock = true
+    search in product_embeddings
+        nearest $target_vec
+        k 20
+        where price <= 100.0 and in_stock = true
+        yield
     """,
-    bindings={":target_vec": vec_query}
+    {"target_vec": vec_query},
 )`}</CodeBlock>
 
-      <h2 id="eql-statements">EQL Statement Syntax</h2>
+      <h2 id="eql-statements">EQL statement syntax</h2>
       <ul>
         <li>
-          <strong>SEARCH:</strong> <code>SEARCH FROM vault_name SEEK :vector TOP k [WHERE filter] [THRESHOLD score]</code>
+          <strong>search:</strong>{" "}
+          <code>search in &lt;collection&gt; nearest $vec [k &lt;int&gt;] [threshold &lt;num&gt;] [where &lt;filter&gt;] [rank_by &lt;distance|field&gt;] [project &lt;*|field,...&gt;] yield</code>
         </li>
         <li>
-          <strong>SCAN:</strong> <code>SCAN FROM vault_name [WHERE filter] [OFFSET o] [LIMIT l]</code>
+          <strong>get:</strong> <code>get from &lt;collection&gt; id "&lt;string-id&gt;" yield</code>
         </li>
         <li>
-          <strong>FETCH:</strong> <code>FETCH FROM vault_name WHERE id = 1042</code>
+          <strong>scan:</strong>{" "}
+          <code>scan in &lt;collection&gt; [where &lt;filter&gt;] [offset &lt;int&gt;] [limit &lt;int&gt;] yield</code>
         </li>
         <li>
-          <strong>DELETE:</strong> <code>DELETE FROM vault_name WHERE id = 1042</code>
+          <strong>add:</strong>{" "}
+          <code>add in &lt;collection&gt; vector [0.1, 0.2, ...] [metadata &#123; "key": value &#125;]</code>
+        </li>
+        <li>
+          <strong>delete:</strong> <code>delete from &lt;collection&gt; id "&lt;string-id&gt;"</code>
         </li>
       </ul>
+      <p>
+        The pre-1.1 verbs <code>seek</code>/<code>fetch</code>/<code>place</code>/<code>erase</code>{" "}
+        are still accepted as deprecated synonyms, and <code>top</code> still works as an alias for{" "}
+        <code>k</code>. Text-first retrieval is not exposed through EQL — use{" "}
+        <code>collection.query(query_texts=...)</code> for that.
+      </p>
 
-      <h2 id="hybrid-eql">Hybrid EQL Queries</h2>
-      <CodeBlock lang="python">{`hits = engine.query(
-    """
-    SEARCH FROM kb_articles
-    SEEK :query_vec
-    TEXT 'quantum computing algorithms'
-    TOP 10
-    WHERE section = 'research'
-    HYBRID_WEIGHT 0.3
-    """,
-    bindings={":query_vec": text_embedding}
-)`}</CodeBlock>
-
-      <h2 id="code-examples">Code Examples</h2>
+      <h2 id="code-examples">Code examples</h2>
       <CodeBlock lang="python">{`import elips
 
-with elips.connect(":memory:", dimension=4) as engine:
-    arena = engine.arena("items")
-    arena.write(vector=[1.0, 0.0, 0.0, 0.0], meta={"status": "active"})
-    arena.write(vector=[0.0, 1.0, 0.0, 0.0], meta={"status": "archived"})
+with elips.Client(dimension=4) as client:
+    items = client.get_or_create_collection("items")
+    items.add(embeddings=[[1.0, 0.0, 0.0, 0.0]], metadatas=[{"status": "active"}])
+    items.add(embeddings=[[0.0, 1.0, 0.0, 0.0]], metadatas=[{"status": "archived"}])
 
-    # Execute EQL query
-    hits = engine.query(
-        "SEARCH FROM items SEEK :q TOP 5 WHERE status = 'active'",
-        bindings={":q": [1.0, 0.0, 0.0, 0.0]}
+    # Execute an EQL query
+    hits = client.query_eql(
+        'search in items nearest $q k 5 where status = "active" yield',
+        {"q": [1.0, 0.0, 0.0, 0.0]},
     )
     print(f"Found active hits: {len(hits)}")`}</CodeBlock>
     </DocsShell>

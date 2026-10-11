@@ -1,18 +1,31 @@
 // PyBind11 bindings for ELIPS. Exposes the embedded database, vaults, filters,
 // transactions, configuration, GPU config, and the EQL query interface to Python.
 #include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "elips/elips.hpp"
+#include "elips/index_engine/Index.hpp"
+#include "elips/index_engine/IndexFactory.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
+#include "elips/index_engine/IndexIVFFlat.hpp"
+#include "elips/index_engine/IndexIVFPQ.hpp"
+#include "elips/index_engine/IndexIVFScalarQuantizer.hpp"
 #include "elips/index_engine/IndexSnapshot.hpp"
 #include "elips/query_engine/AST.hpp"
 #include "elips/query_engine/EQLLexer.hpp"
@@ -24,12 +37,14 @@
 #include "elips/gpu_engine/GpuDeviceInfo.hpp"
 
 #ifdef ELIPS_GPU_ENABLED
-#include "elips/gpu_engine/DynamicBatcher.hpp"
+#include "elips/gpu_engine/QueryBatcher.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
+#include "elips/gpu_engine/BruteForceKnn.hpp"
 #include "elips/gpu_engine/GpuMemoryManager.hpp"
 #include "elips/gpu_engine/GpuMetricsSnapshot.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/gpu_engine/GpuProfiler.hpp"
 #include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #endif
@@ -111,20 +126,20 @@ std::optional<elips::RecordID> to_optional_id(const py::object& id) {
 }
 
 // RAII holder for Transaction that keeps the Database alive.
-// The C++ Transaction holds a raw pointer to ElipsInstance; we must ensure
+// The C++ Transaction holds a raw pointer to Database; we must ensure
 // the owning Python Database object outlives it.
 struct TransactionHolder {
     py::object db_ref;
     elips::Transaction txn;
 
-    TransactionHolder(py::object db, elips::ElipsInstance& instance)
+    TransactionHolder(py::object db, elips::Database& instance)
         : db_ref(std::move(db)), txn(instance) {}
 };
 
 #ifdef ELIPS_GPU_ENABLED
 // Owning Python-facing handle for a selected GPU backend.
 //
-// Deliberately narrower than the C++ GpuPort: the raw allocate/upload/download
+// Deliberately narrower than the C++ GpuBackend: the raw allocate/upload/download
 // methods traffic in void* plus a caller-supplied byte count, where a wrong
 // size is an out-of-bounds device write rather than an exception. Those stay
 // C++-only. What is exposed here -- device metadata, stream synchronization,
@@ -132,11 +147,11 @@ struct TransactionHolder {
 // bounds-checked against the array shapes the caller passes in.
 class GpuDeviceHandle {
 public:
-    explicit GpuDeviceHandle(std::unique_ptr<elips::gpu::GpuPort> port)
+    explicit GpuDeviceHandle(std::unique_ptr<elips::gpu::GpuBackend> port)
         : port_(std::move(port)),
           memory_(std::make_unique<elips::gpu::GpuMemoryManager>(*port_)) {}
 
-    [[nodiscard]] elips::gpu::GpuPort& port() {
+    [[nodiscard]] elips::gpu::GpuBackend& port() {
         if (closed_) {
             throw elips::StorageError{"GPU device handle is closed"};
         }
@@ -173,7 +188,7 @@ public:
     GpuDeviceHandle& operator=(GpuDeviceHandle&&) = delete;
 
 private:
-    std::unique_ptr<elips::gpu::GpuPort> port_;
+    std::unique_ptr<elips::gpu::GpuBackend> port_;
     std::unique_ptr<elips::gpu::GpuMemoryManager> memory_;
     elips::gpu::GpuProfiler profiler_;
     bool closed_{false};
@@ -361,11 +376,223 @@ namespace {
 }  // namespace
 #endif
 
+namespace {
+
+// ============================================================================
+// FAISS-style Index adapter (Phase 6.6).
+//
+// A thin numpy-facing wrapper over elips::Index that gives Python the FAISS
+// contract: positional int64 labels, (nq, k) float32/int64 search outputs with
+// -1 padding, train/add/add_with_ids/search/reset + ntotal/d/is_trained/nprobe.
+// elips::Index stores records by 128-bit RecordID; this adapter owns the
+// label<->RecordID map so callers see plain int64 ids like FAISS does.
+// ============================================================================
+
+// FAISS-recognizable metric spellings -> the elips Metric enum.
+elips::Metric parse_index_metric(const std::string& name) {
+    if (name == "l2" || name == "L2" || name == "euclidean") {
+        return elips::Metric::euclidean;
+    }
+    if (name == "ip" || name == "dot" || name == "dot_product" ||
+        name == "inner_product") {
+        return elips::Metric::dot_product;
+    }
+    if (name == "cosine") {
+        return elips::Metric::cosine;
+    }
+    throw py::value_error(
+        "unknown metric '" + name +
+        "': expected 'l2'/'euclidean', 'ip'/'dot_product', or 'cosine'");
+}
+
+// numpy IN contract: float32, C-contiguous, forced-cast (silent copy only when
+// the caller's array isn't already f32/C-contiguous), matching FAISS.
+using FloatArray =
+    py::array_t<float, py::array::c_style | py::array::forcecast>;
+using Int64Array =
+    py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>;
+
+class PyIndex {
+public:
+    PyIndex(std::unique_ptr<elips::Index> idx, std::uint16_t d,
+            elips::Metric metric, std::size_t* nprobe_ptr,
+            std::function<std::unique_ptr<elips::Index>()> rebuild)
+        : idx_(std::move(idx)),
+          d_(d),
+          metric_(metric),
+          nprobe_ptr_(nprobe_ptr),
+          rebuild_(std::move(rebuild)) {}
+
+    void train(const FloatArray& x) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        idx_->train(std::span<const float>(data, n * d_), n);
+    }
+
+    // add(): FAISS positional labels ntotal .. ntotal+n-1, one fresh RecordID
+    // per row.
+    void add(const FloatArray& x) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        const std::int64_t base = static_cast<std::int64_t>(idx_->ntotal());
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto rid = elips::RecordID::generate();
+            rid_to_label_[rid] = base + static_cast<std::int64_t>(i);
+            idx_->add_with_ids(rid, std::span<const float>(data + i * d_, d_));
+        }
+    }
+
+    void add_with_ids(const FloatArray& x, const Int64Array& ids) {
+        std::size_t n = 0;
+        const float* data = as_rows(x, n);
+        if (static_cast<std::size_t>(ids.size()) != n) {
+            throw py::value_error(
+                "add_with_ids: ids length must equal the number of rows");
+        }
+        const std::int64_t* idp = ids.data();
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto rid = elips::RecordID::generate();
+            rid_to_label_[rid] = idp[i];
+            idx_->add_with_ids(rid, std::span<const float>(data + i * d_, d_));
+        }
+    }
+
+    // search(): returns (D float32[nq,k], I int64[nq,k]). Slots past the number
+    // of hits (k > ntotal) get label -1 and a +inf sentinel distance, matching
+    // FAISS heap padding.
+    py::tuple search(const FloatArray& x, std::size_t k) {
+        if (k == 0) {
+            throw py::value_error("search: k must be > 0");
+        }
+        std::size_t nq = 0;
+        const float* data = as_rows(x, nq);
+        py::array_t<float> dists({static_cast<py::ssize_t>(nq),
+                                  static_cast<py::ssize_t>(k)});
+        py::array_t<std::int64_t> labels({static_cast<py::ssize_t>(nq),
+                                          static_cast<py::ssize_t>(k)});
+        float* dptr = dists.mutable_data();
+        std::int64_t* iptr = labels.mutable_data();
+        for (std::size_t q = 0; q < nq; ++q) {
+            const auto hits =
+                idx_->search(std::span<const float>(data + q * d_, d_), k);
+            for (std::size_t j = 0; j < k; ++j) {
+                const std::size_t slot = q * k + j;
+                if (j < hits.size()) {
+                    dptr[slot] = hits[j].second;
+                    const auto it = rid_to_label_.find(hits[j].first);
+                    iptr[slot] = it != rid_to_label_.end() ? it->second : -1;
+                } else {
+                    dptr[slot] = std::numeric_limits<float>::infinity();
+                    iptr[slot] = -1;
+                }
+            }
+        }
+        return py::make_tuple(std::move(dists), std::move(labels));
+    }
+
+    void reset() {
+        // IVF indexes keep their trained centroids across reset(); Flat/HNSW
+        // have no reset of their own, so rebuild a fresh empty index.
+        if (rebuild_) {
+            idx_ = rebuild_();
+        } else {
+            idx_->reset();
+        }
+        rid_to_label_.clear();
+    }
+
+    [[nodiscard]] std::size_t ntotal() const { return idx_->ntotal(); }
+    [[nodiscard]] std::uint16_t d() const { return d_; }
+    [[nodiscard]] bool is_trained() const { return idx_->is_trained(); }
+
+    [[nodiscard]] std::size_t get_nprobe() const {
+        if (nprobe_ptr_ == nullptr) {
+            throw py::attribute_error("nprobe is only defined for IVF indexes");
+        }
+        return *nprobe_ptr_;
+    }
+    void set_nprobe(std::size_t value) {
+        if (nprobe_ptr_ == nullptr) {
+            throw py::attribute_error("nprobe is only defined for IVF indexes");
+        }
+        if (value == 0) {
+            throw py::value_error("nprobe must be >= 1");
+        }
+        *nprobe_ptr_ = value;
+    }
+
+    [[nodiscard]] std::string repr() const {
+        return "<Index " + std::string(idx_->type_name()) +
+               " d=" + std::to_string(d_) +
+               " ntotal=" + std::to_string(idx_->ntotal()) + ">";
+    }
+
+private:
+    // Validate shape against d_ and return a pointer to contiguous row-major
+    // floats. Accepts (n, d) or a bare 1-D (d,) treated as a single row.
+    const float* as_rows(const FloatArray& x, std::size_t& n) const {
+        if (x.ndim() == 1) {
+            if (static_cast<std::size_t>(x.shape(0)) != d_) {
+                throw elips::DimensionMismatch{
+                    "expected a vector of dimension " + std::to_string(d_)};
+            }
+            n = 1;
+            return x.data();
+        }
+        if (x.ndim() == 2) {
+            if (static_cast<std::size_t>(x.shape(1)) != d_) {
+                throw elips::DimensionMismatch{
+                    "expected rows of dimension " + std::to_string(d_)};
+            }
+            n = static_cast<std::size_t>(x.shape(0));
+            return x.data();
+        }
+        throw py::value_error("expected a 1-D or 2-D float32 array");
+    }
+
+    std::unique_ptr<elips::Index> idx_;
+    std::uint16_t d_;
+    elips::Metric metric_;
+    std::size_t* nprobe_ptr_;  // -> concrete IVF nprobe, else null
+    std::function<std::unique_ptr<elips::Index>()> rebuild_;  // empty for IVF
+    std::unordered_map<elips::RecordID, std::int64_t> rid_to_label_;
+};
+
+// Classify a freshly built index: locate its IVF nprobe knob (if any) and
+// decide reset() strategy, then wrap it. Keeps every constructor uniform.
+PyIndex make_py_index(std::unique_ptr<elips::Index> idx, std::uint16_t d,
+                      elips::Metric metric,
+                      std::function<std::unique_ptr<elips::Index>()> rebuild) {
+    std::size_t* nprobe = nullptr;
+    if (auto* p = dynamic_cast<elips::IndexIVFFlat*>(idx.get())) {
+        nprobe = &p->nprobe;
+    } else if (auto* p = dynamic_cast<elips::IndexIVFPQ*>(idx.get())) {
+        nprobe = &p->nprobe;
+    } else if (auto* p =
+                   dynamic_cast<elips::IndexIVFScalarQuantizer*>(idx.get())) {
+        nprobe = &p->nprobe;
+    }
+    // IVF indexes have a real reset() that preserves training; drop the rebuild
+    // closure for them so reset() keeps the learned centroids.
+    if (nprobe != nullptr) {
+        rebuild = {};
+    }
+    return PyIndex(std::move(idx), d, metric, nprobe, std::move(rebuild));
+}
+
+}  // namespace
+
 PYBIND11_MODULE(_core, m) {
     m.doc() = "ELIPS — embedded local vector database (C extension)";
 
     // ---- version ----
-    m.attr("__version__") = "1.1.0";
+    // Single source of truth is CMake's project(VERSION); it is injected as the
+    // ELIPS_VERSION compile definition (see root CMakeLists.txt). The fallback
+    // only applies to a hand-run compile that forgets to pass it.
+#ifndef ELIPS_VERSION
+#define ELIPS_VERSION "0.0.0+unknown"
+#endif
+    m.attr("__version__") = ELIPS_VERSION;
 
     // =====================  Error hierarchy  =====================
 
@@ -380,6 +607,8 @@ PYBIND11_MODULE(_core, m) {
     py::register_exception<elips::NotFound>(m, "NotFound", elips_error);
     py::register_exception<elips::StorageError>(m, "StorageError",
                                                  elips_error);
+    py::register_exception<elips::BackendUnavailableError>(
+        m, "BackendUnavailableError", elips_error);
     py::register_exception<elips::LockConflict>(m, "LockConflict",
                                                  elips_error);
     py::register_exception<elips::eql::ParseError>(m, "ParseError",
@@ -542,9 +771,11 @@ doing their own pre-processing.
         });
 
     py::class_<elips::eql::SearchStatement>(
-        m, "SearchStatement", "A parsed EQL ``SEARCH`` statement.")
+        m, "SearchStatement", "A parsed EQL ``search`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::SearchStatement::vault)
+        .def_readwrite("collection", &elips::eql::SearchStatement::collection)
+        .def_readwrite("vault", &elips::eql::SearchStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("query", &elips::eql::SearchStatement::query)
         .def_readwrite("top", &elips::eql::SearchStatement::top,
                        "Result limit, or ``None`` when unspecified.")
@@ -557,54 +788,68 @@ doing their own pre-processing.
         .def_readwrite("projection", &elips::eql::SearchStatement::projection,
                        "Requested fields; empty means all fields.")
         .def("__repr__", [](const elips::eql::SearchStatement& s) {
-            return "<SearchStatement vault='" + s.vault + "'>";
+            return "<SearchStatement collection='" + s.collection + "'>";
         });
 
-    py::class_<elips::eql::FetchStatement>(
-        m, "FetchStatement", "A parsed EQL ``FETCH`` statement.")
+    py::class_<elips::eql::GetStatement>(
+        m, "GetStatement", "A parsed EQL ``get`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::FetchStatement::vault)
-        .def_readwrite("id", &elips::eql::FetchStatement::id)
-        .def("__repr__", [](const elips::eql::FetchStatement& s) {
-            return "<FetchStatement vault='" + s.vault + "' id='" + s.id + "'>";
+        .def_readwrite("collection", &elips::eql::GetStatement::collection)
+        .def_readwrite("vault", &elips::eql::GetStatement::collection,
+                       "Deprecated alias of ``collection``.")
+        .def_readwrite("id", &elips::eql::GetStatement::id)
+        .def("__repr__", [](const elips::eql::GetStatement& s) {
+            return "<GetStatement collection='" + s.collection + "' id='" +
+                   s.id + "'>";
         });
+    // Deprecated pre-Phase-5 Python name; same underlying C++ type.
+    m.attr("FetchStatement") = m.attr("GetStatement");
 
     py::class_<elips::eql::ScanStatement>(
-        m, "ScanStatement", "A parsed EQL ``SCAN`` statement.")
+        m, "ScanStatement", "A parsed EQL ``scan`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::ScanStatement::vault)
+        .def_readwrite("collection", &elips::eql::ScanStatement::collection)
+        .def_readwrite("vault", &elips::eql::ScanStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("where", &elips::eql::ScanStatement::where)
         .def_readwrite("offset", &elips::eql::ScanStatement::offset)
         .def_readwrite("limit", &elips::eql::ScanStatement::limit)
         .def("__repr__", [](const elips::eql::ScanStatement& s) {
-            return "<ScanStatement vault='" + s.vault + "'>";
+            return "<ScanStatement collection='" + s.collection + "'>";
         });
 
-    py::class_<elips::eql::InsertStatement>(
-        m, "InsertStatement", "A parsed EQL ``INSERT`` statement.")
+    py::class_<elips::eql::AddStatement>(
+        m, "AddStatement", "A parsed EQL ``add`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::InsertStatement::vault)
-        .def_readwrite("vector", &elips::eql::InsertStatement::vector)
+        .def_readwrite("collection", &elips::eql::AddStatement::collection)
+        .def_readwrite("vault", &elips::eql::AddStatement::collection,
+                       "Deprecated alias of ``collection``.")
+        .def_readwrite("vector", &elips::eql::AddStatement::vector)
         .def_property(
             "data",
-            [](const elips::eql::InsertStatement& s) {
+            [](const elips::eql::AddStatement& s) {
                 return from_payload(s.data);
             },
-            [](elips::eql::InsertStatement& s, const py::dict& data) {
+            [](elips::eql::AddStatement& s, const py::dict& data) {
                 s.data = to_payload(data);
             },
             "Payload to store with the record.")
-        .def("__repr__", [](const elips::eql::InsertStatement& s) {
-            return "<InsertStatement vault='" + s.vault + "'>";
+        .def("__repr__", [](const elips::eql::AddStatement& s) {
+            return "<AddStatement collection='" + s.collection + "'>";
         });
+    // Deprecated pre-Phase-5 Python name; same underlying C++ type.
+    m.attr("InsertStatement") = m.attr("AddStatement");
 
     py::class_<elips::eql::DeleteStatement>(
-        m, "DeleteStatement", "A parsed EQL ``DELETE`` statement.")
+        m, "DeleteStatement", "A parsed EQL ``delete`` statement.")
         .def(py::init<>())
-        .def_readwrite("vault", &elips::eql::DeleteStatement::vault)
+        .def_readwrite("collection", &elips::eql::DeleteStatement::collection)
+        .def_readwrite("vault", &elips::eql::DeleteStatement::collection,
+                       "Deprecated alias of ``collection``.")
         .def_readwrite("id", &elips::eql::DeleteStatement::id)
         .def("__repr__", [](const elips::eql::DeleteStatement& s) {
-            return "<DeleteStatement vault='" + s.vault + "' id='" + s.id + "'>";
+            return "<DeleteStatement collection='" + s.collection + "' id='" +
+                   s.id + "'>";
         });
 
     m.def("parse_eql",
@@ -649,11 +894,11 @@ parsed tree so callers can build query linters, rewriters, or builders.
 
     // =====================  GraphParams  =====================
 
-    py::class_<elips::GraphParams>(m, "GraphParams")
+    py::class_<elips::HnswParams>(m, "GraphParams")
         .def(py::init<>())
         .def(py::init([](std::size_t max_connections, std::size_t ef_construction,
                          std::size_t ef_search, float compaction_ratio) {
-                 return elips::GraphParams{max_connections, ef_construction,
+                 return elips::HnswParams{max_connections, ef_construction,
                                            ef_search, compaction_ratio};
              }),
              py::arg("max_connections") = 16,
@@ -673,18 +918,18 @@ Args:
         which case call :meth:`Vault.vacuum` explicitly.
 )doc")
         .def_readwrite("max_connections",
-                        &elips::GraphParams::max_connections,
+                        &elips::HnswParams::max_connections,
                         "HNSW ``M``: neighbours kept per node per layer.")
         .def_readwrite("ef_construction",
-                        &elips::GraphParams::ef_construction,
+                        &elips::HnswParams::ef_construction,
                         "Beam width used while building the graph.")
-        .def_readwrite("ef_search", &elips::GraphParams::ef_search,
+        .def_readwrite("ef_search", &elips::HnswParams::ef_search,
                         "Beam width used while searching the graph.")
         .def_readwrite("compaction_ratio",
-                        &elips::GraphParams::compaction_ratio,
+                        &elips::HnswParams::compaction_ratio,
                         "Tombstone fraction that triggers automatic compaction; "
                         "0.0 disables it.")
-        .def("__repr__", [](const elips::GraphParams& p) {
+        .def("__repr__", [](const elips::HnswParams& p) {
             return "<GraphParams M=" + std::to_string(p.max_connections) +
                    " ef_c=" + std::to_string(p.ef_construction) +
                    " ef_s=" + std::to_string(p.ef_search) +
@@ -829,82 +1074,6 @@ Examples:
                    "' dimension=" + std::to_string(info.dimension) + ">";
         });
 
-    // =====================  Index snapshots  =====================
-
-    py::enum_<elips::IndexSnapshotKind>(m, "IndexSnapshotKind",
-                                        "Which index produced a snapshot.")
-        .value("unknown", elips::IndexSnapshotKind::unknown)
-        .value("exact", elips::IndexSnapshotKind::exact)
-        .value("graph", elips::IndexSnapshotKind::graph)
-        .value("gpu_brute_force", elips::IndexSnapshotKind::gpu_brute_force)
-        .value("gpu_ivf_flat", elips::IndexSnapshotKind::gpu_ivf_flat)
-        .value("gpu_ivf_pq", elips::IndexSnapshotKind::gpu_ivf_pq)
-        .value("gpu_graph", elips::IndexSnapshotKind::gpu_graph)
-        .value("gpu_hybrid", elips::IndexSnapshotKind::gpu_hybrid)
-        .value("gpu_distributed", elips::IndexSnapshotKind::gpu_distributed);
-
-    py::class_<elips::IvfSnapshot>(
-        m, "IvfSnapshot", "Inverted-file clustering state from an IVF index.")
-        .def(py::init<>())
-        .def_readwrite("n_lists", &elips::IvfSnapshot::n_lists,
-                       "Number of coarse clusters.")
-        .def_readwrite("n_probe", &elips::IvfSnapshot::n_probe,
-                       "Clusters visited per query.")
-        .def_readwrite("centroids", &elips::IvfSnapshot::centroids,
-                       "Row-major cluster centroids.")
-        .def_readwrite("assignments", &elips::IvfSnapshot::assignments,
-                       "Per-vector cluster assignment.")
-        .def("__repr__", [](const elips::IvfSnapshot& s) {
-            return "<IvfSnapshot n_lists=" + std::to_string(s.n_lists) + ">";
-        });
-
-    py::class_<elips::PqSnapshot>(
-        m, "PqSnapshot", "Product-quantization codebook and codes.")
-        .def(py::init<>())
-        .def_readwrite("pq_dim", &elips::PqSnapshot::pq_dim,
-                       "Number of subquantizers.")
-        .def_readwrite("pq_bits", &elips::PqSnapshot::pq_bits,
-                       "Bits per subquantizer code.")
-        .def_readwrite("codebook", &elips::PqSnapshot::codebook,
-                       "Trained centroids for every subquantizer.")
-        .def_readwrite("codes", &elips::PqSnapshot::codes,
-                       "Encoded vectors.")
-        .def("__repr__", [](const elips::PqSnapshot& s) {
-            return "<PqSnapshot pq_dim=" + std::to_string(s.pq_dim) +
-                   " pq_bits=" + std::to_string(s.pq_bits) + ">";
-        });
-
-    py::class_<elips::IndexSnapshot>(
-        m, "IndexSnapshot",
-        "A portable dump of index contents, used to move an index between "
-        "backends (CPU to GPU and back) or to inspect it offline.")
-        .def(py::init<>())
-        .def_readwrite("kind", &elips::IndexSnapshot::kind)
-        .def_readwrite("metric", &elips::IndexSnapshot::metric)
-        .def_readwrite("dimension", &elips::IndexSnapshot::dimension)
-        .def_property_readonly(
-            "ids",
-            [](const elips::IndexSnapshot& s) {
-                py::list out;
-                for (const auto& id : s.ids) {
-                    out.append(py::str(id.to_string()));
-                }
-                return out;
-            },
-            "Record identifiers, aligned with :attr:`vectors`.")
-        .def_readwrite("vectors", &elips::IndexSnapshot::vectors,
-                       "Row-major vector data.")
-        .def_readwrite("ivf", &elips::IndexSnapshot::ivf,
-                       "IVF clustering state, when present.")
-        .def_readwrite("pq", &elips::IndexSnapshot::pq,
-                       "Product-quantization state, when present.")
-        .def("__len__",
-             [](const elips::IndexSnapshot& s) { return s.ids.size(); })
-        .def("__repr__", [](const elips::IndexSnapshot& s) {
-            return "<IndexSnapshot vectors=" + std::to_string(s.ids.size()) +
-                   " dimension=" + std::to_string(s.dimension) + ">";
-        });
-
     // =====================  Write-ahead log  =====================
 
     py::enum_<elips::WAL::Op>(m, "WalOp", "Kind of a write-ahead log record.")
@@ -921,7 +1090,7 @@ Examples:
     py::class_<elips::WAL::Entry>(m, "WalEntry",
                                   "One replayed write-ahead log record.")
         .def_readonly("op", &elips::WAL::Entry::op)
-        .def_readonly("vault", &elips::WAL::Entry::vault)
+        .def_readonly("vault", &elips::WAL::Entry::collection)
         .def_property_readonly(
             "id",
             [](const elips::WAL::Entry& e) { return e.id.to_string(); },
@@ -944,7 +1113,7 @@ Examples:
         .def_readonly("chunk", &elips::WAL::Entry::chunk)
         .def_readonly("lineage", &elips::WAL::Entry::lineage)
         .def("__repr__", [](const elips::WAL::Entry& e) {
-            return "<WalEntry vault='" + e.vault + "' id='" + e.id.to_string() +
+            return "<WalEntry vault='" + e.collection + "' id='" + e.id.to_string() +
                    "'>";
         });
 
@@ -1068,7 +1237,7 @@ Example:
              py::return_value_policy::reference_internal)
         .def("graph_params",
              [](elips::Config& c,
-                const elips::GraphParams& params) -> elips::Config& {
+                const elips::HnswParams& params) -> elips::Config& {
                  return c.graph_params(params);
              },
              py::arg("params"),
@@ -1374,6 +1543,7 @@ Example:
         .def_readwrite("policy", &elips::gpu::GpuConfig::policy)
         .def_readwrite("preferred_backend", &elips::gpu::GpuConfig::preferred_backend)
         .def_readwrite("device_index", &elips::gpu::GpuConfig::device_index)
+        .def_readwrite("fallback", &elips::gpu::GpuConfig::allow_cpu_fallback)
         .def_readwrite("build_mode", &elips::gpu::GpuConfig::index_build_mode)
         .def_readwrite("algorithm", &elips::gpu::GpuConfig::algorithm)
         .def_property("device_memory_pool_mb",
@@ -1563,24 +1733,24 @@ Returns:
                    std::to_string(profiler.total_launches()) + ">";
         });
 
-    py::class_<elips::gpu::DynamicBatcher::BatchStats>(
+    py::class_<elips::gpu::QueryBatcher::BatchStats>(
         m, "BatchStats",
         "Coalescing statistics from the dynamic query batcher.")
         .def(py::init<>())
         .def_readonly("queries_coalesced",
-                      &elips::gpu::DynamicBatcher::BatchStats::queries_coalesced,
+                      &elips::gpu::QueryBatcher::BatchStats::queries_coalesced,
                       "Queries merged into shared kernel launches.")
         .def_readonly("kernel_launches",
-                      &elips::gpu::DynamicBatcher::BatchStats::kernel_launches,
+                      &elips::gpu::QueryBatcher::BatchStats::kernel_launches,
                       "Kernel launches issued.")
         .def_readonly("avg_batch_size",
-                      &elips::gpu::DynamicBatcher::BatchStats::avg_batch_size,
+                      &elips::gpu::QueryBatcher::BatchStats::avg_batch_size,
                       "Mean queries per launch.")
         .def_readonly("p99_latency_us",
-                      &elips::gpu::DynamicBatcher::BatchStats::p99_latency_us,
+                      &elips::gpu::QueryBatcher::BatchStats::p99_latency_us,
                       "99th-percentile end-to-end batch latency.")
         .def("__repr__",
-             [](const elips::gpu::DynamicBatcher::BatchStats& stats) {
+             [](const elips::gpu::QueryBatcher::BatchStats& stats) {
                  return "<BatchStats coalesced=" +
                         std::to_string(stats.queries_coalesced) +
                         " launches=" + std::to_string(stats.kernel_launches) +
@@ -2005,24 +2175,24 @@ The returned handle owns the backend independently of any
 
     // =====================  VaultInfo  =====================
 
-    py::class_<elips::VaultInfo>(m, "VaultInfo")
+    py::class_<elips::CollectionInfo>(m, "VaultInfo")
         .def_property_readonly(
-            "count", [](const elips::VaultInfo& vi) { return vi.count; })
-        .def_property_readonly("dimension", [](const elips::VaultInfo& vi) {
+            "count", [](const elips::CollectionInfo& vi) { return vi.count; })
+        .def_property_readonly("dimension", [](const elips::CollectionInfo& vi) {
             return vi.dimension;
         })
-        .def_property_readonly("metric", [](const elips::VaultInfo& vi) {
+        .def_property_readonly("metric", [](const elips::CollectionInfo& vi) {
             return std::string(elips::to_string(vi.metric));
         })
-        .def_property_readonly("codec", [](const elips::VaultInfo& vi) {
+        .def_property_readonly("codec", [](const elips::CollectionInfo& vi) {
             return std::string(elips::quant::to_string(vi.codec));
         })
         .def_property_readonly(
-            "code_bytes", [](const elips::VaultInfo& vi) { return vi.code_bytes; },
+            "code_bytes", [](const elips::CollectionInfo& vi) { return vi.code_bytes; },
             "Bytes per stored vector, or 0 when uncompressed.")
         .def_property_readonly(
             "compression_ratio",
-            [](const elips::VaultInfo& vi) {
+            [](const elips::CollectionInfo& vi) {
                 if (vi.code_bytes == 0 || vi.dimension == 0) {
                     return 1.0;
                 }
@@ -2030,7 +2200,7 @@ The returned handle owns the backend independently of any
                        static_cast<double>(vi.code_bytes);
             },
             "Stored bytes saved per vector against fp32; 1.0 when uncompressed.")
-        .def("__repr__", [](const elips::VaultInfo& vi) {
+        .def("__repr__", [](const elips::CollectionInfo& vi) {
             return "<VaultInfo count=" + std::to_string(vi.count) +
                    " dimension=" + std::to_string(vi.dimension) +
                    " metric=" +
@@ -2240,25 +2410,25 @@ Returns:
 
     // =====================  TransactionVault  =====================
 
-    py::class_<elips::TransactionVault>(m, "TransactionVault")
+    py::class_<elips::TransactionCollection>(m, "TransactionVault")
         .def("place",
-             [](elips::TransactionVault& tv, const py::iterable& vector,
+             [](elips::TransactionCollection& tv, const py::iterable& vector,
                 const py::dict& data, const py::object& id) {
                  auto native_vector = to_vector(vector);
                  auto payload = to_payload(data);
                  auto record_id = to_optional_id(id);
                  py::gil_scoped_release unlocked;
-                 return tv.place(native_vector, std::move(payload),
+                 return tv.add(native_vector, std::move(payload),
                                  std::move(record_id))
                      .to_string();
              },
              py::arg("vector"), py::arg("data") = py::dict(),
              py::arg("id") = py::none())
         .def("erase",
-             [](elips::TransactionVault& tv, const std::string& id) {
+             [](elips::TransactionCollection& tv, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
-                 tv.erase(record_id);
+                 tv.remove(record_id);
              });
 
     // =====================  Transaction  =====================
@@ -2266,7 +2436,7 @@ Returns:
     py::class_<TransactionHolder>(m, "Transaction")
         .def("vault",
              [](TransactionHolder& h, const std::string& name) {
-                 return h.txn.vault(name);
+                 return h.txn.collection(name);
              },
              py::keep_alive<0, 1>())
         // commit applies the whole batch: index inserts plus one WAL fsync.
@@ -2294,7 +2464,7 @@ Returns:
 
     // =====================  Vault  =====================
 
-    py::class_<elips::Vault, std::unique_ptr<elips::Vault, py::nodelete>>(
+    py::class_<elips::Collection, std::unique_ptr<elips::Collection, py::nodelete>>(
         m, "Vault", R"doc(A named partition of records: the unit of search.
 
 A vault owns one index and one record store. Records in a vault share a
@@ -2349,7 +2519,7 @@ Example:
         db.close()
 )doc")
         .def("place",
-             [](elips::Vault& v, const py::iterable& vector,
+             [](elips::Collection& v, const py::iterable& vector,
                 const py::dict& data, const py::object& id,
                 const py::object& document, const py::object& chunk,
                 const py::object& lineage) {
@@ -2375,7 +2545,7 @@ Example:
                  auto payload = to_payload(data);
                  auto record_id = to_optional_id(id);
                  py::gil_scoped_release unlocked;
-                 return v.place(native_vector, std::move(payload),
+                 return v.add(native_vector, std::move(payload),
                                 std::move(record_id), std::move(doc),
                                 std::move(chunk_info),
                                 std::move(embedding_lineage))
@@ -2386,7 +2556,7 @@ Example:
              py::arg("chunk") = py::none(),
              py::arg("lineage") = py::none())
         .def("place_document",
-             [](elips::Vault& v, const std::string& text, const py::dict& data,
+             [](elips::Collection& v, const std::string& text, const py::dict& data,
                 const py::object& id, const py::object& chunk,
                 const py::object& lineage) {
                  std::optional<elips::ChunkInfo> chunk_info;
@@ -2405,7 +2575,7 @@ Example:
                  // re-acquires the GIL itself. Releasing here is what lets a
                  // native embedder run off the GIL at all.
                  py::gil_scoped_release unlocked;
-                 return v.place_document(text, std::move(payload),
+                 return v.add_document(text, std::move(payload),
                                          std::move(record_id),
                                          std::move(chunk_info),
                                          std::move(embedding_lineage))
@@ -2415,7 +2585,7 @@ Example:
              py::arg("id") = py::none(), py::arg("chunk") = py::none(),
              py::arg("lineage") = py::none())
         .def("place_many",
-             [](elips::Vault& v, const py::iterable& records) {
+             [](elips::Collection& v, const py::iterable& records) {
                  std::vector<elips::Record> recs;
                  for (const auto& item : records) {
                      py::dict d = py::reinterpret_borrow<py::dict>(item);
@@ -2446,7 +2616,7 @@ Example:
                              embedding_lineage =
                                  lineage.cast<elips::EmbeddingLineage>();
                          }
-                         v.place_document(d["text"].cast<std::string>(),
+                         v.add_document(d["text"].cast<std::string>(),
                                           to_payload(payload),
                                           to_optional_id(id), chunk_info,
                                           embedding_lineage);
@@ -2474,11 +2644,11 @@ Example:
                      recs.push_back(std::move(rec));
                  }
                  py::gil_scoped_release unlocked;
-                 v.place_many(recs);
+                 v.add_many(recs);
              },
              py::arg("records"))
         .def("seek",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold) {
                  std::optional<float> th;
@@ -2486,13 +2656,13 @@ Example:
                      th = threshold.cast<float>();
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.seek(query, top, where, th);
+                 return v.search(query, top, where, th);
              },
              py::arg("vector"), py::arg("top") = 10,
              py::arg("where") = elips::Filter{},
              py::arg("threshold") = py::none())
         .def("seek_text",
-             [](const elips::Vault& v, const std::string& text,
+             [](const elips::Collection& v, const std::string& text,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold) {
                  std::optional<float> th;
@@ -2502,13 +2672,13 @@ Example:
                  // seek_text embeds the query before taking the reader lock,
                  // and PythonTextEmbedder re-acquires the GIL for itself.
                  py::gil_scoped_release unlocked;
-                 return v.seek_text(text, top, where, th);
+                 return v.search_text(text, top, where, th);
              },
              py::arg("text"), py::arg("top") = 10,
              py::arg("where") = elips::Filter{},
              py::arg("threshold") = py::none())
         .def("seek_hybrid",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 const std::string& text, std::size_t top,
                 const elips::Filter& where, const py::object& threshold,
                 float lexical_weight) {
@@ -2518,7 +2688,7 @@ Example:
                  }
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.seek_hybrid(query, text, top, where, th,
+                 return v.hybrid_search(query, text, top, where, th,
                                       lexical_weight);
              },
              py::arg("vector"), py::arg("text"), py::arg("top") = 10,
@@ -2526,7 +2696,7 @@ Example:
              py::arg("threshold") = py::none(),
              py::arg("lexical_weight") = 0.25F)
         .def("explain_seek",
-             [](const elips::Vault& v, const py::iterable& vector,
+             [](const elips::Collection& v, const py::iterable& vector,
                 std::size_t top, const elips::Filter& where,
                 const py::object& threshold, bool has_text_component) {
                  std::optional<float> th;
@@ -2535,7 +2705,7 @@ Example:
                  }
                  auto query = to_vector(vector);
                  py::gil_scoped_release unlocked;
-                 return v.explain_seek(query, top, where, th,
+                 return v.explain_query(query, top, where, th,
                                        has_text_component);
              },
              py::arg("vector"), py::arg("top") = 10,
@@ -2543,13 +2713,13 @@ Example:
              py::arg("threshold") = py::none(),
              py::arg("has_text_component") = false)
         .def("fetch",
-             [](const elips::Vault& v,
+             [](const elips::Collection& v,
                 const std::string& id) -> py::object {
                  const auto record_id = elips::RecordID::from_string(id);
                  std::optional<elips::Record> rec;
                  {
                      py::gil_scoped_release unlocked;
-                     rec = v.fetch(record_id);
+                     rec = v.get(record_id);
                  }
                  if (!rec) {
                      return py::none();
@@ -2557,13 +2727,13 @@ Example:
                  return py::object(record_to_dict(*rec));
              })
         .def("erase",
-             [](elips::Vault& v, const std::string& id) {
+             [](elips::Collection& v, const std::string& id) {
                  const auto record_id = elips::RecordID::from_string(id);
                  py::gil_scoped_release unlocked;
-                 return v.erase(record_id);
+                 return v.remove(record_id);
              })
         .def("scan",
-             [](const elips::Vault& v, const elips::Filter& where,
+             [](const elips::Collection& v, const elips::Filter& where,
                 std::size_t offset, int limit) {
                  std::size_t lim =
                      limit < 0
@@ -2585,23 +2755,23 @@ Example:
              py::arg("where") = elips::Filter{},
              py::arg("offset") = 0, py::arg("limit") = -1)
         .def("info",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  py::gil_scoped_release unlocked;
                  return v.info();
              })
         .def("count",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  py::gil_scoped_release unlocked;
                  return v.info().count;
              })
-        .def("rebuild_index", &elips::Vault::rebuild_index,
+        .def("rebuild_index", &elips::Collection::rebuild_index,
              py::call_guard<py::gil_scoped_release>(),
              "Rebuild the index from the authoritative record store. Useful "
              "after bulk loads, or to recover index quality after heavy churn.")
-        .def("vacuum", &elips::Vault::vacuum,
+        .def("vacuum", &elips::Collection::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim index space held by deleted records.")
-        .def("quantize", &elips::Vault::quantize,
+        .def("quantize", &elips::Collection::train,
              py::call_guard<py::gil_scoped_release>(),
              R"doc(Train a codebook over this vault and compress it in place.
 
@@ -2624,17 +2794,17 @@ than the exact vectors written; each record dict carries ``approximate`` and
 ``codec`` so this is visible.
 )doc")
         .def_property_readonly(
-            "quantized", &elips::Vault::quantized,
+            "quantized", &elips::Collection::is_trained,
             "True once :meth:`quantize` has trained a codebook and compressed "
             "this vault.")
         .def_property_readonly(
             "codec",
-            [](const elips::Vault& v) {
+            [](const elips::Collection& v) {
                 return std::string(elips::quant::to_string(v.codec()));
             },
             "Active codec name, or ``none`` while uncompressed.")
         .def("records",
-             [](const elips::Vault& v) {
+             [](const elips::Collection& v) {
                  // records() copies the whole store under the vault lock; that
                  // copy is exactly the part worth doing off the GIL.
                  std::map<elips::RecordID, elips::Record> snapshot;
@@ -2654,23 +2824,23 @@ than the exact vectors written; each record dict carries ``approximate`` and
 Returns a list of record dicts. This copies the whole vault, so prefer
 :meth:`scan` with a filter or ``limit`` for large vaults.
 )doc")
-        .def("set_read_only", &elips::Vault::set_read_only,
+        .def("set_read_only", &elips::Collection::set_read_only,
              py::arg("read_only"),
              "Toggle runtime read-only mode. While read-only, any mutation "
              "raises :class:`StorageError`.")
-        .def_property_readonly("read_only", &elips::Vault::read_only,
+        .def_property_readonly("read_only", &elips::Collection::read_only,
                                "True when this vault refuses mutations.")
         .def_property_readonly(
-            "sealed", &elips::Vault::sealed,
+            "sealed", &elips::Collection::sealed,
             "True once the owning database has been closed. Writes to a "
             "sealed vault raise instead of silently failing to persist.")
         .def_property_readonly("pending_removals",
-                               &elips::Vault::pending_removals,
+                               &elips::Collection::pending_removals,
                                "Records deleted from the index but not yet "
                                "reclaimed. See :meth:`vacuum`.")
-        .def_property_readonly("name", &elips::Vault::name,
+        .def_property_readonly("name", &elips::Collection::name,
                                "This vault's name.")
-        .def("__repr__", [](const elips::Vault& v) {
+        .def("__repr__", [](const elips::Collection& v) {
             const auto vi = v.info();
             return "<Vault name='" + v.name() +
                    "' count=" + std::to_string(vi.count) +
@@ -2679,7 +2849,7 @@ Returns a list of record dicts. This copies the whole vault, so prefer
 
     // =====================  Database  =====================
 
-    py::class_<elips::ElipsInstance>(m, "Database", R"doc(A database handle: one per directory, owning every vault and all persistence.
+    py::class_<elips::Database>(m, "Database", R"doc(A database handle: one per directory, owning every vault and all persistence.
 
 Durability model: writes are appended to a write-ahead log and ``fsync``'d
 before :meth:`Vault.place` returns, so an acknowledged write survives an OS
@@ -2729,43 +2899,43 @@ Example:
         db = elips.open("/data/catalog")
         print(db.vault("products").count())
 )doc")
-        .def("vault", &elips::ElipsInstance::vault,
+        .def("vault", &elips::Database::collection,
              py::return_value_policy::reference_internal)
-        .def("list_vaults", &elips::ElipsInstance::list_vaults)
+        .def("list_vaults", &elips::Database::list_collections)
         .def("begin_transaction",
              [](py::object db_ref) {
-                 auto& db = db_ref.cast<elips::ElipsInstance&>();
+                 auto& db = db_ref.cast<elips::Database&>();
                  return std::make_unique<TransactionHolder>(
                      std::move(db_ref), db);
              })
-        .def("checkpoint", &elips::ElipsInstance::checkpoint,
+        .def("checkpoint", &elips::Database::checkpoint,
              py::call_guard<py::gil_scoped_release>())
-        .def("compact", &elips::ElipsInstance::compact,
+        .def("compact", &elips::Database::compact,
              py::call_guard<py::gil_scoped_release>())
-        .def("vacuum", &elips::ElipsInstance::vacuum,
+        .def("vacuum", &elips::Database::vacuum,
              py::call_guard<py::gil_scoped_release>(),
              "Reclaim tombstoned index space across every vault.")
-        .def("quantize", &elips::ElipsInstance::quantize, py::arg("vault"),
+        .def("quantize", &elips::Database::train, py::arg("vault"),
              py::call_guard<py::gil_scoped_release>(),
              "Compress one vault (see :meth:`Vault.quantize`), then checkpoint "
              "so the codebook and encoded records are durable before the WAL is "
              "truncated.")
-        .def("quantize_all", &elips::ElipsInstance::quantize_all,
+        .def("quantize_all", &elips::Database::quantize_all,
              py::call_guard<py::gil_scoped_release>(),
              "Compress every vault in this database.")
-        .def("close", &elips::ElipsInstance::close)
-        .def("abandon", &elips::ElipsInstance::abandon)
+        .def("close", &elips::Database::close)
+        .def("abandon", &elips::Database::abandon)
         .def_property_readonly(
-            "path", &elips::ElipsInstance::path,
+            "path", &elips::Database::path,
             "The directory this database was opened from, or ``\":memory:\"``.")
         .def_property_readonly(
-            "persistent", &elips::ElipsInstance::persistent,
+            "persistent", &elips::Database::persistent,
             "False for in-memory databases, which have no WAL or snapshot.")
         .def_property_readonly(
-            "closed", &elips::ElipsInstance::closed,
+            "closed", &elips::Database::closed,
             "True once :meth:`close` or :meth:`abandon` has run.")
         .def("query",
-             [](elips::ElipsInstance& db, const std::string& eql,
+             [](elips::Database& db, const std::string& eql,
                 const py::dict& bindings) {
                  std::map<std::string, elips::Vector> binds;
                  for (const auto& [k, v] : bindings) {
@@ -2777,21 +2947,21 @@ Example:
              },
              py::arg("eql"), py::arg("bindings") = py::dict())
 #ifdef ELIPS_GPU_ENABLED
-        .def("gpu_info", [](const elips::ElipsInstance& db) { return db.gpu_info(); })
-        .def("gpu_stats", [](const elips::ElipsInstance& db) { return db.gpu_stats(); })
+        .def("gpu_info", [](const elips::Database& db) { return db.gpu_info(); })
+        .def("gpu_stats", [](const elips::Database& db) { return db.gpu_stats(); })
 #endif
         .def_property_readonly(
             "config",
-            [](const elips::ElipsInstance& db) -> elips::Config {
+            [](const elips::Database& db) -> elips::Config {
                 return db.config();
             })
         .def("__enter__",
-             [](elips::ElipsInstance& db) { return &db; })
+             [](elips::Database& db) { return &db; })
         .def("__exit__",
-             [](elips::ElipsInstance& db, const py::object&,
+             [](elips::Database& db, const py::object&,
                 const py::object&, const py::object&) { db.close(); })
-        .def("__repr__", [](const elips::ElipsInstance& db) {
-            auto vaults = db.list_vaults();
+        .def("__repr__", [](const elips::Database& db) {
+            auto vaults = db.list_collections();
             return "<Database vaults=" +
                    std::to_string(vaults.size()) + ">";
         });
@@ -2864,4 +3034,247 @@ Example:
               return elips::open(path, config);
           },
           py::arg("path"), py::arg("config"));
+
+    // =====================  FAISS-style Index API (Phase 6.6)  =============
+    //
+    // A numpy-facing, FAISS-recognizable surface over elips::Index. Vectors go
+    // in as float32, C-contiguous, (n, d) arrays (a bare (d,) is one row);
+    // search returns (D float32[nq,k], I int64[nq,k]) with -1 label padding.
+    // Labels are positional int64 like FAISS; the adapter owns the
+    // label<->RecordID map so Python never sees a RecordID.
+
+    py::class_<PyIndex>(m, "Index",
+                        "A FAISS-style vector index. Construct one with "
+                        ":func:`IndexFlat`, :func:`IndexIVFFlat`, "
+                        ":func:`IndexIVFPQ`, :func:`IndexIVFScalarQuantizer`, "
+                        ":func:`IndexHNSW`, or :func:`index_factory`.")
+        .def("train", &PyIndex::train, py::arg("x"),
+             "Learn index structure (e.g. IVF centroids) from ``x`` "
+             "(float32 (n, d)). A no-op for indexes that need no training.")
+        .def("add", &PyIndex::add, py::arg("x"),
+             "Add rows of ``x``, assigning sequential int64 labels "
+             "``ntotal .. ntotal+n-1`` (FAISS semantics).")
+        .def("add_with_ids", &PyIndex::add_with_ids, py::arg("x"),
+             py::arg("ids"),
+             "Add rows of ``x`` under the caller-supplied int64 ``ids``.")
+        .def("search", &PyIndex::search, py::arg("x"), py::arg("k"),
+             "Return ``(D, I)``: float32 distances and int64 labels, each "
+             "``(nq, k)``. Unfilled slots (k > ntotal) hold label -1.")
+        .def("reset", &PyIndex::reset,
+             "Remove all stored vectors. IVF indexes keep their training.")
+        .def_property_readonly("ntotal", &PyIndex::ntotal,
+                               "Number of indexed vectors.")
+        .def_property_readonly("d", &PyIndex::d, "Vector dimension.")
+        .def_property_readonly("is_trained", &PyIndex::is_trained,
+                               "True when the index is ready for ``add``.")
+        .def_property("nprobe", &PyIndex::get_nprobe, &PyIndex::set_nprobe,
+                      "Lists probed per query (IVF indexes only).")
+        .def("__repr__", &PyIndex::repr);
+
+    m.def("IndexFlat",
+          [](std::uint16_t d, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexFlat>(mt, d), d, mt,
+                  [mt, d] {
+                      return std::unique_ptr<elips::Index>(
+                          std::make_unique<elips::IndexFlat>(mt, d));
+                  });
+          },
+          py::arg("d"), py::arg("metric") = "l2",
+          "Brute-force exact index. ``metric`` is 'l2'/'euclidean', "
+          "'ip'/'dot_product', or 'cosine'.");
+
+    m.def("IndexIVFFlat",
+          [](std::uint16_t d, std::size_t nlist, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFFlat>(mt, d, nlist), d, mt,
+                  {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("metric") = "l2",
+          "Inverted-file index with full-precision postings. Call "
+          ":meth:`Index.train` before adding; tune recall with ``nprobe``.");
+
+    m.def("IndexIVFPQ",
+          [](std::uint16_t d, std::size_t nlist, std::uint32_t M,
+             const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFPQ>(mt, d, nlist, M), d, mt,
+                  {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("M"),
+          py::arg("metric") = "l2",
+          "Inverted-file index with product-quantized postings (``M`` "
+          "subspaces, 8-bit codes).");
+
+    m.def("IndexIVFScalarQuantizer",
+          [](std::uint16_t d, std::size_t nlist, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  std::make_unique<elips::IndexIVFScalarQuantizer>(mt, d,
+                                                                   nlist),
+                  d, mt, {});
+          },
+          py::arg("d"), py::arg("nlist"), py::arg("metric") = "l2",
+          "Inverted-file index with SQ8 (per-dimension int8) postings.");
+
+    m.def("IndexHNSW",
+          [](std::uint16_t d, std::size_t M, const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              elips::HnswParams params;
+              params.max_connections = M;
+              return make_py_index(
+                  std::make_unique<elips::IndexHNSW>(mt, d, params), d, mt,
+                  [mt, d, params] {
+                      return std::unique_ptr<elips::Index>(
+                          std::make_unique<elips::IndexHNSW>(mt, d, params));
+                  });
+          },
+          py::arg("d"), py::arg("M") = 16, py::arg("metric") = "l2",
+          "HNSW graph index. ``M`` is the per-node neighbour count.");
+
+    m.def("index_factory",
+          [](std::uint16_t d, const std::string& spec,
+             const std::string& metric) {
+              const auto mt = parse_index_metric(metric);
+              return make_py_index(
+                  elips::index_factory(d, mt, spec), d, mt,
+                  [mt, d, spec] { return elips::index_factory(d, mt, spec); });
+          },
+          py::arg("d"), py::arg("spec"), py::arg("metric") = "l2",
+          R"doc(Build an index from a FAISS-style factory string.
+
+Supported specs mirror FAISS token spellings:
+    "Flat", "IVF<nlist>,Flat", "IVF<nlist>,PQ<M>", "IVF<nlist>,SQ8",
+    "HNSW<M>".  e.g. ``index_factory(128, "IVF32,Flat")``.
+)doc");
+
+#ifdef ELIPS_GPU_ENABLED
+    // Standalone brute-force k-NN over raw arrays -- no index object. Same numpy
+    // contract as the Index API: float32/C-contiguous in; (D float32[nq,k],
+    // I int64[nq,k]) out with -1 label / +inf distance padding for k > nb.
+    m.def("bf_knn",
+          [](const FloatArray& xq, const FloatArray& xb, std::size_t k,
+             const std::string& metric,
+             const std::string& device) -> py::tuple {
+              if (k == 0) throw py::value_error("bf_knn: k must be > 0");
+
+              auto two_d = [](const FloatArray& a, const char* name,
+                              std::size_t& n, std::size_t& d) -> const float* {
+                  if (a.ndim() == 1) {
+                      n = 1;
+                      d = static_cast<std::size_t>(a.shape(0));
+                      return a.data();
+                  }
+                  if (a.ndim() == 2) {
+                      n = static_cast<std::size_t>(a.shape(0));
+                      d = static_cast<std::size_t>(a.shape(1));
+                      return a.data();
+                  }
+                  throw py::value_error(std::string(name) +
+                                        ": expected a 1-D or 2-D float32 array");
+              };
+
+              std::size_t nq = 0, dq = 0, nb = 0, db = 0;
+              const float* qp = two_d(xq, "xq", nq, dq);
+              const float* bp = two_d(xb, "xb", nb, db);
+              if (dq != db) {
+                  throw elips::DimensionMismatch{
+                      "bf_knn: xq and xb must share the vector dimension"};
+              }
+              const auto mt = parse_index_metric(metric);
+
+              // Resolve the backend. "cpu" forces the CPU path; "metal" requires
+              // a real Metal device; "auto" uses Metal when present else CPU.
+              std::unique_ptr<elips::gpu::GpuBackend> backend;
+              if (device == "metal" || device == "auto") {
+                  elips::gpu::GpuDeviceManager mgr;
+                  elips::gpu::BackendSelector sel;
+                  elips::gpu::GpuConfig cfg;
+                  cfg.policy = elips::gpu::GpuPolicy::Auto;
+                  auto chosen = sel.select(cfg, mgr.probe_all_devices());
+                  if (chosen.has_value() &&
+                      (*chosen)->device_info().backend == "metal") {
+                      backend = std::move(*chosen);
+                  }
+                  if (device == "metal" && !backend) {
+                      throw py::value_error(
+                          "bf_knn: device='metal' requested but no Metal "
+                          "device is available");
+                  }
+              } else if (device != "cpu") {
+                  throw py::value_error(
+                      "bf_knn: device must be 'cpu', 'metal', or 'auto'");
+              }
+
+              auto res = elips::gpu::bf_knn(
+                  std::span<const float>(qp, nq * dq), nq,
+                  std::span<const float>(bp, nb * db), nb, dq, k, mt,
+                  backend.get());
+              if (!res.has_value()) {
+                  throw py::value_error("bf_knn: invalid arguments");
+              }
+
+              py::array_t<float> dists({static_cast<py::ssize_t>(nq),
+                                        static_cast<py::ssize_t>(k)});
+              py::array_t<std::int64_t> labels({static_cast<py::ssize_t>(nq),
+                                                static_cast<py::ssize_t>(k)});
+              std::memcpy(dists.mutable_data(), res->distances.data(),
+                          nq * k * sizeof(float));
+              std::memcpy(labels.mutable_data(), res->labels.data(),
+                          nq * k * sizeof(std::int64_t));
+              return py::make_tuple(std::move(dists), std::move(labels));
+          },
+          py::arg("xq"), py::arg("xb"), py::arg("k"), py::arg("metric") = "l2",
+          py::arg("device") = "auto",
+          R"doc(Brute-force exact k-NN over raw arrays, with no index build.
+
+``xq`` (nq, d) queries and ``xb`` (nb, d) database are float32/C-contiguous.
+Returns ``(D, I)``: float32 distances and int64 row-index labels, each
+``(nq, k)``; slots past ``nb`` (k > nb) hold label -1 and a +inf distance.
+``device`` is 'auto' (Metal when available, else CPU), 'cpu', or 'metal'.
+Cosine assumes L2-normalized inputs, matching the Index API.
+)doc");
+#endif
+
+    // =====================  Phase 5 naming aliases  =====================
+    // The C++ core already carries the new vocabulary; expose it in Python
+    // too, keeping every old name working. Native handles are the internal
+    // escape hatch, so the old spellings stay as plain aliases (the public,
+    // user-facing DeprecationWarnings live on the high-level facade).
+    m.attr("Collection") = m.attr("Vault");
+    m.attr("CollectionInfo") = m.attr("VaultInfo");
+    m.attr("TransactionCollection") = m.attr("TransactionVault");
+    {
+        auto coll = m.attr("Vault");
+        coll.attr("add") = coll.attr("place");
+        coll.attr("add_document") = coll.attr("place_document");
+        coll.attr("add_many") = coll.attr("place_many");
+        coll.attr("search") = coll.attr("seek");
+        coll.attr("search_text") = coll.attr("seek_text");
+        coll.attr("hybrid_search") = coll.attr("seek_hybrid");
+        coll.attr("explain_query") = coll.attr("explain_seek");
+        coll.attr("get") = coll.attr("fetch");
+        coll.attr("delete") = coll.attr("erase");
+        coll.attr("remove") = coll.attr("erase");
+        coll.attr("rebuild") = coll.attr("rebuild_index");
+        coll.attr("train") = coll.attr("quantize");
+        coll.attr("is_trained") = coll.attr("quantized");
+
+        auto db = m.attr("Database");
+        db.attr("collection") = db.attr("vault");
+        db.attr("list_collections") = db.attr("list_vaults");
+        db.attr("train_collection") = db.attr("quantize");
+        db.attr("train_all") = db.attr("quantize_all");
+
+        auto txn = m.attr("TransactionVault");
+        txn.attr("add") = txn.attr("place");
+        txn.attr("delete") = txn.attr("erase");
+
+        auto transaction = m.attr("Transaction");
+        transaction.attr("collection") = transaction.attr("vault");
+    }
 }
+

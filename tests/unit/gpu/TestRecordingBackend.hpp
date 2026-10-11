@@ -8,12 +8,12 @@
 
 #include "elips/domain/Expected.hpp"
 
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu::test {
 
-class RecordingBackend final : public GpuPort {
+class RecordingBackend final : public GpuBackend {
 public:
     RecordingBackend() {
         info_.name = "recording-backend";

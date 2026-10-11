@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/eql")({
       {
         name: "description",
         content:
-          "EQL grammar — seek, fetch, scan, place, erase — plus filters, projections, and bindings.",
+          "EQL grammar — search, get, scan, add, delete — plus filters, projections, and bindings.",
       },
       { property: "og:title", content: "EQL — ELIPS Query Language" },
       { property: "og:description", content: "ELIPS Query Language reference." },
@@ -27,10 +27,10 @@ function Page() {
       title="EQL"
       toc={[
         { id: "shape", label: "Shape" },
-        { id: "seek", label: "seek" },
-        { id: "fetch", label: "fetch" },
+        { id: "search", label: "search" },
+        { id: "get", label: "get" },
         { id: "scan", label: "scan" },
-        { id: "mutate", label: "place / erase" },
+        { id: "mutate", label: "add / delete" },
         { id: "filters", label: "Filters" },
         { id: "examples", label: "Examples" },
       ]}
@@ -43,20 +43,20 @@ function Page() {
 
       <h2 id="shape">Shape</h2>
       <CodeBlock lang="python">
-        {`db.query(
-    "seek in docs nearest $q top 10 where year >= 2023 yield",
-    bindings={"q": query_vector},
+        {`client.query_eql(
+    "search in docs nearest $q k 10 where year >= 2023 yield",
+    {"q": query_vector},
 )`}
       </CodeBlock>
       <CodeBlock lang="bash">
-        {`elips query /my_db --eql 'seek in docs nearest [0.1,0.2,0.3] top 5 yield'`}
+        {`elips query /my_db --eql 'search in docs nearest [0.1,0.2,0.3] k 5 yield'`}
       </CodeBlock>
 
-      <h2 id="seek">seek — nearest-neighbour search</h2>
+      <h2 id="search">search — nearest-neighbour search</h2>
       <CodeBlock lang="eql">
-        {`seek in <vault>
+        {`search in <collection>
     nearest <[literal] | $binding>
-    [top <int>]
+    [k <int>]
     [threshold <number>]
     [where <filter>]
     [rank_by <distance | field>]
@@ -65,8 +65,8 @@ function Page() {
       </CodeBlock>
       <ul>
         <li>
-          <code>top</code> defaults to 10 — unbounded when a <code>threshold</code> range is
-          supplied.
+          <code>k</code> defaults to 10 — unbounded when a <code>threshold</code> range is
+          supplied. <code>top</code> is still accepted as a deprecated alias for <code>k</code>.
         </li>
         <li>
           <code>rank_by &lt;field&gt;</code> re-sorts results by a metadata field; default is
@@ -77,17 +77,22 @@ function Page() {
         </li>
       </ul>
 
-      <h2 id="fetch">fetch — by id</h2>
-      <CodeBlock lang="eql">{`fetch from <vault> id "<uuid>" yield`}</CodeBlock>
+      <h2 id="get">get — by id</h2>
+      <CodeBlock lang="eql">{`get from <collection> id "<uuid>" yield`}</CodeBlock>
 
       <h2 id="scan">scan — iterate</h2>
-      <CodeBlock lang="eql">{`scan in <vault> [where <filter>] [offset <int>] [limit <int>] yield`}</CodeBlock>
+      <CodeBlock lang="eql">{`scan in <collection> [where <filter>] [offset <int>] [limit <int>] yield`}</CodeBlock>
 
-      <h2 id="mutate">place / erase</h2>
+      <h2 id="mutate">add / delete</h2>
       <CodeBlock lang="eql">
-        {`place in <vault> vector [0.1, 0.2, ...] [data { "key": value, ... }]
-erase from <vault> id "<uuid>"`}
+        {`add in <collection> vector [0.1, 0.2, ...] [metadata { "key": value, ... }]
+delete from <collection> id "<uuid>"`}
       </CodeBlock>
+      <p>
+        The verbs are lowercase and case-sensitive. The pre-1.1 spellings{" "}
+        <code>seek</code>/<code>fetch</code>/<code>place</code>/<code>erase</code> remain accepted as
+        deprecated synonyms.
+      </p>
 
       <h2 id="filters">Filters</h2>
       <CodeBlock lang="eql">
@@ -106,15 +111,15 @@ value      := "string" | number | true | false`}
       <h2 id="examples">Examples</h2>
       <CodeBlock lang="eql">
         {`# filtered search with projection
-seek in articles
+search in articles
     nearest $embedding
-    top 10
+    k 10
     where category = "technology" and published_year >= 2023
     project title, author
     yield
 
 # range search
-seek in faces nearest $probe threshold 0.15 where verified = true yield
+search in faces nearest $probe threshold 0.15 where verified = true yield
 
 # membership scan
 scan in users where country in ["US", "GB", "CA"] limit 100 yield`}

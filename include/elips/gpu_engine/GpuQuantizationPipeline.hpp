@@ -5,13 +5,13 @@
 #include <vector>
 
 #include "elips/domain/Expected.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
 class GpuQuantizationPipeline {
 public:
-    explicit GpuQuantizationPipeline(GpuPort& backend);
+    explicit GpuQuantizationPipeline(GpuBackend& backend);
 
     [[nodiscard]] std::expected<void, GpuError>
     train_pq_codebook(
@@ -28,7 +28,7 @@ public:
         std::span<uint8_t> codes_out);
 
 private:
-    [[maybe_unused]] GpuPort& backend_;
+    [[maybe_unused]] GpuBackend& backend_;
 };
 
 } // namespace elips::gpu

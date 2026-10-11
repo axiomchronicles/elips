@@ -97,7 +97,7 @@ initial users don't need.
 The GPU engine's five port interfaces (`GpuPort`, `GpuMemoryPort`,
 `GpuKernelPort`, `GpuStreamPort`, `GpuIndexPort`), the device manager,
 selector, memory manager, dynamic batcher, all index types, and backend
-stubs (CUDA, HIP, Metal, SYCL, Vulkan) are defined. The interfaces are
+stubs (CUDA, HIP, Metal) are defined. The interfaces are
 complete; backend implementations are in progress.
 
 ---
@@ -188,8 +188,6 @@ choice. Ten core ADRs and ten GPU ADRs.
 | [ADR-GPU-006](../adr/ADR-GPU-006-apple-unified-memory.md) | Unified memory on Apple Silicon | `MTLResourceStorageModeShared` for zero-copy; `UnifiedBuffer` abstraction; `std::memcpy` instead of blit |
 | [ADR-GPU-007](../adr/ADR-GPU-007-precision-strategy.md) | Precision selection strategy | Auto-select FP16/FP32 based on hardware. Mixed-precision pipeline: FP32 storage → FP16 GPU → FP32 reranking |
 | [ADR-GPU-008](../adr/ADR-GPU-008-fallback-chain.md) | Fallback chain design | 4 levels: GPU index → GPU brute-force → CPU HNSW → CPU exact. Never return error to user |
-| [ADR-GPU-009](../adr/ADR-GPU-009-sycl-portability.md) | SYCL portability vs performance | SYCL is additional backend, not primary. Priority: CUDA > HIP > Metal > SYCL > Vulkan |
-| [ADR-GPU-010](../adr/ADR-GPU-010-vulkan-fallback.md) | Vulkan compute as universal fallback | Pre-compiled SPIR-V shaders. Brute-force only. ~1.5× over CPU. Covers any Vulkan 1.2+ device |
 
 ---
 
@@ -202,7 +200,7 @@ In summary, the path forward:
 
 ### Short term (v1.1)
 
-- GPU backend implementations (Metal first, then CUDA, HIP, SYCL, Vulkan)
+- GPU backend implementations (Metal first, then CUDA, HIP — CUDA/HIP experimental, not hardware-validated)
 - AVX2/AVX-512 kernels via CPUID dispatch
 - `ef`-adaptive filtered search
 - Numpy zero-copy ingestion for Python SDK
@@ -237,9 +235,9 @@ In summary, the path forward:
 | 2025 Q1 | Storage (WAL, snapshot, recovery), LockManager, Filter engine. |
 | 2025 Q2 | EQL lexer/parser/AST/executor, CLI, Python bindings (PyBind11). |
 | 2025 Q3 | Transactions, benchmark suite, test suite (18 test files). |
-| 2025 Q4 | GPU ADRs written (GPU-001 through GPU-010). GPU ports defined. |
+| 2025 Q4 | GPU ADRs written (GPU-001 through GPU-008). GPU ports defined. |
 | 2026 Q1 | GPU engine: DeviceManager, MemoryManager, DynamicBatcher, all index types. |
-| 2026 Q2 | GPU backend stubs (CUDA, HIP, Metal, SYCL, Vulkan). Public interfaces complete. |
+| 2026 Q2 | GPU backend stubs (CUDA, HIP, Metal). Public interfaces complete. |
 
 ---
 

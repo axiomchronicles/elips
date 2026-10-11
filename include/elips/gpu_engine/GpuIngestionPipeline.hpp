@@ -7,13 +7,13 @@
 #include "elips/Config.hpp"
 #include "elips/domain/Expected.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 
 namespace elips::gpu {
 
 class GpuIngestionPipeline {
 public:
-    explicit GpuIngestionPipeline(GpuPort& backend);
+    explicit GpuIngestionPipeline(GpuBackend& backend);
 
     [[nodiscard]] std::expected<void, GpuError>
     normalize_batch(std::span<float> vectors, size_t n, size_t dim);
@@ -25,7 +25,7 @@ public:
         size_t n, size_t dim, size_t pq_dim, size_t pq_bits);
 
 private:
-    [[maybe_unused]] GpuPort& backend_;
+    [[maybe_unused]] GpuBackend& backend_;
 };
 
 } // namespace elips::gpu

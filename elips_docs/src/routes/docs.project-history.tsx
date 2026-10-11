@@ -48,8 +48,8 @@ function Page() {
         libraries (FAISS, hnswlib, nmslib) are used for the core indexing. Every subsystem — the
         vector type, the distance kernels, the HNSW graph, the WAL, the query language, the Python
         bindings — was written for ELIPS. The only external dependencies are the C++23 standard
-        library, GoogleTest (test-only), PyBind11 (Python bindings), and optional GPU backend
-        libraries (cuVS, MPS, oneMKL).
+        library, GoogleTest (test-only), PyBind11 (Python bindings), and, on Apple silicon, the
+        system Metal / Metal Performance Shaders frameworks for the optional GPU backend.
       </p>
       <p>
         Per <Link to="/docs/design-decisions">ADR-0001</Link>, the decision to use C++23 was driven

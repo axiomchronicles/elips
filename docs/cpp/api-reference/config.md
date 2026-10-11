@@ -1,6 +1,11 @@
 # API Reference: Config
 
+**Maturity:** stable (v1.0+).
+
 `elips::Config` is the typed configuration builder used by `elips::open()`.
+
+> Renamed in v1.1: the index-tuning struct `GraphParams` is now `HnswParams`
+> (`GraphParams` remains as a `[[deprecated]]` alias). See `MIGRATION.md`.
 
 ## Core Enums
 
@@ -11,19 +16,25 @@ enum class Durability { paranoid, standard, relaxed, ephemeral };
 enum class AccessMode { read_write, read_only };
 ```
 
-## Graph Parameters
+## HNSW Parameters
 
 ```cpp
-struct GraphParams {
-    std::size_t max_connections{16};
-    std::size_t ef_construction{200};
-    std::size_t ef_search{50};
+struct HnswParams {
+    std::size_t max_connections{16};    // M
+    std::size_t ef_construction{200};   // beam width during build
+    std::size_t ef_search{50};          // beam width during search
     // Tombstone fraction that triggers automatic rebuild. 0 disables auto-compaction.
     float compaction_ratio{0.2F};
 };
+
+using GraphParams [[deprecated("renamed to HnswParams")]] = HnswParams;
 ```
 
 `compaction_ratio` (default 0.2) controls the fraction of tombstoned nodes that triggers an automatic `vacuum()` call. Set to 0 to disable auto-compaction and call `vacuum()` manually. Raising it delays compaction at the cost of reduced recall under heavy delete workloads.
+
+The builder setter is still named `graph_params(HnswParams)` and the getter
+`graph_params()` (the index enum selector is `IndexType::graph`); the parameter
+*type* was the only thing renamed.
 
 ## Builder Methods
 
@@ -46,7 +57,7 @@ Available setters:
 - `dimension(std::uint16_t)`
 - `metric(Metric)`
 - `index(IndexType)`
-- `graph_params(GraphParams)`
+- `graph_params(HnswParams)`
 - `durability(Durability)`
 - `access_mode(AccessMode)`
 - `segmented_storage(bool)`
@@ -80,12 +91,12 @@ Available setters:
 - `access_mode(read_only)` requires an existing database.
 - `segmented_storage(true)` is the default and enables manifest + segment files.
 - `metadata_acceleration(true)` enables exact-match candidate narrowing through
-  `MetadataIndex`.
+  `MetadataFilterIndex`.
 - `auto_text_embedder(true)` provisions the built-in local embedder for new
   databases when no explicit embedder is supplied.
 - `local_text_embedder(...)` activates the built-in rehydratable local embedder.
-- `text_embedder()` activates `Vault::place_document()` and native
-  `Vault::seek_text()` embedding for custom runtime embedders.
+- `text_embedder()` activates `Collection::add_document()` and native
+  `Collection::search_text()` embedding for custom runtime embedders.
 
 ## Text Embedding
 
@@ -116,5 +127,5 @@ public:
 };
 ```
 
-When lineage is omitted during `place_document()`, ELIPS derives provider/model
+When lineage is omitted during `add_document()`, ELIPS derives provider/model
 plus revision/backend/fingerprint metadata from this interface.

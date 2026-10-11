@@ -1,5 +1,16 @@
 # ELIPS Build System
 
+> **Option names updated.** The canonical CMake options are now
+> `ELIPS_ENABLE_METAL` / `ELIPS_ENABLE_CUDA` / `ELIPS_ENABLE_ROCM` (under the
+> `ELIPS_ENABLE_GPU` umbrella), `ELIPS_ENABLE_PYTHON`, `BUILD_TESTING`, plus
+> `ELIPS_ENABLE_C_API`, `ELIPS_ENABLE_BLAS`, and `ELIPS_OPT_LEVEL`
+> (generic/neon/avx2/avx512). The older `ELIPS_GPU_METAL/CUDA/HIP`,
+> `ELIPS_BUILD_PYTHON`, and `ELIPS_BUILD_TESTS` names in the tables below are
+> **honored as deprecation aliases** (they emit a CMake deprecation message and
+> set the new option). `ELIPS_GPU_ENABLED` remains the internal umbrella flag.
+> GPU maturity (Metal validated; CUDA/HIP experimental, compile-check only) is
+> in the [GPU guide](../gpu/index.md#building-the-experimental-backends).
+
 This document describes the CMake build architecture for the ELIPS project, including all targets, dependencies, and build configuration options.
 
 ## Build System Overview
@@ -73,8 +84,6 @@ All build options are declared at the root level:
 | `ELIPS_GPU_METAL` | `ON` | Apple Metal GPU backend |
 | `ELIPS_GPU_CUDA` | `OFF` | NVIDIA CUDA GPU backend |
 | `ELIPS_GPU_HIP` | `OFF` | AMD ROCm/HIP GPU backend |
-| `ELIPS_GPU_SYCL` | `OFF` | Intel oneAPI/SYCL GPU backend |
-| `ELIPS_GPU_VULKAN` | `OFF` | Vulkan compute GPU backend |
 | `ELIPS_BUILD_CLI` | `ON` | Build `elips` CLI tool |
 | `ELIPS_BUILD_BENCH` | `ON` | Build benchmark suite |
 | `ELIPS_BUILD_TESTS` | `ON` | Build test suite (GoogleTest) |
@@ -84,7 +93,7 @@ All build options are declared at the root level:
 
 ```cmake
 set(ELIPS_GPU_ENABLED OFF)
-if(ELIPS_GPU_CUDA OR ELIPS_GPU_HIP OR ELIPS_GPU_METAL OR ELIPS_GPU_SYCL OR ELIPS_GPU_VULKAN)
+if(ELIPS_GPU_CUDA OR ELIPS_GPU_HIP OR ELIPS_GPU_METAL)
     set(ELIPS_GPU_ENABLED ON)
 endif()
 
@@ -316,8 +325,6 @@ target_include_directories(elips_gpu
             ${CMAKE_CURRENT_SOURCE_DIR}/backends/metal
             ${CMAKE_CURRENT_SOURCE_DIR}/backends/cuda
             ${CMAKE_CURRENT_SOURCE_DIR}/backends/hip
-            ${CMAKE_CURRENT_SOURCE_DIR}/backends/sycl
-            ${CMAKE_CURRENT_SOURCE_DIR}/backends/vulkan
 )
 
 target_link_libraries(elips_gpu PUBLIC elips_core)
@@ -338,8 +345,6 @@ src/gpu_engine/backends/
   metal/   → elips_gpu_metal   (Metal.framework, MPS.framework, Foundation.framework)
   cuda/    → elips_gpu_cuda    (CUDA toolkit)
   hip/     → elips_gpu_hip     (ROCm/HIP runtime)
-  sycl/    → elips_gpu_sycl    (Intel oneAPI/SYCL)
-  vulkan/  → elips_gpu_vulkan  (Vulkan SDK)
 ```
 
 Backends are conditionally added:
@@ -356,12 +361,12 @@ if(ELIPS_GPU_CUDA)
     target_link_libraries(elips_gpu PRIVATE elips_gpu_cuda)
     target_compile_definitions(elips_gpu PRIVATE ELIPS_CUDA_ENABLED)
 endif()
-# ... same pattern for HIP, SYCL, Vulkan
+# ... same pattern for HIP
 ```
 
 Note the linkage difference:
 - **Metal**: `PUBLIC` linkage — Metal types are accessible through `elips_gpu`. On Apple platforms, Metal is the primary backend.
-- **CUDA/HIP/SYCL/Vulkan**: `PRIVATE` linkage — compile definitions are `PRIVATE`. Backend types are only visible within the GPU library.
+- **CUDA/HIP**: `PRIVATE` linkage — compile definitions are `PRIVATE`. Backend types are only visible within the GPU library. Both are experimental and not yet hardware-validated.
 
 ### Metal Backend Build
 
@@ -415,8 +420,6 @@ cd build && ctest --output-on-failure
 | `ELIPS_METAL_ENABLED` | `APPLE AND ELIPS_GPU_METAL` | Enables Metal backend code paths |
 | `ELIPS_CUDA_ENABLED` | `ELIPS_GPU_CUDA` | Enables CUDA backend code paths |
 | `ELIPS_HIP_ENABLED` | `ELIPS_GPU_HIP` | Enables HIP/ROCm backend code paths |
-| `ELIPS_SYCL_ENABLED` | `ELIPS_GPU_SYCL` | Enables SYCL backend code paths |
-| `ELIPS_VULKAN_ENABLED` | `ELIPS_GPU_VULKAN` | Enables Vulkan backend code paths |
 
 ### SIMD Optimization (Automatic)
 

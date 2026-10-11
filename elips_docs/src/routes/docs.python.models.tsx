@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/python/models")({
       {
         name: "description",
         content:
-          "Complete reference for all modern ELIPS Python data models: RecordInput, Row, Hit, WalRecord, ArenaHealth, DocumentAttachment, ChunkInfo, EmbeddingLineage, and type aliases.",
+          "Complete reference for all modern ELIPS Python data models: RecordInput, Row, Hit, WalRecord, CollectionHealth, DocumentAttachment, ChunkInfo, EmbeddingLineage, and type aliases.",
       },
     ],
   }),
@@ -27,7 +27,7 @@ function Page() {
         { id: "row", label: "Row" },
         { id: "hit", label: "Hit" },
         { id: "wal-record", label: "WalRecord" },
-        { id: "arena-health", label: "ArenaHealth" },
+        { id: "collection-health", label: "CollectionHealth" },
         { id: "domain-types", label: "Domain types" },
         { id: "document-attachment", label: "DocumentAttachment" },
         { id: "chunk-info", label: "ChunkInfo" },
@@ -48,24 +48,23 @@ function Page() {
       <p>The modern API uses four frozen dataclasses for its public surface:</p>
       <ul>
         <li>
-          <code>RecordInput</code> — structured input to{" "}
+          <code>RecordInput</code> — structured input accepted by{" "}
           <Link to="/docs/python/arena">
-            <code>arena.write()</code> / <code>arena.write_many()</code>
+            <code>collection.add()</code> / <code>collection.upsert()</code>
           </Link>
           .
         </li>
         <li>
           <code>Row</code> — a materialized record from{" "}
-          <code>arena.pull()</code> or <code>arena.sweep()</code>.
+          <code>collection.get()</code> or <code>collection.peek()</code>.
         </li>
         <li>
           <code>Hit</code> — a search result from{" "}
-          <code>arena.probe()</code>, <code>arena.probe_text()</code>, or{" "}
-          <code>arena.probe_hybrid()</code>.
+          <code>collection.query()</code>.
         </li>
         <li>
           <code>WalRecord</code> — an acknowledged WAL entry from{" "}
-          <code>engine.pending_writes()</code>.
+          <code>client.pending_writes()</code>.
         </li>
       </ul>
       <p>
@@ -199,8 +198,8 @@ r.materialize_document()        # None`}</CodeBlock>
         Returns <code>True</code> when the record's document has a non-empty{" "}
         <code>uri</code> or a MIME type other than <code>text/plain</code>.
         Used internally to decide whether the native{" "}
-        <code>place_document()</code> path is sufficient or a full{" "}
-        <code>place()</code> call (with explicit vector) is required.
+        <code>add_document()</code> path is sufficient or a full{" "}
+        <code>add()</code> call (with explicit vector) is required.
       </p>
       <CodeBlock lang="python">{`plain = elips.RecordInput(text="hello")
 plain.has_custom_document_metadata()   # False
@@ -222,7 +221,7 @@ rich.has_custom_document_metadata()    # True`}</CodeBlock>
       <CodeBlock lang="python">{`# Modern names
 r = elips.RecordInput.from_mapping({"text": "alpha", "meta": {"k": 1}})
 
-# Legacy names (from Vault.place_many dict format)
+# Legacy low-level batch names
 r = elips.RecordInput.from_mapping({"vector": [1.0, 0.0], "data": {"k": 1}})
 
 # Mixed (key + id with matching value is OK)
@@ -242,19 +241,21 @@ except ValueError: ...`}</CodeBlock>
       </h2>
       <CodeBlock lang="python">{`@dataclass(frozen=True, slots=True)
 class Row:
-    key:      str
-    meta:     dict[str, MetaValue]
-    document: DocumentAttachment | None = None
-    vector:   tuple[float, ...] | None = None
-    chunk:    ChunkInfo | None = None
-    lineage:  EmbeddingLineage | None = None`}</CodeBlock>
+    key:         str
+    meta:        dict[str, MetaValue]
+    document:    DocumentAttachment | None = None
+    vector:      tuple[float, ...] | None = None
+    chunk:       ChunkInfo | None = None
+    lineage:     EmbeddingLineage | None = None
+    approximate: bool = False
+    codec:       str = "none"`}</CodeBlock>
       <p>
         A materialized record, returned by{" "}
         <Link to="/docs/python/arena">
-          <code>arena.pull()</code>
+          <code>collection.get()</code>
         </Link>{" "}
-        and <code>arena.sweep()</code>. Fields map directly to what was stored
-        at write time.
+        and <code>collection.peek()</code>. Fields map directly to what was
+        stored at write time.
       </p>
       <ul>
         <li>
@@ -265,17 +266,20 @@ class Row:
         </li>
         <li>
           <code>document</code> — Present when the record was written with
-          attached text (either via <code>text=</code>,{" "}
-          <code>document=</code>, or <code>place_document()</code>).
+          attached text (via <code>text=</code> or <code>documents=</code>).
         </li>
         <li>
-          <code>vector</code> — Present when <code>include_vectors=True</code>{" "}
+          <code>vector</code> — Present when <code>include=[&quot;embeddings&quot;]</code>{" "}
           was passed to the fetch call. Always a <code>tuple</code> (not a
           list).
         </li>
         <li>
           <code>chunk</code> / <code>lineage</code> — Optional provenance
           attachments stored at write time.
+        </li>
+        <li>
+          <code>approximate</code> / <code>codec</code> — Whether the vector was
+          reconstructed from a quantized codec, and the codec name.
         </li>
       </ul>
 
@@ -286,17 +290,17 @@ class Row:
         Convenience alias for <code>row.document.text</code>. Returns{" "}
         <code>None</code> when there is no document attachment.
       </p>
-      <CodeBlock lang="python">{`engine = elips.connect(":memory:", dimension=2)
-arena = engine.arena("docs")
-key = arena.write(text="Hello, world!", meta={"source": "test"})
+      <CodeBlock lang="python">{`client = elips.Client(dimension=2)
+docs = client.get_or_create_collection("docs")
+key = docs.add(text="Hello, world!", metadata={"source": "test"})
 
-row = arena.pull([key])[0]
+row = docs.get([key], include=["embeddings"])[0]
 print(row.key)        # UUIDv7 hex
 print(row.meta)       # {"source": "test"}
 print(row.text)       # "Hello, world!"
-print(row.vector)     # (x, y)  — included by default
+print(row.vector)     # (x, y)  — included via include=["embeddings"]
 print(row.document)   # DocumentAttachment(text="Hello, world!", ...)
-engine.close()`}</CodeBlock>
+client.close()`}</CodeBlock>
 
       <h2 id="hit">
         <code>Hit</code>
@@ -311,7 +315,7 @@ class Hit:
     chunk:    ChunkInfo | None = None
     lineage:  EmbeddingLineage | None = None`}</CodeBlock>
       <p>
-        A search result from any of the three probe methods. Fields are
+        A search result from <code>collection.query()</code>. Fields are
         identical to <code>Row</code> with the addition of{" "}
         <code>distance</code>.
       </p>
@@ -331,18 +335,18 @@ class Hit:
       <p>
         Same alias as <code>Row.text</code>.
       </p>
-      <CodeBlock lang="python">{`engine = elips.connect(":memory:", dimension=2)
-arena = engine.arena("docs")
-arena.write(text="Design note", meta={"kind": "design"})
-arena.write(text="Ops runbook", meta={"kind": "ops"})
+      <CodeBlock lang="python">{`client = elips.Client(dimension=2)
+docs = client.get_or_create_collection("docs")
+docs.add(text="Design note", metadata={"kind": "design"})
+docs.add(text="Ops runbook", metadata={"kind": "ops"})
 
-hits = arena.probe_text("design", top=2)
+hits = docs.query(query_texts="design", n_results=2)
 for h in hits:
     print(f"{h.text!r:30s}  d={h.distance:.4f}")
 # 'Design note'                   d=0.0000
 # 'Ops runbook'                   d=0.1234   (example)
 
-engine.close()`}</CodeBlock>
+client.close()`}</CodeBlock>
 
       <h2 id="wal-record">
         <code>WalRecord</code>
@@ -360,7 +364,7 @@ class WalRecord:
       <p>
         One acknowledged write-ahead log record, as returned by{" "}
         <Link to="/docs/python/engine">
-          <code>engine.pending_writes()</code>
+          <code>client.pending_writes()</code>
         </Link>
         . Transaction markers (<code>txn_begin</code>, <code>txn_commit</code>)
         are resolved during replay and never appear here.
@@ -384,7 +388,7 @@ class WalRecord:
           </ul>
         </li>
         <li>
-          <code>arena</code> — The vault name the mutation targeted.
+          <code>arena</code> — The collection name the mutation targeted.
         </li>
         <li>
           <code>key</code> — Record identifier.
@@ -408,44 +412,46 @@ class WalRecord:
         Classmethod that wraps a low-level{" "}
         <code>elips.WalEntry</code> (produced by <code>elips.replay_wal()</code>
         ) into a typed, frozen <code>WalRecord</code>. Used internally by{" "}
-        <code>engine.pending_writes()</code>; you rarely need to call it
+        <code>client.pending_writes()</code>; you rarely need to call it
         directly.
       </p>
       <CodeBlock lang="python">{`import tempfile, elips
 
 path = tempfile.mkdtemp()
-engine = elips.connect(path, dimension=2)
-arena = engine.arena("docs")
+client = elips.PersistentClient(path, dimension=2)
+docs = client.get_or_create_collection("docs")
 
-k1 = arena.write(text="Alpha", meta={"v": 1})
-k2 = arena.write(vector=[0.0, 1.0])
-arena.discard([k1])
+k1 = docs.add(text="Alpha", metadata={"v": 1})
+k2 = docs.add(vector=[0.0, 1.0])
+docs.delete([k1])
 
-records = engine.pending_writes()
+records = client.pending_writes()
 for r in records:
     print(r.op, r.arena, r.key, r.is_delete)
 # insert  docs  <uuid>   False
 # insert  docs  <uuid>   False
 # erase   docs  <uuid>   True
 
-engine.close()`}</CodeBlock>
+client.close()`}</CodeBlock>
 
-      <h2 id="arena-health">
-        <code>ArenaHealth</code>
+      <h2 id="collection-health">
+        <code>CollectionHealth</code>
       </h2>
       <CodeBlock lang="python">{`@dataclass(frozen=True, slots=True)
-class ArenaHealth:
+class CollectionHealth:
     name:             str
     live:             int
     pending_removals: int
     dimension:        int
     metric:           str
     read_only:        bool
-    sealed:           bool`}</CodeBlock>
+    sealed:           bool
+    codec:            str
+    code_bytes:       int`}</CodeBlock>
       <p>
         A point-in-time health snapshot, returned by{" "}
         <Link to="/docs/python/arena">
-          <code>arena.health()</code>
+          <code>collection.health()</code>
         </Link>
         .
       </p>
@@ -457,7 +463,7 @@ class ArenaHealth:
         <li>
           <code>pending_removals</code> — Deleted records not yet reclaimed.
           Tombstones widen the search beam and consume memory until{" "}
-          <code>arena.vacuum()</code> or automatic compaction.
+          <code>collection.vacuum()</code> or automatic compaction.
         </li>
         <li>
           <code>dimension</code> / <code>metric</code> — Inherited from the
@@ -468,7 +474,13 @@ class ArenaHealth:
           rejected.
         </li>
         <li>
-          <code>sealed</code> — <code>True</code> after <code>engine.close()</code>.
+          <code>sealed</code> — <code>True</code> after{" "}
+          <code>client.close()</code>.
+        </li>
+        <li>
+          <code>codec</code> / <code>code_bytes</code> — Active quantization
+          codec name and encoded size per vector (<code>&quot;none&quot;</code>
+          / <code>0</code> when vectors are stored uncompressed).
         </li>
       </ul>
 
@@ -478,20 +490,20 @@ class ArenaHealth:
       <p>
         The fraction of graph nodes that are tombstones:{" "}
         <code>pending_removals / (live + pending_removals)</code>. Returns{" "}
-        <code>0.0</code> for empty arenas. Compare against the arena's
-        configured <code>compaction_ratio</code> (default 0.2) to predict
+        <code>0.0</code> for an empty collection. Compare against the
+        collection's configured compaction ratio (default 0.2) to predict
         whether the next delete will trigger an automatic rebuild.
       </p>
-      <CodeBlock lang="python">{`engine = elips.connect(":memory:", dimension=2)
-arena = engine.arena("docs")
-keys = [arena.write(vector=[float(i), 1.0]) for i in range(10)]
-arena.discard(keys[:2])
+      <CodeBlock lang="python">{`client = elips.Client(dimension=2)
+docs = client.get_or_create_collection("docs")
+keys = [docs.add(vector=[float(i), 1.0]) for i in range(10)]
+docs.delete(keys[:2])
 
-health = arena.health()
+health = docs.health()
 print(health.live)              # 8
 print(health.pending_removals)  # 0–2 (auto-compacts at 0.2)
 print(f"{health.tombstone_ratio:.2f}")   # 0.00–0.20
-engine.close()`}</CodeBlock>
+client.close()`}</CodeBlock>
 
       <h2 id="domain-types">Domain types</h2>
       <p>
@@ -551,7 +563,7 @@ print(doc.mime_type)   # text/markdown`}</CodeBlock>
         <strong>When to use <code>DocumentAttachment</code> directly:</strong>{" "}
         when you need to attach a URI or MIME type, you must supply an explicit{" "}
         <code>vector</code> alongside the document (the native{" "}
-        <code>place_document()</code> path cannot carry custom attachment
+        <code>add_document()</code> path cannot carry custom attachment
         fields). For plain text with no URI, just pass{" "}
         <code>text="..."</code> to <code>RecordInput</code>.
       </p>
@@ -587,7 +599,7 @@ print(doc.mime_type)   # text/markdown`}</CodeBlock>
       </ul>
       <CodeBlock lang="python">{`import elips
 
-def ingest_chunked_document(arena, doc_key: str, text: str, chunk_size: int = 512):
+def ingest_chunked_document(collection, doc_key: str, text: str, chunk_size: int = 512):
     """Split text into chunks and ingest each with ChunkInfo."""
     chunks = []
     for ordinal, start in enumerate(range(0, len(text), chunk_size)):
@@ -602,21 +614,21 @@ def ingest_chunked_document(arena, doc_key: str, text: str, chunk_size: int = 51
 
         chunks.append(elips.RecordInput(text=chunk_text, chunk=ci))
 
-    return arena.write_many(chunks)
+    return collection.add(chunks)
 
-engine = elips.connect(":memory:", dimension=2)
-arena = engine.arena("chunks")
+client = elips.Client(dimension=2)
+chunks_coll = client.get_or_create_collection("chunks")
 doc_key = "report-q4-2026"
 text = "Annual report content... " * 50
 
-keys = ingest_chunked_document(arena, doc_key, text)
+keys = ingest_chunked_document(chunks_coll, doc_key, text)
 
-rows = arena.pull(keys[:3])
+rows = chunks_coll.get(keys[:3])
 for row in rows:
     ci = row.chunk
     if ci:
         print(f"chunk {ci.ordinal}: chars [{ci.char_start}, {ci.char_end})")
-engine.close()`}</CodeBlock>
+client.close()`}</CodeBlock>
 
       <h2 id="embedding-lineage">
         <code>EmbeddingLineage</code>
@@ -655,13 +667,13 @@ lineage.model = "text-embedding-3-small"
 lineage.revision = "2024-02"
 lineage.attributes = {"dimensions": "1536"}
 
-key = arena.write(
+key = collection.add(elips.RecordInput(
     vector=my_openai_vector,
     text="The source text",
     lineage=lineage,
-)
+))
 
-row = arena.pull([key])[0]
+row = collection.get([key])[0]
 print(row.lineage.provider)     # openai
 print(row.lineage.model)        # text-embedding-3-small
 print(row.lineage.attributes)   # {"dimensions": "1536"}`}</CodeBlock>
@@ -682,14 +694,14 @@ class Embedder(Protocol):
     ) -> Sequence[Sequence[float]]: ...`}</CodeBlock>
       <p>
         A <code>runtime_checkable</code> Protocol for Python batch embedders
-        accepted by <code>elips.connect(embedder=...)</code> and{" "}
-        <code>engine.arena(embedder=...)</code>. Any callable with the right
-        signature satisfies it.
+        accepted by <code>elips.Client(embedder=...)</code> and{" "}
+        <code>client.create_collection(embedder=...)</code>. Any callable with
+        the right signature satisfies it.
       </p>
       <p>
         The callable receives a batch of strings and must return one embedding
         vector per input string. Returning a different-length list raises{" "}
-        <code>ValueError</code> at write or probe time.
+        <code>ValueError</code> at add or query time.
       </p>
       <CodeBlock lang="python">{`# numpy / sentence-transformers style
 from sentence_transformers import SentenceTransformer
@@ -700,13 +712,12 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 assert isinstance(embed, elips.Embedder)   # runtime_checkable
 
-engine = elips.connect(
-    ":memory:",
+client = elips.Client(
     dimension=384,
     embedder=embed,
     use_default_text_embedder=False,
 )
-engine.close()
+client.close()
 
 # Toy embedder for tests
 def toy_embed(texts):
@@ -725,10 +736,10 @@ def toy_embed(texts):
         the value is internally normalized via{" "}
         <code>RecordInput.from_mapping()</code>.
       </p>
-      <CodeBlock lang="python">{`# All three forms are accepted by write() and write_many()
-arena.write(elips.RecordInput(text="a", meta={"k": 1}))      # RecordInput
-arena.write({"text": "b", "meta": {"k": 2}})                 # RecordInputDict
-arena.write({"text": "c", "data": {"k": 3}})                 # BatchRecord (legacy)`}</CodeBlock>
+      <CodeBlock lang="python">{`# All three forms are accepted by add() and upsert()
+coll.add(elips.RecordInput(text="a", meta={"k": 1}))      # RecordInput
+coll.add({"text": "b", "meta": {"k": 2}})                 # RecordInputDict
+coll.add({"text": "c", "data": {"k": 3}})                 # BatchRecord (legacy)`}</CodeBlock>
     </DocsShell>
   );
 }

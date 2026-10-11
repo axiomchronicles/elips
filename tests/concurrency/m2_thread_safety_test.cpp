@@ -32,13 +32,13 @@ protected:
 
 // -------------------------- F6: in-process locking -----------------------
 
-TEST_F(M2Test, ConcurrentWriterAndReadersOnOneVault) {
+TEST_F(M2Test, ConcurrentWriterAndReadersOnOneCollection) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(8));
-    auto& vault = db->vault("v");
+    auto& collection = db->collection("v");
 
     constexpr int kSeed = 32;
     for (int i = 0; i < kSeed; ++i) {
-        vault.place(elips::Vector{std::vector<float>(8, static_cast<float>(i))});
+        collection.add(elips::Vector{std::vector<float>(8, static_cast<float>(i))});
     }
 
     std::atomic<bool> stop{false};
@@ -50,7 +50,7 @@ TEST_F(M2Test, ConcurrentWriterAndReadersOnOneVault) {
     for (int w = 0; w < 2; ++w) {
         threads.emplace_back([&, w] {
             for (int i = 0; i < 200; ++i) {
-                vault.place(elips::Vector{std::vector<float>(
+                collection.add(elips::Vector{std::vector<float>(
                     8, static_cast<float>((w * 1000) + i))});
                 writes.fetch_add(1);
             }
@@ -60,9 +60,9 @@ TEST_F(M2Test, ConcurrentWriterAndReadersOnOneVault) {
         threads.emplace_back([&] {
             const elips::Vector query{std::vector<float>(8, 1.0F)};
             while (!stop.load()) {
-                (void)vault.seek(query, 5);
-                (void)vault.info();
-                (void)vault.scan({}, 0, 4);
+                (void)collection.search(query, 5);
+                (void)collection.info();
+                (void)collection.scan({}, 0, 4);
                 reads.fetch_add(1);
             }
         });
@@ -78,44 +78,44 @@ TEST_F(M2Test, ConcurrentWriterAndReadersOnOneVault) {
 
     EXPECT_EQ(writes.load(), 400U);
     EXPECT_GT(reads.load(), 0U);
-    EXPECT_EQ(vault.info().count, static_cast<std::size_t>(kSeed) + 400U);
+    EXPECT_EQ(collection.info().count, static_cast<std::size_t>(kSeed) + 400U);
 }
 
 TEST_F(M2Test, ConcurrentEraseAndSearchStayConsistent) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(4));
-    auto& vault = db->vault("v");
+    auto& collection = db->collection("v");
 
     std::vector<elips::RecordID> ids;
     ids.reserve(300);
     for (int i = 0; i < 300; ++i) {
-        ids.push_back(vault.place(
+        ids.push_back(collection.add(
             elips::Vector{std::vector<float>(4, static_cast<float>(i))}));
     }
 
     std::atomic<bool> stop{false};
     std::thread eraser([&] {
         for (const auto& id : ids) {
-            vault.erase(id);
+            collection.erase(id);
         }
         stop.store(true);
     });
     std::thread reader([&] {
         const elips::Vector query{std::vector<float>(4, 2.0F)};
         while (!stop.load()) {
-            const auto hits = vault.seek(query, 10);
+            const auto hits = collection.search(query, 10);
             EXPECT_LE(hits.size(), 10U);
             for (const auto& hit : hits) {
-                (void)vault.fetch(hit.id);
+                (void)collection.get(hit.id);
             }
         }
     });
     eraser.join();
     reader.join();
 
-    EXPECT_EQ(vault.info().count, 0U);
+    EXPECT_EQ(collection.info().count, 0U);
 }
 
-TEST_F(M2Test, ConcurrentVaultCreationIsSafe) {
+TEST_F(M2Test, ConcurrentCollectionCreationIsSafe) {
     auto db = elips::open(":memory:", elips::Config{}.dimension(2));
     std::vector<std::thread> threads;
     std::atomic<bool> failed{false};
@@ -126,8 +126,8 @@ TEST_F(M2Test, ConcurrentVaultCreationIsSafe) {
         threads.emplace_back([&db, t, &failed, &error_msg, &err_mutex] {
             try {
                 for (int i = 0; i < 20; ++i) {
-                    auto& vault = db->vault("vault_" + std::to_string(i));
-                    vault.place(elips::Vector{{static_cast<float>(t), 1.0F}});
+                    auto& collection = db->collection("collection_" + std::to_string(i));
+                    collection.add(elips::Vector{{static_cast<float>(t), 1.0F}});
                 }
             } catch (const std::exception& e) {
                 std::lock_guard lock(err_mutex);
@@ -144,9 +144,9 @@ TEST_F(M2Test, ConcurrentVaultCreationIsSafe) {
         thread.join();
     }
     ASSERT_FALSE(failed) << "Thread threw exception: " << error_msg;
-    EXPECT_EQ(db->list_vaults().size(), 20U);
+    EXPECT_EQ(db->list_collections().size(), 20U);
     for (int i = 0; i < 20; ++i) {
-        EXPECT_EQ(db->vault("vault_" + std::to_string(i)).info().count, 8U);
+        EXPECT_EQ(db->collection("collection_" + std::to_string(i)).info().count, 8U);
     }
 }
 
@@ -162,9 +162,9 @@ TEST_F(M2Test, ConcurrentTransactionsDoNotInterleave) {
             try {
                 for (int batch = 0; batch < 10; ++batch) {
                     auto txn = db->begin_transaction();
-                    auto tv = txn.vault("v");
+                    auto tv = txn.collection("v");
                     for (int i = 0; i < 5; ++i) {
-                        tv.place(elips::Vector{
+                        tv.add(elips::Vector{
                             {static_cast<float>(t), static_cast<float>(batch)}});
                     }
                     txn.commit();
@@ -184,43 +184,43 @@ TEST_F(M2Test, ConcurrentTransactionsDoNotInterleave) {
         thread.join();
     }
     ASSERT_FALSE(failed) << "Thread threw exception: " << error_msg;
-    EXPECT_EQ(db->vault("v").info().count, 4U * 10U * 5U);
+    EXPECT_EQ(db->collection("v").info().count, 4U * 10U * 5U);
 }
 
 // ------------------------ F7: writes after close() -----------------------
 
 TEST_F(M2Test, PlaceAfterCloseThrowsInsteadOfVanishing) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
-    auto& vault = db->vault("v");
-    vault.place(elips::Vector{{1.0F, 2.0F}});
+    auto& collection = db->collection("v");
+    collection.add(elips::Vector{{1.0F, 2.0F}});
     db->close();
 
-    EXPECT_THROW(vault.place(elips::Vector{{3.0F, 4.0F}}), elips::StorageError);
+    EXPECT_THROW(collection.add(elips::Vector{{3.0F, 4.0F}}), elips::StorageError);
 }
 
 TEST_F(M2Test, EraseAfterCloseThrows) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
-    auto& vault = db->vault("v");
-    const auto id = vault.place(elips::Vector{{1.0F, 2.0F}});
+    auto& collection = db->collection("v");
+    const auto id = collection.add(elips::Vector{{1.0F, 2.0F}});
     db->close();
 
-    EXPECT_THROW(vault.erase(id), elips::StorageError);
+    EXPECT_THROW(collection.erase(id), elips::StorageError);
 }
 
-TEST_F(M2Test, VaultCreatedAfterCloseRefusesWrites) {
+TEST_F(M2Test, CollectionCreatedAfterCloseRefusesWrites) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
-    db->vault("v").place(elips::Vector{{1.0F, 2.0F}});
+    db->collection("v").add(elips::Vector{{1.0F, 2.0F}});
     db->close();
 
-    EXPECT_THROW(db->vault("later").place(elips::Vector{{5.0F, 6.0F}}),
+    EXPECT_THROW(db->collection("later").add(elips::Vector{{5.0F, 6.0F}}),
                  elips::StorageError);
 }
 
 TEST_F(M2Test, TransactionCommitAfterCloseThrows) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
     auto txn = db->begin_transaction();
-    auto tv = txn.vault("v");
-    tv.place(elips::Vector{{1.0F, 2.0F}});
+    auto tv = txn.collection("v");
+    tv.add(elips::Vector{{1.0F, 2.0F}});
     db->close();
 
     EXPECT_THROW(txn.commit(), elips::StorageError);
@@ -230,27 +230,27 @@ TEST_F(M2Test, WriteRejectedAfterCloseIsAbsentOnReopen) {
     std::string p = path();
     {
         auto db = elips::open(p, elips::Config{}.dimension(2));
-        auto& vault = db->vault("v");
-        vault.place(elips::Vector{{1.0F, 2.0F}});
+        auto& collection = db->collection("v");
+        collection.add(elips::Vector{{1.0F, 2.0F}});
         db->close();
-        EXPECT_THROW(vault.place(elips::Vector{{9.0F, 9.0F}}),
+        EXPECT_THROW(collection.add(elips::Vector{{9.0F, 9.0F}}),
                      elips::StorageError);
     }
     auto db = elips::open(p);
-    EXPECT_EQ(db->vault("v").info().count, 1U);
+    EXPECT_EQ(db->collection("v").info().count, 1U);
 }
 
 TEST_F(M2Test, ReadsAfterCloseStillWork) {
     auto db = elips::open(path(), elips::Config{}.dimension(2));
-    auto& vault = db->vault("v");
-    const auto id = vault.place(elips::Vector{{1.0F, 0.0F}});
+    auto& collection = db->collection("v");
+    const auto id = collection.add(elips::Vector{{1.0F, 0.0F}});
     db->close();
 
     // Reads are served from memory that is still valid and consistent; only
     // mutations are refused.
-    EXPECT_EQ(vault.info().count, 1U);
-    EXPECT_TRUE(vault.fetch(id).has_value());
-    EXPECT_EQ(vault.seek(elips::Vector{{1.0F, 0.0F}}, 1).size(), 1U);
+    EXPECT_EQ(collection.info().count, 1U);
+    EXPECT_TRUE(collection.get(id).has_value());
+    EXPECT_EQ(collection.search(elips::Vector{{1.0F, 0.0F}}, 1).size(), 1U);
 }
 
 }  // namespace

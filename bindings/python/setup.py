@@ -1,7 +1,7 @@
 """Source build for the ELIPS Python package.
 
 For local development the extension is built via the top-level CMake project
-(`-DELIPS_BUILD_PYTHON=ON`), which places `_core` inside the `elips/` package.
+(`-DELIPS_ENABLE_PYTHON=ON`), which places `_core` inside the `elips/` package.
 This setup.py drives `cibuildwheel` / `pip` builds via CMake.
 
 The C++ sources live at the repository root, outside this directory, so an
@@ -13,6 +13,7 @@ behind an untracked duplicate of the engine that silently went stale.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -119,8 +120,8 @@ class CMakeBuild(build_ext):
             "-B",
             self.build_temp,
             f"-DCMAKE_BUILD_TYPE={cfg}",
-            "-DELIPS_BUILD_PYTHON=ON",
-            "-DELIPS_BUILD_TESTS=OFF",
+            "-DELIPS_ENABLE_PYTHON=ON",
+            "-DBUILD_TESTING=OFF",
             "-DELIPS_BUILD_CLI=OFF",
             "-DELIPS_BUILD_BENCH=OFF",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
@@ -159,7 +160,25 @@ class CMakeBuild(build_ext):
         )
 
 
+def _read_version() -> str:
+    """Scrape the version from the top-level CMakeLists `project(... VERSION x.y.z)`.
+
+    CMake's `project(VERSION)` is the single source of truth for the ELIPS
+    version. The same CMakeLists is vendored into the sdist (see VENDORED_PATHS),
+    so this resolves in both a dev checkout and an unpacked sdist.
+    """
+
+    cmakelists = (_cmake_source_dir() / "CMakeLists.txt").read_text()
+    match = re.search(
+        r"project\s*\([^)]*VERSION\s+(\d+\.\d+\.\d+)", cmakelists, re.IGNORECASE
+    )
+    if not match:
+        raise SystemExit("could not read project(VERSION ...) from CMakeLists.txt")
+    return match.group(1)
+
+
 setup(
+    version=_read_version(),
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild, "sdist": VendorSourcesSdist},
     zip_safe=False,

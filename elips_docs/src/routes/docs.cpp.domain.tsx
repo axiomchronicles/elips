@@ -81,11 +81,14 @@ using Payload = std::map<std::string, PayloadValue>;`}</CodeBlock>
       <CodeBlock lang="cpp">{`struct SearchResult {
     RecordID id{0};
     float distance{0.0f};
-    float score{0.0f};
-    Record record;
+    Payload payload;
+    std::optional<DocumentAttachment> document;
+    std::optional<ChunkInfo> chunk;
+    std::optional<EmbeddingLineage> lineage;
+    std::string codec{"none"};  // quantization codec of the matched record
 };`}</CodeBlock>
       <p>
-        Vector similarity search returns <code>SearchResult</code> instances containing distance metrics, similarity scores, and hydrated <code>Record</code> payloads.
+        Vector similarity search returns <code>SearchResult</code> instances carrying the match <code>distance</code>, the hydrated <code>payload</code>, optional <code>document</code> / <code>chunk</code> / <code>lineage</code> attachments, and the <code>codec</code> label of the stored record.
       </p>
 
       <h2 id="attachments">Domain Attachments</h2>

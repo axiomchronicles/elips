@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { DocsShell } from "../components/Chrome";
 import { CodeBlock } from "../components/Code";
 
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/benchmarks")({
       {
         name: "description",
         content:
-          "Comprehensive benchmarks, hardware performance evaluation, throughput QPS, latency percentiles, HNSW graph parameter trade-offs, and GPU speedups.",
+          "Reproducible ELIPS ANN benchmarks — recall@10, QPS, p50/p99 latency — measured against faiss on Apple M4, plus the Metal bf_knn exact path and the elips bench CLI.",
       },
     ],
   }),
@@ -23,126 +23,160 @@ function Page() {
       title="Benchmarks & Performance Suite"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "metrics", label: "Key Performance Metrics" },
-        { id: "hnsw-tradeoffs", label: "HNSW Parameter Trade-offs" },
-        { id: "cpu-vs-gpu", label: "CPU vs. GPU Benchmark Results" },
-        { id: "durability-impact", label: "Durability Policy Throughput" },
-        { id: "cli-benchmarking", label: "Running Benchmarks (`elips bench`)" },
+        { id: "metrics", label: "Key metrics" },
+        { id: "ann-results", label: "ANN results (M4)" },
+        { id: "ivf-tradeoffs", label: "IVF nprobe trade-offs" },
+        { id: "cpu-vs-gpu", label: "CPU vs. Metal GPU" },
+        { id: "cli-benchmarking", label: "Running benchmarks" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS features an automated, reproducible benchmarking framework in C++ and CLI to evaluate single-thread and multi-thread vector search throughput (QPS), p50/p95/p99 latency, index construction times, recall accuracy, and GPU memory bandwidth scaling.
+        ELIPS ships a reproducible benchmark harness (<code>benchmarks/bench_ann.py</code>) that
+        measures recall@k and QPS against an exact-Flat sanity gate, with faiss as the reference. The
+        numbers below are from that harness — reported as measured, wins or losses.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        The performance of embedded vector databases depends on index graph quality, cache locality, SIMD vectorization (AVX-512, ARM Neon), and lock contention during concurrent queries.
+        Environment: Apple M4 (arm64), macOS, Python 3.13, ELIPS 1.1.0 (GPU bindings on),
+        faiss-cpu 1.15.1. Settings: <code>dim=128</code>, <code>nb=100000</code>,{" "}
+        <code>nq=1000</code>, <code>k=10</code>, metric euclidean (L2). Ground truth is exact numpy
+        L2 brute force; the exact-Flat sanity gate passes. QPS and p50/p99 are from single-query
+        (non-batched) search unless noted.
       </p>
 
-      <h2 id="metrics">Key Performance Metrics</h2>
+      <h2 id="metrics">Key metrics</h2>
       <ul>
         <li>
-          <strong>QPS (Queries Per Second):</strong> Total query throughput evaluated across 1, 4, 16, and 64 worker threads.
+          <strong>Recall@10:</strong> fraction of the top-10 approximate results that match the
+          exact L2 ground truth.
         </li>
         <li>
-          <strong>Latency Distribution:</strong> Microsecond latency bounds measured at p50, p95, and p99 percentiles.
+          <strong>QPS:</strong> queries per second (single-query search unless a row says batched).
         </li>
         <li>
-          <strong>Recall@K:</strong> Proportion of top-$K$ approximate graph search results matching ground-truth exact brute-force Euclidean/Cosine distance results ($K=1, 10, 100$).
+          <strong>p50 / p99:</strong> per-query latency percentiles in milliseconds.
         </li>
         <li>
-          <strong>Memory Footprint:</strong> Bytes allocated per vector node (including vector data, payload map headers, and bi-directional graph link lists).
+          <strong>Build s:</strong> index construction time.
         </li>
       </ul>
 
-      <h2 id="hnsw-tradeoffs">HNSW Parameter Trade-offs</h2>
-      <p>
-        The graph index parameters <code>M</code>, <code>ef_construction</code>, and <code>ef_search</code> directly govern the trade-off between recall accuracy, insertion throughput, query latency, and RAM usage.
-      </p>
+      <h2 id="ann-results">ANN results (Apple M4)</h2>
       <table>
         <thead>
           <tr>
-            <th>Configuration</th>
-            <th>M</th>
-            <th>ef_construction</th>
-            <th>ef_search</th>
+            <th>Config</th>
             <th>Recall@10</th>
-            <th>Latency (p95)</th>
-            <th>QPS / Core</th>
+            <th>QPS</th>
+            <th>p50 ms</th>
+            <th>p99 ms</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Low-Latency / Fast</td>
-            <td>12</td>
-            <td>100</td>
-            <td>16</td>
-            <td>0.942</td>
-            <td>0.12 ms</td>
-            <td>8,300</td>
+            <td>ELIPS IndexFlat (cpu)</td>
+            <td>1.000</td>
+            <td>489</td>
+            <td>1.981</td>
+            <td>3.336</td>
           </tr>
           <tr>
-            <td>Balanced Default</td>
-            <td>16</td>
-            <td>200</td>
-            <td>50</td>
-            <td>0.985</td>
-            <td>0.35 ms</td>
-            <td>2,850</td>
+            <td>ELIPS bf_knn (metal, 1-query)</td>
+            <td>1.000</td>
+            <td>24</td>
+            <td>41.315</td>
+            <td>69.498</td>
           </tr>
           <tr>
-            <td>High Precision</td>
+            <td>ELIPS bf_knn (metal, batched)</td>
+            <td>1.000</td>
+            <td>914</td>
+            <td>1.094</td>
+            <td>1.094</td>
+          </tr>
+          <tr>
+            <td>ELIPS IVFFlat nlist=316 nprobe=128 (cpu)</td>
+            <td>0.801</td>
+            <td>1,616</td>
+            <td>0.617</td>
+            <td>0.650</td>
+          </tr>
+          <tr>
+            <td>faiss IndexFlatL2 (cpu)</td>
+            <td>1.000</td>
+            <td>989</td>
+            <td>0.926</td>
+            <td>1.432</td>
+          </tr>
+          <tr>
+            <td>faiss IVFFlat nlist=316 nprobe=128 (cpu)</td>
+            <td>0.793</td>
+            <td>2,587</td>
+            <td>0.385</td>
+            <td>0.416</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        ELIPS and faiss both use the FAISS-style Index API (<code>IndexFlat</code> /{" "}
+        <code>IndexIVFFlat</code>, <code>metric="l2"</code>); labels are row indices, so recall is
+        measured against the same ground truth.
+      </p>
+
+      <h2 id="ivf-tradeoffs">IVF nprobe trade-offs</h2>
+      <p>
+        For <code>IndexIVFFlat</code> with <code>nlist=316</code>, raising <code>nprobe</code> trades
+        QPS for recall (ELIPS, cpu, M4):
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>nprobe</th>
+            <th>Recall@10</th>
+            <th>QPS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>0.030</td>
+            <td>46,614</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>0.152</td>
+            <td>14,123</td>
+          </tr>
+          <tr>
             <td>32</td>
-            <td>400</td>
+            <td>0.381</td>
+            <td>6,273</td>
+          </tr>
+          <tr>
             <td>128</td>
-            <td>0.998</td>
-            <td>0.89 ms</td>
-            <td>1,120</td>
+            <td>0.801</td>
+            <td>1,616</td>
           </tr>
         </tbody>
       </table>
 
-      <h2 id="cpu-vs-gpu">CPU vs. GPU Benchmark Results</h2>
+      <h2 id="cpu-vs-gpu">CPU vs. Metal GPU</h2>
       <p>
-        Evaluated on 1,000,000 vectors of dimension 1,536 (Ada-002 embeddings) using Cosine distance:
+        The only implemented GPU backend is Metal (Apple silicon); it accelerates the exact
+        brute-force path, <code>elips.bf_knn(..., device="metal")</code>. Batching matters: a single
+        query over Metal is latency-bound (24 QPS), but amortised over one batched call it reaches
+        914 QPS at recall 1.000 — comparable to the CPU exact path (<code>IndexFlat</code>, 489 QPS)
+        while leaving the CPU free. CUDA and HIP backends are experimental and not benchmarked here.
       </p>
-      <ul>
-        <li>
-          <strong>CPU (Apple M3 Max 16-Core / 64GB UMA):</strong> 14,200 QPS (p95 latency: 0.28ms).
-        </li>
-        <li>
-          <strong>GPU (NVIDIA RTX 4090 / CUDA GpuIVFPQIndex):</strong> 185,000 QPS (p95 latency: 0.04ms).
-        </li>
-        <li>
-          <strong>GPU Batch Mode (DynamicBatcher batch_size=256):</strong> 420,000 QPS.
-        </li>
-      </ul>
 
-      <h2 id="durability-impact">Durability Policy Throughput</h2>
-      <p>
-        Write throughput evaluated on persistent disk storage (PCIe Gen4 NVMe SSD):
-      </p>
-      <ul>
-        <li>
-          <code>durability = "sync_on_commit"</code> — 4,200 writes/sec (fsync bound per commit).
-        </li>
-        <li>
-          <code>durability = "wal_only"</code> — 95,000 writes/sec (buffered OS page cache WAL).
-        </li>
-        <li>
-          <code>durability = "in_memory"</code> — 340,000 writes/sec (pure RAM memory graph build).
-        </li>
-      </ul>
+      <h2 id="cli-benchmarking">Running benchmarks (elips bench)</h2>
+      <p>Run the built-in benchmarking tool directly from the command line:</p>
+      <CodeBlock lang="bash">{`# Reproduce the ANN suite
+python benchmarks/bench_ann.py
 
-      <h2 id="cli-benchmarking">Running Benchmarks (`elips bench`)</h2>
-      <p>
-        Run the built-in benchmarking tool directly from the command line:
-      </p>
-      <CodeBlock lang="bash">{`# Run a 100,000 vector benchmark with 1536 dimensions
-elips bench --vectors 100000 --dim 1536 --threads 16 --metric cosine
-
-# Benchmark GPU acceleration
-elips bench --vectors 1000000 --dim 384 --gpu --batch-size 128`}</CodeBlock>
+# Quick engine micro-benchmark via the CLI
+elips bench /path/to/db --count 100000 --dim 128`}</CodeBlock>
     </DocsShell>
   );
 }

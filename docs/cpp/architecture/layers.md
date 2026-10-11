@@ -4,7 +4,7 @@ ELIPS is structured into seven layers, each with well-defined responsibilities. 
 
 ```
 ┌─────────────────────────────────────────┐
-│ SDK (ElipsInstance, Vault, Transaction)  │  user-facing API
+│ SDK (Database, Collection, Transaction)  │  user-facing API
 ├─────────────────────────────────────────┤
 │ Query Engine (EQL parser, executor)      │  text query → operations
 ├─────────────────────────────────────────┤
@@ -137,24 +137,31 @@ struct SearchResult {
     RecordID id;
     float distance{0.0F};
     Payload data;
+    std::optional<DocumentAttachment> document;
+    std::optional<ChunkInfo> chunk;
+    std::optional<EmbeddingLineage> lineage;
+    quant::CodecId codec{quant::CodecId::none};  // approximate() when != none
 };
 ```
 
-One result from `seek()`. Distance is ordering-normalized: **smaller means more similar** for all metrics (cosine = 1 - dot, euclidean = sqrt(L2), dot_product = -dot). Results are sorted ascending by `distance`.
+One result from `search()`. Distance is ordering-normalized: **smaller means more similar** for all metrics (cosine = 1 - dot, euclidean = sqrt(L2), dot_product = -dot). Results are sorted ascending by `distance`. In a quantized collection `distance` is approximate; `codec` names the responsible quantizer.
 
-### VaultInfo
+### CollectionInfo
 
-`elips/elips.hpp:33`
+`elips/elips.hpp`
 
 ```cpp
-struct VaultInfo {
+struct CollectionInfo {
     std::size_t count{0};
     std::uint16_t dimension{0};
     Metric metric{Metric::cosine};
+    quant::CodecId codec{quant::CodecId::none};  // none until trained
+    std::size_t code_bytes{0};                   // stored code width
 };
 ```
 
-Summary statistics returned by `Vault::info()`: record count, configured dimension, and similarity metric.
+Summary statistics returned by `Collection::info()`: record count, configured
+dimension, similarity metric, and compression state.
 
 ### Error Hierarchy
 
@@ -163,24 +170,28 @@ Summary statistics returned by `Vault::info()`: record count, configured dimensi
 ```
 std::runtime_error
  └── ElipsError
-      ├── DimensionMismatch
+      ├── DimensionMismatch        (alias DimensionMismatchError)
       ├── InvalidVector
       ├── ConfigError
+      │    └── NotTrainedError      (IVF used before train())
       ├── NotFound
       ├── StorageError
-      └── LockConflict   (in elips/kernel/LockManager.hpp)
-      └── ParseError     (in elips/query_engine/EQLParser.hpp)
+      ├── BackendUnavailableError
+      ├── LockConflict             (in elips/kernel/LockManager.hpp)
+      └── ParseError               (in elips/query_engine/EQLParser.hpp)
 ```
 
-All exceptions carry a human-readable `what()` message via the `std::runtime_error` base. Each type is a simple using-declaration inheriting the base constructor.
+All exceptions carry a human-readable `what()` message via the `std::runtime_error` base.
 
 | Exception | Thrown When |
 |-----------|-------------|
-| `DimensionMismatch` | Vector dimension doesn't match the database/vault config |
+| `DimensionMismatch` | Vector dimension doesn't match the database/collection config |
 | `InvalidVector` | Vector contains NaN or infinity |
 | `ConfigError` | Configuration conflicts with persisted identity, invalid RecordID hex, unknown metric name |
-| `NotFound` | EQL query references an unbound variable (`$name`) |
-| `StorageError` | IO failure: corrupt snapshot, can't open/truncate WAL, unknown payload type tag in serialization |
+| `NotTrainedError` | An IVF-family index was used (`add`/`search`) before `train()` (derives `ConfigError`) |
+| `NotFound` | Record/collection does not exist; EQL references an unbound variable (`$name`) |
+| `StorageError` | IO failure: corrupt snapshot, can't open/truncate WAL, write to a read-only open |
+| `BackendUnavailableError` | A required GPU backend was unavailable and no CPU fallback was permitted |
 | `LockConflict` | Another writer holds `flock(LOCK_EX)` on the database directory |
 | `ParseError` | Malformed EQL query |
 
@@ -250,57 +261,74 @@ The dispatch is decided at compile time by `#if defined(__ARM_NEON)`. A future r
 
 The index engine provides pluggable nearest-neighbor search behind a common interface.
 
-### IndexPort (Abstract Interface)
+### Index (Abstract Interface)
 
-`elips/index_engine/IndexPort.hpp:16`
+`elips/index_engine/Index.hpp`
 
 ```cpp
-class IndexPort {
+class Index {
 public:
     using Hit = std::pair<RecordID, float>;  // (id, ordering-normalized distance)
 
-    virtual void insert(const RecordID& id, std::span<const float> vector) = 0;
+    virtual void train(std::span<const float> training_vectors, std::size_t n);  // no-op by default
+    [[nodiscard]] virtual bool is_trained() const noexcept;                      // true by default
+    virtual void reset();
+
+    virtual void add_with_ids(const RecordID& id, std::span<const float> vector) = 0;
     virtual void remove(const RecordID& id) = 0;
-    virtual std::vector<Hit> search(std::span<const float> query,
-                                     std::size_t k) const = 0;
-    virtual std::size_t size() const noexcept = 0;
-    virtual std::string_view type_name() const noexcept = 0;
+    [[nodiscard]] virtual std::vector<Hit> search(std::span<const float> query,
+                                                  std::size_t k) const = 0;
+    [[nodiscard]] virtual std::vector<Hit> range_search(std::span<const float> query,
+                                                        float radius) const;  // throws by default
+    [[nodiscard]] virtual std::size_t ntotal() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view type_name() const noexcept = 0;
+
+    virtual void vacuum();
+    [[nodiscard]] virtual std::size_t pending_removals() const noexcept;
 };
 ```
 
-Non-copyable, non-movable. Vectors passed to `insert()` are pre-validated and pre-normalized by the SDK layer. Results from `search()` are sorted ascending by distance. `k` is the number of results requested (upper bound).
+Non-copyable, non-movable. Vectors passed to `add_with_ids()` are pre-validated
+and pre-normalized by the SDK layer. `search()` results are sorted ascending by
+distance; `k` is an upper bound. Flat/HNSW indexes keep the no-op `train()`;
+IVF-family indexes override it to learn coarse centroids first. `range_search()`
+is supported by the flat/IVF-flat indexes and throws `ElipsError` on index types
+that cannot answer it (ADC-only IVFPQ/SQ, graph HNSW). `IndexPort` remains as a
+deprecated alias of `Index`.
 
-### ExactIndex
+### IndexFlat
 
-`elips/index_engine/ExactIndex.hpp:17`
+`elips/index_engine/IndexFlat.hpp`
 
 Brute-force linear scan. Row-major storage: `data_[i * dimension_ + j]` for vector `i`, dimension `j`. Used for:
 
 - Small collections (guaranteed exact results)
 - Ground-truth oracle for ANN benchmark recall measurements
-- Fallback when `IndexType::exact` is configured
+- The index built for `IndexType::exact`
 
-Constructor: `ExactIndex(Metric metric, std::uint16_t dimension)`
+Constructor: `IndexFlat(Metric metric, std::uint16_t dimension, quant::QuantizerPtr quantizer = {})`
 
-- `insert()`: Appends ID to `ids_` and vector floats to `data_`.
-- `remove()`: Linear scan to find and erase the ID from `ids_`, with corresponding float range removal from `data_`.
-- `search()`: Iterates all rows, computes `distance(metric_, query, row)`, collects top-k in a partial-sort container.
-- `type_name()`: Returns `"exact"`.
+- `add_with_ids()`: Appends ID to `ids_` and the vector (or its code, when a quantizer is attached) to storage.
+- `remove()`: Linear scan to find and erase the ID, with the corresponding row removed.
+- `search()` / `range_search()`: Iterate all rows, compute `distance(metric_, query, row)`, collect top-k (or every row within `radius`).
+- `type_name()`: `"exact"`, or `"exact_quantized"` when a quantizer is attached.
 
-### HierarchicalGraphIndex (HNSW)
+### IndexHNSW (HNSW)
 
-`elips/index_engine/HierarchicalGraphIndex.hpp:22`
+`elips/index_engine/IndexHNSW.hpp`
 
 The primary ANN index. Implements the classic HNSW algorithm from scratch.
 
-**Constructor**: `HierarchicalGraphIndex(Metric metric, std::uint16_t dimension, GraphParams params)`
+**Constructor**: `IndexHNSW(Metric metric, std::uint16_t dimension, HnswParams params, quant::QuantizerPtr quantizer = {})`
 
 - `level_mult_` = `1.0 / ln(max_connections)`, the normalization factor for level assignment.
 - RNG seeded from `std::random_device`.
+- With a trained quantizer attached, node vectors are stored as codes and every distance (traversal and query) is computed by asymmetric lookup.
 
 #### Data Structures
 
-- `data_`: Row-major float storage, `dimension_` floats per node.
+- `data_`: Row-major float storage (empty when compressed), `dimension_` floats per node.
+- `codes_`: Row-major code storage (used when compressed).
 - `ids_`: `RecordID` per node (index = NodeId).
 - `deleted_`: Boolean tombstone per node (soft delete).
 - `node_levels_`: Integer level per node.
@@ -324,10 +352,10 @@ Algorithm: Extract closest candidate, visit its neighbors at the given level, ad
 
 Returns results sorted ascending by distance.
 
-#### Insert (`insert()`)
+#### Add (`add_with_ids()`)
 
 1. Assign a random level.
-2. Append to `ids_`, `deleted_`, `node_levels_`, `data_`, initialize `links_`.
+2. Append to `ids_`, `deleted_`, `node_levels_`, `data_`/`codes_`, initialize `links_`.
 3. If the graph is empty, set as entry point.
 4. Greedy descent from entry through levels above the new node's level (1-nearest search per layer).
 5. For each level from `min(level, max_level_)` down to 0:
@@ -345,34 +373,56 @@ Reciprocal edges are also added, pruning each neighbor's list to `max_connection
 
 The base layer (level 0) uses `max_connections * 2` as the link budget.
 
-#### Remove (`remove()`)
+#### Remove (`remove()`) and Vacuum (`vacuum()`)
 
-Soft tombstone: sets `deleted_[node] = true`, increments `deleted_count_`. Graph structure is preserved; deleted nodes act as navigation bridges but are excluded from result sets.
+Soft tombstone: sets `deleted_[node] = true`, increments `deleted_count_`. Graph structure is preserved; deleted nodes act as navigation bridges but are excluded from result sets. `pending_removals()` reports the tombstone count; once it passes `HnswParams::compaction_ratio` the index rebuilds itself, and `vacuum()` forces a rebuild on demand.
 
 #### Search (`search()`)
 
 1. Greedy descent from entry point through levels above 0 (1-nearest per layer).
-2. Beam search on level 0 with `ef = max(ef_search, k)`.
+2. Beam search on level 0 with `ef = max(ef_search, k)`, widened in proportion to the live/deleted ratio.
 3. Filter out deleted nodes, return up to `k` hits.
 
 #### type_name()
 
-Returns `"graph"`.
+`"graph"`, or `"graph_quantized"` when a quantizer is attached.
+
+### CPU IVF Family
+
+`elips/index_engine/IndexIVFFlat.hpp`, `IndexIVFPQ.hpp`, `IndexIVFScalarQuantizer.hpp`
+
+FAISS-aligned inverted-file indexes. A coarse quantizer of `nlist` k-means
+centroids (learned in `train()`) partitions the space; `search()` probes only
+the `nprobe` lists nearest the query (public, mutable, FAISS default 1, clamped
+to `[1, nlist]`). All require `train()` before `add_with_ids`/`search` and raise
+`NotTrainedError` otherwise.
+
+| Type | Posting storage | `type_name()` | Notes |
+|------|-----------------|---------------|-------|
+| `IndexIVFFlat` | full fp32 | `"ivfflat"` | exact per-list scan; matches `IndexFlat` as `nprobe → nlist`. Supports `range_search`. |
+| `IndexIVFPQ` | PQ code of the residual | `"ivfpq"` | `pq_dim` subspaces, `pq_bits` (4–8, default 8); ADC/LUT scoring, lossy. |
+| `IndexIVFScalarQuantizer` | SQ8 code of the raw vector | `"ivfsq"` | flat 4× compression, high recall. |
 
 ### IndexFactory
 
-`elips/index_engine/IndexFactory.hpp:14`
+`elips/index_engine/IndexFactory.hpp`
 
 ```cpp
-std::unique_ptr<IndexPort> make_index(const Config& config, std::uint16_t dimension);
+std::unique_ptr<Index> make_index(const Config& config, std::uint16_t dimension);
+std::unique_ptr<Index> index_factory(std::uint16_t dimension, Metric metric,
+                                     std::string_view spec);
 ```
 
-Switch on `config.index()`:
+`make_index` switches on `config.index()`:
 
-- `IndexType::exact` → `std::make_unique<ExactIndex>(config.metric(), dimension)`
-- `IndexType::graph` → `std::make_unique<HierarchicalGraphIndex>(config.metric(), dimension, config.graph_params())`
+- `IndexType::exact` → `std::make_unique<IndexFlat>(config.metric(), dimension)`
+- `IndexType::graph` → `std::make_unique<IndexHNSW>(config.metric(), dimension, config.graph_params())`
 
-DIP (Dependency Inversion Principle): callers depend only on `IndexPort`, never on concrete index types.
+`index_factory` builds from a FAISS-style spec string — `"Flat"`,
+`"IVF<nlist>,Flat"`, `"IVF<nlist>,PQ<M>"`, `"IVF<nlist>,SQ8"`, `"HNSW<M>"` —
+throwing `ConfigError` on a malformed spec.
+
+DIP (Dependency Inversion Principle): callers depend only on `Index`, never on concrete index types.
 
 ---
 
@@ -444,7 +494,7 @@ static Filter not_(const Filter& inner); // neg
 
 `elips/query_engine/`
 
-The EQL (ELIPS Query Language) engine provides a text-based query interface. EQL is tokenized, parsed into an AST, and executed against an `ElipsInstance`.
+The EQL (ELIPS Query Language) engine provides a text-based query interface. EQL is tokenized, parsed into an AST, and executed against a `Database`.
 
 ### EQL Lexer (`EQLLexer.hpp`)
 
@@ -469,21 +519,21 @@ Tokenization skips whitespace and `#`-prefixed line comments. Two-character oper
 A recursive-descent parser (`Parser` class) over the flat token stream. Grammar:
 
 ```
-statement   = search_stmt | fetch_stmt | scan_stmt | insert_stmt | delete_stmt
+statement   = search_stmt | get_stmt | scan_stmt | add_stmt | delete_stmt
 
-search_stmt = "seek" "in" identifier "nearest" vector_ref
-              ["top" number] ["threshold" number] ["where" filter]
+search_stmt = "search" "in" identifier "nearest" vector_ref
+              ["k" number] ["threshold" number] ["where" filter]
               ["rank_by" identifier] ["project" projection] "yield"
 
-fetch_stmt  = "fetch" "from" identifier "id" string "yield"
+get_stmt    = "get" "from" identifier "id" string "yield"
 
 scan_stmt   = "scan" "in" identifier
               ["where" filter] ["offset" number] ["limit" number] "yield"
 
-insert_stmt = "place" "in" identifier "vector" vector_literal
-              ["data" json_object]
+add_stmt    = "add" "in" identifier "vector" vector_literal
+              ["metadata" json_object]
 
-delete_stmt = "erase" "from" identifier "id" string
+delete_stmt = "delete" "from" identifier "id" string
 
 vector_ref  = "$" identifier | vector_literal
 vector_literal = "[" [number ("," number)*] "]"
@@ -502,21 +552,23 @@ projection = "*" | identifier ("," identifier)*
 json_object = "{" [string ":" value ("," string ":" value)*] "}"
 ```
 
-Throws `ParseError` (inherits `ElipsError`) on syntax errors.
+The pre-1.1 verbs/keywords `seek`/`fetch`/`place`/`erase`, `top`, and `data` are
+accepted as deprecated aliases of `search`/`get`/`add`/`delete`, `k`, and
+`metadata`. Throws `ParseError` (inherits `ElipsError`) on syntax errors.
 
 ### AST Node Types (`AST.hpp`)
 
-`elips::eql::Statement` = `std::variant<SearchStatement, FetchStatement, ScanStatement, InsertStatement, DeleteStatement>`
+`elips::eql::Statement` = `std::variant<SearchStatement, GetStatement, ScanStatement, AddStatement, DeleteStatement>`
 
 | Statement Type | Fields |
 |---------------|--------|
-| `SearchStatement` | `vault`, `query` (VectorRef), `top` (optional int), `threshold` (optional double), `where` (Filter), `rank_by` (optional string), `projection` (vector of string) |
-| `FetchStatement` | `vault`, `id` (string) |
-| `ScanStatement` | `vault`, `where` (Filter), `offset` (optional int), `limit` (optional int) |
-| `InsertStatement` | `vault`, `vector` (float vector), `data` (Payload) |
-| `DeleteStatement` | `vault`, `id` (string) |
+| `SearchStatement` | `collection`, `query` (VectorRef), `k` (optional int), `threshold` (optional double), `where` (Filter), `rank_by` (optional string), `projection` (vector of string) |
+| `GetStatement` | `collection`, `id` (string) |
+| `ScanStatement` | `collection`, `where` (Filter), `offset` (optional int), `limit` (optional int) |
+| `AddStatement` | `collection`, `vector` (float vector), `metadata` (Payload) |
+| `DeleteStatement` | `collection`, `id` (string) |
 
-`VectorRef` has either a `literal` (inline float vector) or a `binding` (variable name, referencing the bindings map).
+`InsertStatement` remains as a deprecated alias of `AddStatement`. `VectorRef` has either a `literal` (inline float vector) or a `binding` (variable name, referencing the bindings map).
 
 ### Query Executor (`QueryExecutor.hpp`)
 
@@ -526,22 +578,22 @@ Uses `std::visit` with an `Executor` struct to dispatch each statement type to t
 
 | Statement | Routing |
 |-----------|---------|
-| `SearchStatement` | `db.vault(s.vault).seek(query, top, s.where, threshold)` → optionally re-ranked by `rank_by` field, projection applied |
-| `FetchStatement` | `db.vault(s.vault).fetch(RecordID::from_string(s.id))` → wrap result |
-| `ScanStatement` | `db.vault(s.vault).scan(s.where, offset, limit)` → wrap records |
-| `InsertStatement` | `db.vault(s.vault).place(Vector{s.vector}, s.data)` → return new ID |
-| `DeleteStatement` | `db.vault(s.vault).erase(RecordID::from_string(s.id))` → empty result |
+| `SearchStatement` | `db.collection(s.collection).search(query, k, s.where, threshold)` → optionally re-ranked by `rank_by` field, projection applied |
+| `GetStatement` | `db.collection(s.collection).get(RecordID::from_string(s.id))` → wrap result |
+| `ScanStatement` | `db.collection(s.collection).scan(s.where, offset, limit)` → wrap records |
+| `AddStatement` | `db.collection(s.collection).add(Vector{s.vector}, s.metadata)` → return new ID |
+| `DeleteStatement` | `db.collection(s.collection).remove(RecordID::from_string(s.id))` → empty result |
 
-`ElipsInstance::query(eql_string, bindings)` wraps `parse()` + `execute()`:
+`Database::query(eql_string, bindings)` wraps `parse()` + `execute()`:
 
 ```cpp
-std::vector<SearchResult> ElipsInstance::query(
+std::vector<SearchResult> Database::query(
     const std::string& eql, const std::map<std::string, Vector>& bindings) {
     return eql::execute(eql::parse(eql), *this, bindings);
 }
 ```
 
-Default `top` for search is 10. When `threshold` is set without explicit `top`, the fetch size is unbounded (100000).
+Default `k` for search is 10. When `threshold` is set without explicit `k`, the fetch size is unbounded (100000).
 
 **Rank-by**: When `rank_by` specifies a non-distance field, results are re-sorted via `std::stable_sort` using a metadata-aware comparator (`meta_less`). Numeric cross-type comparison is supported (`int64_t` and `double` compared numerically); strings compared lexicographically; mixed types compared by variant index.
 
@@ -550,15 +602,15 @@ Default `top` for search is 10. When `threshold` is set without explicit `top`, 
 ### EQL Examples
 
 ```
-seek in documents nearest [0.9, 0.1, 0.0] top 5 where year >= 2023 yield
+search in documents nearest [0.9, 0.1, 0.0] k 5 where year >= 2023 yield
 
-seek in images nearest $query_vec top 20 threshold 0.5 yield
+search in images nearest $query_vec k 20 threshold 0.5 yield
 
-fetch from documents id "01931d0a-1234-7abc-8000-abcdef123456" yield
+get from documents id "01931d0a-1234-7abc-8000-abcdef123456" yield
 
 scan in documents where status = "active" offset 0 limit 50 yield
 
-place in documents vector [0.1, 0.2, 0.3] data {"title": "new doc", "year": 2025}
+add in documents vector [0.1, 0.2, 0.3] metadata {"title": "new doc", "year": 2025}
 ```
 
 ---
@@ -579,7 +631,7 @@ Every mutation is appended and (optionally) flushed before acknowledgment, ensur
 |-------|------|-------------|
 | magic | 4 bytes | `0xE1105E01U` (same as snapshot magic) |
 | op | 1 byte | `1` (insert) or `3` (erase) |
-| vault | 4 + N bytes | Length-prefixed UTF-8 string |
+| collection | 4 + N bytes | Length-prefixed UTF-8 string (collection name) |
 | id | 16 bytes | RecordID raw bytes (UUIDv7) |
 | vector (insert only) | 2 + 4*N bytes | Length prefix (`uint16_t`) + float array |
 | payload (insert only) | variable | Count (`uint32_t`) + `N` × (key length + string key + type tag byte + value) |
@@ -612,8 +664,8 @@ Every mutation is appended and (optionally) flushed before acknowledgment, ensur
 | version | 4 bytes | `1` |
 | dimension | 2 bytes | `uint16_t` |
 | metric | 1 byte | `uint8_t` enum |
-| vault_count | 4 bytes | `uint32_t` |
-| [per vault] | | |
+| collection_count | 4 bytes | `uint32_t` |
+| [per collection] | | |
 |   name | 4 + N bytes | Length-prefixed string |
 |   record_count | 4 bytes | `uint32_t` |
 |   [per record] | | |
@@ -657,10 +709,10 @@ Byte order is **native** (single-machine embedded use; cross-platform normalizat
 1. If `:memory:`: create non-persistent instance (no WAL, no lock).
 2. Create directory, acquire `flock(LOCK_EX | LOCK_NB)` via `LockManager`.
 3. Read `IDENTITY` if exists, else write it.
-4. Load snapshot (`elips.snapshot`) into vaults if present.
+4. Load snapshot (`elips.snapshot`) into collections if present.
 5. Replay WAL (`wal.log`) entries on top of snapshot state.
 6. Create WAL instance (unless durability is `ephemeral`).
-7. Return ready `ElipsInstance`.
+7. Return ready `Database`.
 
 ---
 
@@ -687,17 +739,19 @@ public:
 
 **Move constructor**: Transfers fd ownership via `std::exchange`.
 
-The lock is held for the lifetime of the `ElipsInstance` and released on `close()` or destruction.
+The lock is held for the lifetime of the `Database` and released on `close()` or destruction.
 
 ---
 
 ## SDK Layer
 
-The SDK is the user-facing API. Three main types:
+The SDK is the user-facing API. Main types:
 
-- **`elips::open(path, config)`** → `unique_ptr<ElipsInstance>`: Factory function. Handles the full recovery flow.
-- **`ElipsInstance`**: Database handle. Owns vaults, WAL, lock. Checkpoints on destruction.
-- **`Vault`**: Named partition of records. Insert, search, scan, fetch, erase.
-- **`Transaction` + `TransactionVault`**: Buffered atomic batch mutations.
+- **`elips::open(path, config)`** → `unique_ptr<Database>`: Factory function. Handles the full recovery flow.
+- **`Database`**: Database handle. Owns collections, WAL, lock. Checkpoints on destruction.
+- **`Collection`**: Named partition of records. `add` / `add_document` / `search` / `search_text` / `hybrid_search` / `scan` / `get` / `remove` / `train` / `vacuum`.
+- **`Transaction` + `TransactionCollection`**: Buffered atomic batch mutations (`add` / `remove`).
 
-Detailed API references for each type are in the API Reference section.
+Pre-1.1 type names (`ElipsInstance`, `Vault`, `TransactionVault`) and verb names
+(`place`/`seek`/`fetch`/`erase`) remain as deprecated aliases/shims for one minor
+version. Detailed API references for each type are in the API Reference section.

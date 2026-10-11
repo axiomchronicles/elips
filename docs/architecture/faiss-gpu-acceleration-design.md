@@ -1,5 +1,23 @@
 # FAISS GPU Acceleration Analysis and Elips Implementation Design
 
+> **Status: historical design analysis (superseded in parts).** This is an
+> early source-level study and design sketch; it predates the shipped reality and
+> uses old names and some unrealized plans (cuVS/CAGRA training paths, retired
+> `IndexSnapshot`, stale `/Users/kuroyami/elips/` paths). For what actually ships,
+> treat these as authoritative instead:
+> - [GPU guide](../gpu/index.md) — backend **maturity table** (CPU Stable;
+>   **Metal Beta, validated on Apple M4**; **CUDA/HIP experimental, not
+>   hardware-validated**), device selection, no-silent-fallback, `bf_knn`.
+> - [GPU ADRs](../adr/README.md) — corrected decisions (no cuVS/CAGRA, no
+>   SYCL/Vulkan, FP16/Int8 compute unimplemented, fallback is logged).
+> - [Which index should I use?](../overview/choosing-an-index.md) — measured
+>   ELIPS vs faiss-cpu numbers.
+>
+> The current interface names are `GpuBackend` (not `GpuPort`),
+> `BackendSelector` (not `GpuSelector`), `QueryBatcher` (not `DynamicBatcher`),
+> and `Index`/`IndexFlat`/`IndexHNSW` (not `IndexPort`/`ExactIndex`/
+> `HierarchicalGraphIndex`).
+
 This document is a source-level analysis of FAISS CPU and GPU index internals
 and the corresponding GPU acceleration layer implemented in Elips.
 

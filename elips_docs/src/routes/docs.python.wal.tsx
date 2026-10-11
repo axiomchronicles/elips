@@ -69,6 +69,14 @@ function Page() {
         <li><code>txn_commit</code></li>
       </ul>
       <p>
+        For a live view of what has been acknowledged but not yet checkpointed
+        on an <em>open</em> database, use <code>client.pending_writes()</code>,
+        which returns a typed <code>list[WalRecord]</code> (each with{" "}
+        <code>op</code>, <code>arena</code>, <code>key</code>, and{" "}
+        <code>.is_delete</code>). The <code>replay_wal()</code> API below is for
+        reading a WAL file offline, without opening the database.
+      </p>
+      <p>
         For details on transaction semantics, see <Link to="/docs/internals/transaction-engine">Transaction Engine</Link>. For details on the underlying binary format, see <Link to="/docs/storage">Storage Architecture</Link>.
       </p>
 
@@ -86,10 +94,10 @@ print(Counter(e.op.name for e in entries))
 acked = {e.id for e in entries if e.op != elips.WalOp.erase}
 erased = {e.id for e in entries if e.op == elips.WalOp.erase}
 
-db = elips.open("/data/vectors")
-vault = db.vault(entries[0].vault) if entries else None
+client = elips.PersistentClient("/data/vectors")
+docs = client.collection(entries[0].vault) if entries else None
 missing = [rid for rid in acked - erased
-           if vault is not None and vault.fetch(rid) is None]
+           if docs is not None and not docs.get([rid])]
 if missing:
     raise SystemExit(f"{len(missing)} acknowledged writes lost")
 print("recovered cleanly;", len(acked - erased), "live writes")`}
@@ -97,14 +105,22 @@ print("recovered cleanly;", len(acked - erased), "live writes")`}
 
       <h2 id="eql-ast">EQL AST API</h2>
       <p>
-        The EQL AST API allows you to parse, validate, and tokenize EQL (ELIPS Query Language) statements without executing them.
+        The EQL AST API lets you parse, validate, and tokenize EQL (ELIPS Query
+        Language) statements without executing them. The parse entry points live
+        at the top level, while the AST node types live under{" "}
+        <code>elips.query</code>.
       </p>
       <ul>
         <li><code>parse_eql(source: str) -&gt; Statement</code> — Parses the query string and returns an AST root node. Raises <code>ParseError</code> on syntax failure.</li>
         <li><code>validate_eql(source: str) -&gt; None</code> — Validates the syntax without constructing the full AST tree.</li>
         <li><code>tokenize_eql(source: str) -&gt; list[Token]</code> — Lexes the source into tokens.</li>
       </ul>
-      
+      <p>
+        EQL is a small, lowercase, expression-oriented DSL — not SQL. Bindings
+        are referenced with <code>$name</code> and supplied as{" "}
+        <code>bindings={"{"}"name": vector{"}"}</code>.
+      </p>
+
       <p>A <code>Token</code> contains:</p>
       <ul>
         <li><code>kind</code> (<code>TokenKind</code>: <code>word</code>, <code>number</code>, <code>string</code>, <code>punct</code>, or <code>end</code>)</li>
@@ -113,43 +129,43 @@ print("recovered cleanly;", len(acked - erased), "live writes")`}
         <li><code>is_integer</code> (<code>bool</code>)</li>
       </ul>
 
-      <p>The <code>Statement</code> returned by <code>parse_eql</code> is a union of one of the following classes:</p>
-      
-      <h3>SearchStatement</h3>
+      <p>The <code>Statement</code> returned by <code>parse_eql</code> is a union of one of the following classes (all under <code>elips.query</code>):</p>
+
+      <h3>SearchStatement <span className="text-ink/50">— verb <code>search</code></span></h3>
       <ul>
-        <li><code>vault</code> (<code>str</code>)</li>
+        <li><code>collection</code> (<code>str</code>)</li>
         <li><code>query</code> (<code>VectorRef</code>)</li>
-        <li><code>top</code> (<code>Optional[int]</code>)</li>
+        <li><code>k</code> (<code>Optional[int]</code>) — result count (the <code>k</code> clause)</li>
         <li><code>threshold</code> (<code>Optional[float]</code>)</li>
         <li><code>where</code> (<code>Filter</code>)</li>
         <li><code>rank_by</code> (<code>Optional[str]</code>)</li>
         <li><code>projection</code> (<code>list[str]</code>)</li>
       </ul>
 
-      <h3>FetchStatement</h3>
+      <h3>GetStatement <span className="text-ink/50">— verb <code>get from</code></span></h3>
       <ul>
-        <li><code>vault</code> (<code>str</code>)</li>
+        <li><code>collection</code> (<code>str</code>)</li>
         <li><code>id</code> (<code>str</code>)</li>
       </ul>
 
-      <h3>ScanStatement</h3>
+      <h3>ScanStatement <span className="text-ink/50">— verb <code>scan</code></span></h3>
       <ul>
-        <li><code>vault</code> (<code>str</code>)</li>
+        <li><code>collection</code> (<code>str</code>)</li>
         <li><code>where</code> (<code>Filter</code>)</li>
         <li><code>offset</code> (<code>Optional[int]</code>)</li>
         <li><code>limit</code> (<code>Optional[int]</code>)</li>
       </ul>
 
-      <h3>InsertStatement</h3>
+      <h3>AddStatement <span className="text-ink/50">— verb <code>add in</code></span></h3>
       <ul>
-        <li><code>vault</code> (<code>str</code>)</li>
+        <li><code>collection</code> (<code>str</code>)</li>
         <li><code>vector</code> (<code>VectorRef</code>)</li>
-        <li><code>data</code> (<code>dict</code>)</li>
+        <li><code>metadata</code> (<code>dict</code>)</li>
       </ul>
 
-      <h3>DeleteStatement</h3>
+      <h3>DeleteStatement <span className="text-ink/50">— verb <code>delete from</code></span></h3>
       <ul>
-        <li><code>vault</code> (<code>str</code>)</li>
+        <li><code>collection</code> (<code>str</code>)</li>
         <li><code>id</code> (<code>str</code>)</li>
       </ul>
 
@@ -163,22 +179,22 @@ print("recovered cleanly;", len(acked - erased), "live writes")`}
       </p>
       <CodeBlock lang="python">
 {`import elips
-MAX_TOP = 100
+MAX_K = 100
 
 def check(query: str) -> None:
     stmt = elips.parse_eql(query)  # raises ParseError on bad syntax
-    if isinstance(stmt, elips.SearchStatement):
-        if stmt.top is None or stmt.top > MAX_TOP:
-            raise ValueError(f"seek needs top <= {MAX_TOP}")
+    if isinstance(stmt, elips.query.SearchStatement):
+        if stmt.k is None or stmt.k > MAX_K:
+            raise ValueError(f"search needs k <= {MAX_K}")
         if stmt.where.matches_all():
-            raise ValueError("seek needs a where clause")
+            raise ValueError("search needs a where clause")
         if stmt.where.exact_constraints() is None:
             raise ValueError("where clause is not index-accelerable")
-    elif isinstance(stmt, elips.ScanStatement):
+    elif isinstance(stmt, elips.query.ScanStatement):
         if stmt.limit is None:
             raise ValueError("scan needs a limit")
 
-check('seek in docs nearest $q top 10 where tenant = "acme" yield')`}
+check('search in docs nearest $q k 10 where tenant = "acme" yield')`}
       </CodeBlock>
 
       <h2 id="index-snapshots">Index Snapshots API</h2>
@@ -235,10 +251,7 @@ check('seek in docs nearest $q top 10 where tenant = "acme" yield')`}
 
       <h2 id="metric-utilities">Metric Utilities</h2>
       <ul>
-        <li><code>distance(metric, a, b) -&gt; float</code> — Computes the ordering-normalized distance between two vectors according to the specified metric.</li>
-        <li><code>requires_normalization(metric) -&gt; bool</code> — Returns <code>True</code> only for the cosine metric.</li>
-        <li><code>metric_to_string(metric) -&gt; str</code> — Returns the string name for a given <code>Metric</code>.</li>
-        <li><code>metric_from_string(name) -&gt; Metric</code> — Returns the corresponding <code>Metric</code> enum from its string name.</li>
+        <li><code>distance(metric, a, b) -&gt; float</code> — Computes the ordering-normalized distance between two vectors according to the specified metric (<code>"cosine"</code>, <code>"euclidean"</code>, or <code>"dot_product"</code>). A smaller value always means "closer", matching how <code>Hit.distance</code> is ranked.</li>
       </ul>
     </DocsShell>
   );

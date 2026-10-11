@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/api")({
       {
         name: "description",
         content:
-          "The Python and C++ API reference for ELIPS — Database, Vault, Config, Filter, QueryPlan, and the modern wrapper.",
+          "The Python and C++ API reference for ELIPS — Client, Collection, the FAISS Index API, Config, Filter, and QueryPlan.",
       },
       { property: "og:title", content: "API reference — ELIPS" },
       { property: "og:description", content: "ELIPS Python and C++ API reference." },
@@ -48,9 +48,10 @@ function Page() {
       eyebrow="Reference"
       title="API reference"
       toc={[
-        { id: "open", label: "open / connect" },
-        { id: "engine", label: "Engine / Database" },
-        { id: "vault", label: "Vault / Arena" },
+        { id: "open", label: "Client / PersistentClient" },
+        { id: "engine", label: "Client / Database" },
+        { id: "vault", label: "Collection" },
+        { id: "index", label: "Index (FAISS)" },
         { id: "filter", label: "Filter" },
         { id: "plan", label: "QueryPlan" },
         { id: "types", label: "Types" },
@@ -58,85 +59,110 @@ function Page() {
       ]}
     >
       <p className="text-[18px] text-ink">
-        ELIPS exposes two Python surfaces over the same C++ core. The low-level bindings mirror C++
-        1:1; the modern wrapper adds a typed, text-first surface around <code>RecordInput</code>,{" "}
-        <code>Row</code>, and <code>Hit</code>.
+        ELIPS exposes two Python surfaces over the same C++ core. The high-level, Chroma-style
+        surface is <code>Client</code> / <code>Collection</code> around <code>RecordInput</code>,{" "}
+        <code>Row</code>, and <code>Hit</code>; the FAISS-style <code>Index</code> API offers raw
+        array search. The native handles mirror C++ 1:1 under <code>client.native</code>.
       </p>
 
-      <h2 id="open">open / connect</h2>
+      <h2 id="open">Client / PersistentClient</h2>
       <Sig
-        name="elips.open"
-        py='elips.open(path: str, *, dimension: int, metric: str = "cosine", index: str = "graph", access_mode: str = "read_write", use_default_text_embedder: bool = True) -> Database'
-        cpp="elips::open(std::string path, elips::Config cfg) -> std::unique_ptr<ElipsInstance>"
+        name="elips.Client / PersistentClient"
+        py='elips.Client(*, dimension: int, metric: str = "cosine", index: str = "graph", ...) ; elips.PersistentClient(path: str, *, dimension: int, ...)'
+        cpp="elips::open(std::string path, elips::Config cfg) -> std::unique_ptr<elips::Database>"
       />
       <Sig
-        name="elips.connect (modern)"
-        py='elips.connect(path: str, *, dimension: int, metric: str = "cosine", embedder: Callable | None = None) -> Engine'
+        name="elips.connect (deprecated shim)"
+        py='elips.connect(path: str, *, dimension: int = 0, metric: str = "cosine", index: str = "graph", embedder=None, device=None) -> Engine'
       />
       <p>
-        <code>open</code> takes durable identity (dimension, metric, index) plus runtime config
-        (access mode, embedders). <code>connect</code> wraps <code>open</code> with the modern{" "}
-        <code>Engine</code>.
+        <code>Client</code> opens an in-memory database; <code>PersistentClient</code> opens one on
+        disk. Both subclass <code>Engine</code> and carry the Chroma client surface. The pre-1.1{" "}
+        <code>connect</code> / <code>open</code> openers remain as deprecated shims.
       </p>
 
-      <h2 id="engine">Engine / Database</h2>
+      <h2 id="engine">Client / Database</h2>
       <Sig
-        name="Database.vault"
-        py="db.vault(name: str) -> Vault"
-        cpp="ElipsInstance::vault(std::string name) -> Vault&"
+        name="Client.get_or_create_collection"
+        py="client.get_or_create_collection(name: str, *, embedder=None) -> Collection"
+        cpp="elips::Database::collection(std::string name) -> Collection&"
       />
       <Sig
-        name="Database.query"
-        py="db.query(eql: str, *, bindings: dict | None = None) -> list[Row]"
-        cpp="ElipsInstance::query(std::string eql, std::map<std::string, Vector> bindings) -> std::vector<Row>"
+        name="Client collection management"
+        py="client.create_collection(name); client.get_collection(name); client.list_collections() -> list[str]"
       />
       <Sig
-        name="Database.begin_transaction"
-        py="db.begin_transaction() -> Transaction"
-        cpp="ElipsInstance::begin_transaction() -> Transaction"
+        name="Client.query_eql"
+        py="client.query_eql(eql: str, bindings: dict | None = None) -> list[Row]"
+        cpp="elips::Database::query(std::string eql, std::map<std::string, Vector> bindings) -> std::vector<Row>"
       />
       <Sig
-        name="Database.checkpoint / compact / close"
-        py="db.checkpoint(); db.compact(); db.close()"
+        name="Client.checkpoint / compact / vacuum / close"
+        py="client.checkpoint(); client.compact(); client.vacuum(); client.close()"
         cpp="db->checkpoint(); db->compact(); db->close();"
       />
+      <p>
+        Transactions live on the native handle:{" "}
+        <code>client.native.begin_transaction()</code> (C++{" "}
+        <code>elips::Database::begin_transaction()</code>).
+      </p>
 
-      <h2 id="vault">Vault / Arena</h2>
+      <h2 id="vault">Collection</h2>
       <CodeBlock lang="python">
-        {`# low-level
-docs.place(vector, payload, *, document=None, chunk=None, lineage=None)
-docs.place_document(text, payload, *, lineage=None)
-docs.erase(record_id)
-docs.fetch(record_id) -> Record | None
-docs.scan(*, where=None, offset=0, limit=None) -> list[Record]
-docs.seek(vector, top=10, *, where=None, threshold=None) -> list[SearchResult]
-docs.seek_text(text, top=10, *, where=None) -> list[SearchResult]
-docs.seek_hybrid(vector, text, top=10, *, where=None) -> list[SearchResult]
-docs.explain_seek(vector, top=10, *, where=None, has_text_component=False) -> QueryPlan
-docs.rebuild_index()`}
+        {`# Chroma-style surface
+docs.add(*, ids=None, embeddings=None, documents=None, metadatas=None) -> str | list[str]
+docs.upsert(...)                      # same as add
+docs.update(*, ids, embeddings=None, documents=None, metadatas=None) -> list[str]
+docs.get(ids=None, *, where=None, limit=None, offset=0, include=None) -> list[Row]
+docs.delete(ids=None, *, where=None) -> int
+docs.query(query_embeddings=None, query_texts=None, *, n_results=10,
+           where=None, include=None, max_distance=None, lexical_weight=0.25)
+           -> list[Hit] | list[list[Hit]]
+docs.count() -> int
+docs.peek(n=10) -> list[Row]
+# ELIPS extensions
+docs.explain(vector, *, top=10, where=None) -> QueryPlan
+docs.health() -> CollectionHealth
+docs.vacuum(); docs.rebuild(); docs.freeze(); docs.compress()`}
       </CodeBlock>
+      <CodeBlock lang="cpp">
+        {`// C++ Collection (renamed from Vault; erase -> remove for the keyword clash)
+docs.add(vector, payload, document, chunk, lineage);
+docs.add_document(text, payload, lineage);
+docs.remove(record_id);
+docs.get(record_id) -> std::optional<Record>;
+docs.scan(where, offset, limit) -> std::vector<Record>;
+docs.search(vector, k, where, threshold) -> std::vector<SearchResult>;
+docs.search_text(text, k, where) -> std::vector<SearchResult>;
+docs.hybrid_search(vector, text, k, where) -> std::vector<SearchResult>;
+docs.explain_query(vector, k, where, has_text_component) -> QueryPlan;`}
+      </CodeBlock>
+
+      <h2 id="index">Index (FAISS-style)</h2>
       <CodeBlock lang="python">
-        {`# modern wrapper (Arena)
-arena.write_many(records: list[RecordInput | dict]) -> list[RecordKey]
-arena.pull(keys: list[RecordKey], *, include_vectors: bool = False) -> list[Row]
-arena.probe(vector, top=10, *, where=None) -> list[Hit]
-arena.probe_text(text, top=10, *, where=None) -> list[Hit]
-arena.probe_hybrid(vector, text, top=10, *, where=None) -> list[Hit]
-arena.ingest(texts=[...], meta=[...])  # legacy column shape`}
+        {`index = elips.IndexIVFFlat(d=128, nlist=316, metric="l2")
+index.train(xb); index.add(xb); index.nprobe = 128
+D, I = index.search(xq, k=10)       # distances, int64 labels
+# Constructors: IndexFlat, IndexIVFFlat, IndexIVFPQ, IndexIVFScalarQuantizer,
+#               IndexHNSW, index_factory(d, spec, metric)
+# Exact brute force, no build (GPU builds): elips.bf_knn(xq, xb, k, metric="l2", device="metal")`}
       </CodeBlock>
 
       <h2 id="filter">Filter</h2>
       <CodeBlock lang="python">
         {`f = (elips.Filter()
      .field("kind").equals("design")
-     .and_().field("year").greater_than(2023)
-     .or_().field("country").is_in(["US", "GB", "CA"]))`}
+     .and_(elips.Filter().field("year").gte(2023))
+     .or_(elips.Filter().field("country").is_in(["US", "GB", "CA"])))
+
+hits = docs.query(query_embeddings=[1.0, 0.0], n_results=10, where=f)`}
       </CodeBlock>
       <p>
-        Comparators: <code>equals</code>, <code>not_equals</code>, <code>less_than</code>,{" "}
-        <code>less_or_equal</code>, <code>greater_than</code>, <code>greater_or_equal</code>,{" "}
-        <code>is_in</code>, <code>contains</code>. Boolean combinators: <code>and_</code>,{" "}
-        <code>or_</code>, <code>not_</code>.
+        Comparators map to <code>eq</code>, <code>ne</code>, <code>lt</code>, <code>le</code>,{" "}
+        <code>gt</code>, <code>ge</code>, <code>gte</code>, plus <code>is_in</code> and{" "}
+        <code>contains</code>. Boolean combinators: <code>and_</code>, <code>or_</code>,{" "}
+        <code>not_</code>. Pass the result as <code>where=</code> to{" "}
+        <code>query</code>/<code>get</code>/<code>delete</code>.
       </p>
 
       <h2 id="plan">QueryPlan</h2>
@@ -162,7 +188,7 @@ arena.ingest(texts=[...], meta=[...])  # legacy column shape`}
               <code>metadata_accelerated</code>
             </td>
             <td>
-              Whether the planner narrowed via <code>MetadataIndex</code>.
+              Whether the planner narrowed via the metadata filter index.
             </td>
           </tr>
           <tr>
@@ -192,15 +218,24 @@ arena.ingest(texts=[...], meta=[...])  # legacy column shape`}
           <code>EmbeddingLineage(provider, model, revision, attributes={})</code>
         </li>
         <li>
-          <code>SearchResult(id, distance, payload, document?, chunk?, lineage?)</code>
+          <code>SearchResult</code> (C++) — <code>id</code>, <code>distance</code>,{" "}
+          <code>payload</code>, <code>document?</code>, <code>chunk?</code>, <code>lineage?</code>,{" "}
+          <code>codec</code>.
         </li>
         <li>
           <code>
-            RecordInput(text=..., vector=..., meta=..., document=..., chunk=..., lineage=...)
+            RecordInput(vector=..., text=..., meta=..., key=..., document=..., chunk=..., lineage=...)
           </code>
         </li>
         <li>
-          <code>Hit(key, distance, text, meta, vector?, document?)</code>
+          <code>Row(key, meta, document?, vector?, chunk?, lineage?)</code> — <code>.text</code>{" "}
+          aliases <code>document.text</code>.
+        </li>
+        <li>
+          <code>Hit(key, distance, meta, document?, vector?, chunk?, lineage?)</code>.
+        </li>
+        <li>
+          <code>CollectionHealth(name, live, pending_removals, dimension, metric, read_only, sealed, codec, code_bytes)</code>
         </li>
       </ul>
 

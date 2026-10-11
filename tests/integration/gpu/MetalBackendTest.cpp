@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "elips/gpu_engine/GpuDeviceManager.hpp"
-#include "elips/gpu_engine/GpuSelector.hpp"
+#include "elips/gpu_engine/BackendSelector.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
 #include "elips/gpu_engine/GpuBruteForceIndex.hpp"
 #include "elips/gpu_engine/GpuGraphIndex.hpp"
 #include "elips/gpu_engine/GpuSearchPipeline.hpp"
 #include "elips/domain/Vector.hpp"
 #include "elips/domain/RecordID.hpp"
-#include "elips/index_engine/ExactIndex.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
 #include "elips/vector_engine/Metrics.hpp"
 
 namespace elips::gpu {
@@ -19,7 +19,7 @@ protected:
     void SetUp() override {
         GpuDeviceManager manager;
         auto devices = manager.probe_all_devices();
-        GpuSelector selector;
+        BackendSelector selector;
         GpuConfig config;
         config.policy = GpuPolicy::Auto;
         auto sel = selector.select(config, devices);
@@ -28,7 +28,7 @@ protected:
         }
     }
 
-    std::unique_ptr<GpuPort> backend_;
+    std::unique_ptr<GpuBackend> backend_;
 };
 
 TEST_F(GpuBackendIntegrationTest, initialize_succeeds) {
@@ -38,7 +38,7 @@ TEST_F(GpuBackendIntegrationTest, initialize_succeeds) {
 
 TEST(GpuBackendLifecycleTest, repeated_selection_reports_non_empty_device_metadata) {
     GpuDeviceManager manager;
-    GpuSelector selector;
+    BackendSelector selector;
     GpuConfig config;
     config.policy = GpuPolicy::Auto;
 
@@ -179,7 +179,7 @@ TEST_F(GpuBackendIntegrationTest, brute_force_index_search) {
     auto build = index.build_from_batch(all_vectors, ids, GpuIndexBuildParams{});
     ASSERT_TRUE(build.has_value());
 
-    EXPECT_EQ(index.size(), 3u);
+    EXPECT_EQ(index.ntotal(), 3u);
 
     std::vector<float> query = {1.0f, 0.0f, 0.0f};
     auto results = index.search(query, 3);
@@ -196,9 +196,9 @@ TEST_F(GpuBackendIntegrationTest, brute_force_index_replace_same_id_is_stable) {
 
     const RecordID id = RecordID::generate();
 
-    index.insert(id, std::vector<float>{1.0f, 0.0f});
+    index.add_with_ids(id, std::vector<float>{1.0f, 0.0f});
     index.remove(id);
-    index.insert(id, std::vector<float>{0.0f, 1.0f});
+    index.add_with_ids(id, std::vector<float>{0.0f, 1.0f});
 
     const auto results = index.search(std::vector<float>{0.0f, 1.0f}, 1);
     ASSERT_EQ(results.size(), 1u);

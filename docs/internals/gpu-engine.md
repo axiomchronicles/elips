@@ -4,32 +4,33 @@ Exhaustive documentation of the GPU acceleration subsystem, covering the abstrac
 
 ## Architecture Overview
 
-The GPU engine is an optional, compile-time-selectable layer that accelerates vector distance computation and approximate nearest neighbor search. It follows a **Ports & Adapters** pattern: the `GpuPort` abstract interface defines the contract, and backend-specific implementations (Metal, CUDA, HIP, SYCL, Vulkan) fulfill it.
+The GPU engine is an optional, compile-time-selectable layer that accelerates vector distance computation and approximate nearest neighbor search. It follows a **Ports & Adapters** pattern: the `GpuBackend` abstract interface defines the contract, and backend-specific implementations (Metal, CUDA, HIP) fulfill it. Metal is hardware-validated; CUDA and HIP are experimental and not yet hardware-validated.
 
 ```
 +--------------------------------------------------------------+
 |  elips_core (Database.cpp)                                   |
 |    GpuDeviceManager::probe_all_devices()                     |
-|    GpuSelector::select(config, devices)                      |
+|    BackendSelector::select(config, devices)                      |
 +--------------------------------------------------------------+
         │
         ▼
 +--------------------------------------------------------------+
 |  elips_gpu (static library)                                  |
 |  +--------------------------------------------------------+  |
-|  | GpuPort (abstract interface)                           |  |
+|  | GpuBackend (abstract interface)                        |  |
 |  +--------------------------------------------------------+  |
-|  | GpuMemoryPort, GpuKernelPort, GpuStreamPort            |  |
+|  | GpuMemoryPort (pool allocator interface)               |  |
 |  +--------------------------------------------------------+  |
-|  | GpuDeviceManager, GpuSelector                          |  |
+|  | GpuDeviceManager, BackendSelector                      |  |
 |  +--------------------------------------------------------+  |
 |  | GpuMemoryManager, GpuMemoryPool                        |  |
 |  +--------------------------------------------------------+  |
-|  | GpuIndexPort + implementations                         |  |
+|  | GpuIndex + implementations                             |  |
 |  |   GpuBruteForceIndex, GpuGraphIndex                    |  |
 |  |   GpuIVFFlatIndex, GpuIVFPQIndex, GpuHybridIndex       |  |
+|  |   GpuDistributedIndex                                  |  |
 |  +--------------------------------------------------------+  |
-|  | DynamicBatcher, GpuSearchPipeline                      |  |
+|  | QueryBatcher, GpuSearchPipeline                        |  |
 |  | GpuQuantizationPipeline, GpuIngestionPipeline          |  |
 |  | GpuProfiler                                            |  |
 |  +--------------------------------------------------------+  |
@@ -38,17 +39,24 @@ The GPU engine is an optional, compile-time-selectable layer that accelerates ve
         ▼
 +--------------------------------------------------------------+
 |  Backend Libraries                                           |
-|  elips_gpu_metal  → MetalBackend.mm  + Metal/MPS/Foundation |
-|  elips_gpu_cuda   → CudaBackend.cpp  + CUDA toolkit         |
-|  elips_gpu_hip    → HipBackend.cpp   + ROCm/HIP             |
-|  elips_gpu_sycl   → SyclBackend.cpp  + oneAPI/SYCL          |
-|  elips_gpu_vulkan → VulkanBackend.cpp + Vulkan SDK          |
+|  elips_gpu_metal  → MetalBackend.mm  + Metal/MPS/Foundation |  (validated)
+|  (experimental)   → CudaBackend.cu   + CUDA toolkit         |
+|  (experimental)   → HipBackend.hip   + ROCm/HIP             |
 +--------------------------------------------------------------+
 ```
 
-## 1. GpuPort — Abstract Backend Interface
+> **Status / maturity.** The CPU engine is the stable default. On GPU, the
+> **Metal** backend is hardware-validated (Apple Silicon). **CUDA** and **HIP**
+> are *experimental*: they compile and are container-tested but are not
+> hardware-validated, and ship build-from-source only (no wheels).
+>
+> **Renamed in v1.1 (Phase 5).** `GpuPort`→`GpuBackend`, `GpuIndexPort`→`GpuIndex`,
+> `GpuSelector`→`BackendSelector`, `DynamicBatcher`→`QueryBatcher`. Old names
+> remain as `[[deprecated]]` aliases for one minor; see `MIGRATION.md`.
 
-`GpuPort` is the base class for all GPU backend adapters, defined in `include/elips/gpu_engine/GpuPort.hpp`. It declares 13 pure virtual methods:
+## 1. GpuBackend — Abstract Backend Interface
+
+`GpuBackend` is the base class for all GPU backend adapters, defined in `include/elips/gpu_engine/GpuBackend.hpp` (namespace `elips::gpu`). It declares 13 virtual methods — 12 pure, plus a defaulted `ivf_scan` that a backend overrides only if it has a GPU IVF-scan kernel:
 
 ### Initialization and Lifecycle
 
@@ -78,11 +86,13 @@ virtual void shutdown() noexcept = 0;
 [[nodiscard]] virtual std::expected<GpuBuffer, GpuError>
 allocate_device(size_t bytes) = 0;
 
-virtual void free_device(GpuBuffer&& buf) noexcept = 0;
+// Consumes the buffer by value so an ownership-transfer call site clears its
+// moved-from state before any repeated cleanup path runs.
+virtual void free_device(GpuBuffer buf) noexcept = 0;
 ```
 
 - `allocate_device(bytes)`: Allocates `bytes` on the GPU device. Returns a `GpuBuffer` wrapping a `void* device_ptr` and an opaque `void* backend_handle` (e.g., `MTLBuffer*` for Metal, `CUdeviceptr` for CUDA).
-- `free_device(buf)`: Releases a device buffer. Takes by rvalue-reference to transfer ownership.
+- `free_device(buf)`: Releases a device buffer. Takes the buffer **by value** to transfer ownership (changed from the old rvalue-reference signature).
 
 ### Data Transfer
 
@@ -123,6 +133,22 @@ top_k(
 ```
 
 Selects the top-k smallest distances for each query row from a pre-computed distance matrix. Results are written to `indices_out` and `values_out` (row-major, `nq * k` each).
+
+### IVF List-Scan (optional)
+
+```cpp
+[[nodiscard]] virtual std::expected<void, GpuError>
+ivf_scan(
+    std::span<const float> query,
+    std::span<const float> candidate_vectors,
+    std::span<const uint32_t> list_offsets,
+    std::span<uint32_t> indices_out,
+    std::span<float> values_out,
+    size_t nlists, size_t ncand, size_t dim, size_t k,
+    elips::Metric metric);   // defaulted: returns unexpected(BackendUnavailable)
+```
+
+GPU IVF list-scan + top-k in two passes (per-list scan then merge). `candidate_vectors` is the host-gathered probed lists laid out contiguously; `list_offsets` (size `nlists+1`) bounds each list's rows; the index written to `indices_out` is the global candidate row, which the caller maps back to a record id. This is the **only non-pure** method on `GpuBackend`: the base definition returns `std::unexpected(GpuError::BackendUnavailable)`, so a backend without an IVF-scan kernel is left untouched and the IVF index falls back to its generic scan path.
 
 ### Synchronization
 
@@ -167,44 +193,19 @@ class GpuMemoryPort {
 };
 ```
 
-Higher-level memory management interface. Adds alignment support, pinned (page-locked) host memory, and usage tracking compared to bare `GpuPort` allocation.
+Higher-level memory management interface. Adds alignment support, pinned (page-locked) host memory, and usage tracking compared to bare `GpuBackend` allocation. `GpuMemoryManager` (section 6) is its only implementer.
 
-### GpuKernelPort
-
-```cpp
-class GpuKernelPort {
-    virtual std::expected<void, GpuError>
-    cosine_fp32(span<const float> queries, span<const float> database,
-                span<float> distances, size_t nq, size_t nb, size_t dim) = 0;
-    virtual std::expected<void, GpuError>
-    euclidean_fp32(span<const float> queries, span<const float> database,
-                   span<float> distances, size_t nq, size_t nb, size_t dim) = 0;
-    virtual std::expected<void, GpuError>
-    dot_product_fp32(span<const float> queries, span<const float> database,
-                     span<float> distances, size_t nq, size_t nb, size_t dim) = 0;
-};
-```
-
-Specialized interface for individual kernel launches. Each metric has its own function, enabling backend-specific shader/kernel dispatch.
-
-### GpuStreamPort
-
-```cpp
-class GpuStreamPort {
-    virtual std::expected<void, GpuError> synchronize() = 0;
-    virtual bool is_complete() const noexcept = 0;
-    virtual void wait_for_completion() = 0;
-};
-```
-
-Stream-level synchronization interface for async execution patterns.
+> Two further port headers — `GpuKernelPort` and `GpuStreamPort` — still exist in
+> the tree but have **zero implementers** and are not wired into any backend or
+> index. They are vestigial and intentionally undocumented here; treat
+> `GpuBackend` as the complete backend contract.
 
 ## 3. GpuDeviceManager
 
 ```cpp
 class GpuDeviceManager {
     std::vector<GpuDeviceInfo> probe_all_devices() const;
-    std::optional<std::unique_ptr<GpuPort>> select(const GpuConfig&, const vector<GpuDeviceInfo>&) const;
+    std::optional<std::unique_ptr<GpuBackend>> select(const GpuConfig&, const vector<GpuDeviceInfo>&) const;
     bool can_fit_index(const GpuDeviceInfo&, size_t n_vectors, size_t dim, const GpuConfig&) const;
 };
 ```
@@ -216,8 +217,6 @@ The probing order is determined at compile time by `#if defined()` guards:
 1. **Metal** (`__APPLE__ && ELIPS_METAL_ENABLED`): Creates a `metal::MetalBackend`, calls `initialize()`, extracts `device_info()`, calls `shutdown()`.
 2. **CUDA** (`ELIPS_CUDA_ENABLED`): Same probe pattern with `cuda::CudaBackend`.
 3. **HIP** (`ELIPS_HIP_ENABLED`): Same with `hip::HipBackend`.
-4. **SYCL** (`ELIPS_SYCL_ENABLED`): Same with `sycl::SyclBackend`.
-5. **Vulkan** (`ELIPS_VULKAN_ENABLED`): Same with `vulkan::VulkanBackend`.
 
 Each probe is wrapped in a try-catch to handle initialization failures gracefully.
 
@@ -247,11 +246,11 @@ if (algorithm == CagraGraph) {
 return dev.free_device_memory_bytes > required;
 ```
 
-## 4. GpuSelector
+## 4. BackendSelector
 
 ```cpp
-class GpuSelector {
-    std::optional<std::unique_ptr<GpuPort>>
+class BackendSelector {
+    std::optional<std::unique_ptr<GpuBackend>>
     select(const GpuConfig& config, const std::vector<GpuDeviceInfo>& devices) const;
 private:
     int rank_backend(std::string_view backend) const noexcept;
@@ -265,8 +264,6 @@ private:
 | `"cuda"` | **100** | Highest performance, most mature ecosystem, CAGRA support |
 | `"hip"` | **90** | AMD ROCm, comparable to CUDA for supported GPUs |
 | `"metal"` | **80** | Native Apple GPU, excellent for unified memory architectures |
-| `"sycl"` | **50** | Intel oneAPI, cross-vendor but less mature for ANN |
-| `"vulkan"` | **30** | Cross-platform compute, highest abstraction overhead |
 | `"cpu"` | **0** | CPU SIMD fallback (no GPU) |
 
 ### select() Policy Logic
@@ -350,7 +347,7 @@ struct LiveBlock {
 };
 
 class GpuMemoryManager : public GpuMemoryPort {
-    GpuPort& backend_;                   // backend for raw allocations
+    GpuBackend& backend_;                   // backend for raw allocations
     size_t pool_bytes_{0};               // total pool capacity (80% of device memory)
     size_t allocated_{0};                // currently allocated
     size_t peak_allocated_{0};           // peak usage
@@ -469,7 +466,7 @@ A fixed-size pool that acquires a single large device buffer at construction and
 
 ```cpp
 class GpuMemoryPool {
-    GpuPort& backend_;
+    GpuBackend& backend_;
     GpuBuffer pool_buffer_;         // single large allocation
     size_t total_bytes_;
     std::vector<Block> blocks_;     // tracking (free/used) sub-blocks
@@ -532,12 +529,12 @@ available() → sum of all free block bytes
 used() → total_bytes_ - available()
 ```
 
-## 8. GpuIndexPort and Implementations
+## 8. GpuIndex and Implementations
 
-`GpuIndexPort` extends `elips::IndexPort` with GPU-specific batch operations:
+`GpuIndex` extends `elips::Index` with GPU-specific batch operations:
 
 ```cpp
-class GpuIndexPort : public elips::IndexPort {
+class GpuIndex : public elips::Index {
     virtual std::expected<void, GpuError>
     build_from_batch(span<const float> vectors, span<const RecordID> ids,
                      const GpuIndexBuildParams& params) = 0;
@@ -546,10 +543,10 @@ class GpuIndexPort : public elips::IndexPort {
     search_batch(span<const float> queries, size_t k, size_t ef_search) const = 0;
 
     virtual std::expected<void, GpuError>
-    export_to_cpu_index(IndexPort& cpu_index_out) const = 0;
+    export_to_cpu_index(Index& cpu_index_out) const = 0;
 
     virtual std::expected<void, GpuError>
-    import_from_cpu_index(const IndexPort& cpu_index) = 0;
+    import_from_cpu_index(const Index& cpu_index) = 0;
 
     virtual size_t device_bytes_used() const noexcept = 0;
     virtual std::string_view backend_name() const noexcept = 0;
@@ -559,8 +556,8 @@ class GpuIndexPort : public elips::IndexPort {
 ### GpuBruteForceIndex
 
 ```cpp
-class GpuBruteForceIndex final : public GpuIndexPort {
-    GpuPort& backend_;
+class GpuBruteForceIndex final : public GpuIndex {
+    GpuBackend& backend_;
     Metric metric_;
     uint16_t dimension_;
     GpuBuffer database_buffer_;          // device-side vector data
@@ -572,13 +569,13 @@ class GpuBruteForceIndex final : public GpuIndexPort {
 - **Exact search on GPU**: Stores vectors in a single device buffer. `search()` calls `compute_distances_batch()` then `top_k()`.
 - **type_name()**: Returns `"gpu_brute_force"`.
 - **Build**: `build_from_batch()` uploads all vectors to the device buffer in one transfer.
-- **Export/Import**: Can sync with a CPU `ExactIndex`.
+- **Export/Import**: Can sync with a CPU `IndexFlat`.
 
 ### GpuGraphIndex (CAGRA)
 
 ```cpp
-class GpuGraphIndex final : public GpuIndexPort {
-    GpuPort& backend_;
+class GpuGraphIndex final : public GpuIndex {
+    GpuBackend& backend_;
     Metric metric_;
     uint16_t dimension_;
     size_t count_{0};
@@ -594,8 +591,8 @@ class GpuGraphIndex final : public GpuIndexPort {
 ### GpuIVFFlatIndex
 
 ```cpp
-class GpuIVFFlatIndex final : public GpuIndexPort {
-    GpuPort& backend_;
+class GpuIVFFlatIndex final : public GpuIndex {
+    GpuBackend& backend_;
     Metric metric_;
     uint16_t dimension_;
     size_t n_lists_{1024};               // number of IVF clusters
@@ -609,8 +606,8 @@ class GpuIVFFlatIndex final : public GpuIndexPort {
 ### GpuIVFPQIndex
 
 ```cpp
-class GpuIVFPQIndex final : public GpuIndexPort {
-    GpuPort& backend_;
+class GpuIVFPQIndex final : public GpuIndex {
+    GpuBackend& backend_;
     Metric metric_;
     uint16_t dimension_;
     size_t n_lists_{1024};
@@ -627,10 +624,10 @@ class GpuIVFPQIndex final : public GpuIndexPort {
 ### GpuHybridIndex
 
 ```cpp
-class GpuHybridIndex final : public GpuIndexPort {
-    GpuPort& backend_;
-    std::unique_ptr<IndexPort> cpu_index_;    // CPU fallback (HNSW or ExactIndex)
-    std::unique_ptr<GpuIndexPort> gpu_index_; // GPU primary
+class GpuHybridIndex final : public GpuIndex {
+    GpuBackend& backend_;
+    std::unique_ptr<Index> cpu_index_;    // CPU fallback (HNSW or IndexFlat)
+    std::unique_ptr<GpuIndex> gpu_index_; // GPU primary
     Metric metric_;
     uint16_t dimension_;
 };
@@ -641,12 +638,12 @@ class GpuHybridIndex final : public GpuIndexPort {
 - **Synchronization**: `export_to_cpu_index()` and `import_from_cpu_index()` keep both indices in sync.
 - **Use case**: `IndexBuildMode::Hybrid` — GPU accelerates queries for large indices while CPU provides guaranteed availability.
 
-## 9. DynamicBatcher
+## 9. QueryBatcher
 
 Coalesces individual search queries into batches for higher GPU throughput.
 
 ```cpp
-class DynamicBatcher {
+class QueryBatcher {
     size_t window_us_;                // max wait time before processing (default 500μs)
     size_t max_batch_;                // max queries per batch (default 256)
     std::vector<PendingQuery> pending_;
@@ -712,7 +709,7 @@ Orchestrates a complete batch search pipeline:
 
 ```cpp
 class GpuSearchPipeline {
-    GpuPort& backend_;
+    GpuBackend& backend_;
     
     batch_search(queries, nq, database, db_ids, nb, dim, k, metric)
       → vector<vector<SearchResult>>
@@ -734,7 +731,7 @@ Handles Product Quantization codebook training and encoding:
 
 ```cpp
 class GpuQuantizationPipeline {
-    GpuPort& backend_;
+    GpuBackend& backend_;
     
     train_pq_codebook(training_vectors, n, dim, pq_dim, n_lists, codebook_out)
       → std::expected<void, GpuError>
@@ -753,7 +750,7 @@ Pre-processing pipeline for data ingestion:
 
 ```cpp
 class GpuIngestionPipeline {
-    GpuPort& backend_;
+    GpuBackend& backend_;
     
     normalize_batch(vectors, n, dim)
       → std::expected<void, GpuError>
@@ -790,20 +787,17 @@ class GpuProfiler {
 - **Atomic counter**: `total_launches_` tracks lifetime kernel launch count.
 - **Enabled via config**: `GpuConfig::enable_profiling` and `emit_kernel_timings`.
 
-## 14. CUDA/HIP/SYCL/Vulkan Stubs
+## 14. CUDA/HIP Backends (experimental)
 
-Each non-Metal backend has a stub implementation in its respective directory:
+Each non-Metal backend lives in its own directory under `src/gpu_engine/backends/`:
 
 ```
 backends/
-  cuda/CudaBackend.cpp      → implements GpuPort via CUDA Runtime API
-  hip/HipBackend.cpp        → implements GpuPort via HIP API (ROCm)
-  sycl/SyclBackend.cpp      → implements GpuPort via SYCL 2020
-                            + kernels/cosine_fp32.cpp
-  vulkan/VulkanBackend.cpp  → implements GpuPort via Vulkan Compute
+  cuda/CudaBackend.cu       → implements GpuBackend via the CUDA Runtime API
+  hip/HipBackend.hip        → implements GpuBackend via the HIP API (ROCm)
 ```
 
-All stubs follow the same pattern: they implement the 13 pure virtual methods of `GpuPort` using their respective APIs. The SYCL backend includes separate kernel source files (`kernels/cosine_fp32.cpp`) for device kernels. Each backend is compiled as a separate static library.
+Both implement the `GpuBackend` contract (12 pure methods; `ivf_scan` optional) using their respective APIs, each compiled as a separate library enabled by `-DELIPS_ENABLE_CUDA=ON` / `-DELIPS_ENABLE_ROCM=ON`. Both are **experimental**: compiled and container-tested only, not hardware-validated, and shipped build-from-source (no wheels).
 
 ## 15. Fallback Chain
 
@@ -816,10 +810,10 @@ GPU CAGRA (GpuGraphIndex)
 GPU BruteForce (GpuBruteForceIndex)
     │ failure / too small for GPU
     ▼
-CPU HNSW (HierarchicalGraphIndex)
+CPU HNSW (IndexHNSW)
     │ fallback
     ▼
-CPU ExactIndex (brute-force ground truth)
+CPU IndexFlat (brute-force ground truth)
 ```
 
 ### Fallback Conditions
@@ -864,7 +858,7 @@ Complete GPU configuration structure:
 ```cpp
 struct GpuConfig {
     GpuPolicy policy{Auto};                    // Auto, PreferGpu, RequireGpu, CpuOnly, Specific
-    std::string preferred_backend;             // "metal", "cuda", "hip", "sycl", "vulkan"
+    std::string preferred_backend;             // "metal", "cuda", "hip"
     int32_t device_index{-1};                  // -1 = auto-select
     IndexBuildMode index_build_mode{GpuBuild_GpuServe};
     GpuIndexAlgorithm algorithm{Auto};          // Auto, CagraGraph, IvfFlat, IvfPq, BruteForce

@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "elips/domain/Expected.hpp"
-#include "elips/gpu_engine/GpuIndexPort.hpp"
+#include "elips/gpu_engine/GpuIndex.hpp"
 
 namespace elips::gpu {
 
@@ -17,17 +17,17 @@ enum class DistributedMode {
     shard,
 };
 
-class GpuDistributedIndex final : public GpuIndexPort {
+class GpuDistributedIndex final : public GpuIndex {
 public:
-    GpuDistributedIndex(std::vector<std::unique_ptr<GpuIndexPort>> indexes,
+    GpuDistributedIndex(std::vector<std::unique_ptr<GpuIndex>> indexes,
                         DistributedMode mode);
     ~GpuDistributedIndex() override = default;
 
-    void insert(const RecordID& id, std::span<const float> vector) override;
+    void add_with_ids(const RecordID& id, std::span<const float> vector) override;
     void remove(const RecordID& id) override;
     [[nodiscard]] std::vector<Hit> search(std::span<const float> query,
                                           std::size_t k) const override;
-    [[nodiscard]] std::size_t size() const noexcept override;
+    [[nodiscard]] std::size_t ntotal() const noexcept override;
     [[nodiscard]] std::string_view type_name() const noexcept override;
 
     [[nodiscard]] std::expected<void, GpuError>
@@ -38,10 +38,10 @@ public:
     search_batch(std::span<const float> queries, size_t k, size_t ef_search) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    export_to_cpu_index(elips::IndexPort& cpu_index_out) const override;
+    export_to_cpu_index(elips::Index& cpu_index_out) const override;
 
     [[nodiscard]] std::expected<void, GpuError>
-    import_from_cpu_index(const elips::IndexPort& cpu_index) override;
+    import_from_cpu_index(const elips::Index& cpu_index) override;
 
     [[nodiscard]] size_t device_bytes_used() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
@@ -56,7 +56,7 @@ private:
     [[nodiscard]] std::vector<Hit> merge_hits(
         const std::vector<std::vector<Hit>>& shard_hits, std::size_t k) const;
 
-    std::vector<std::unique_ptr<GpuIndexPort>> indexes_;
+    std::vector<std::unique_ptr<GpuIndex>> indexes_;
     DistributedMode mode_;
     mutable std::atomic<std::size_t> next_replica_{0};
     std::string backend_name_{"distributed"};

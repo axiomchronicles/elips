@@ -2,6 +2,14 @@
 
 Date: 2026-06-16
 
+> **Historical audit (names drifted).** This is a dated record of a specific
+> fix; the narrative is accurate for its date. In current code the names are
+> `GpuBackend` (was `GpuPort`, header `GpuBackend.hpp`), `BackendSelector` (was
+> `GpuSelector`), `Collection` (was `Vault`), and `add(..., id=...)` (was
+> `place(...)`). The by-value `free_device(GpuBuffer)` fix described here is in
+> the current `GpuBackend` interface. For authoritative GPU behavior, see the
+> [GPU guide](../gpu/index.md).
+
 ## Scope
 
 This audit covers the GPU-backed runtime paths exercised by:
@@ -132,8 +140,6 @@ Result:
 | Metal | Yes | Yes | Yes | Yes |
 | CUDA | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
 | HIP | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
-| SYCL | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
-| Vulkan | Yes | Yes | Yes | No, backend is stubbed/incomplete in this repo |
 | CPU fallback | Yes | N/A | N/A | Yes |
 
 Notes:

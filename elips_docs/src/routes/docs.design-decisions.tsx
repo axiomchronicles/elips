@@ -75,12 +75,12 @@ const GPU_ADRS = [
   [
     "GPU-001",
     "Multi-backend strategy",
-    "CUDA, Metal, and a portable fallback live behind GpuPort. Backend selection happens once at startup.",
+    "Backends live behind a GpuBackend abstraction, selected once at startup by BackendSelector. Metal is the implemented path; CUDA and HIP/ROCm are experimental; CPU is the universal fallback.",
   ],
   [
     "GPU-002",
-    "cuVS vs custom kernels",
-    "Custom kernels for distance math, cuVS for graph traversal where it is the right tool.",
+    "Kernels, not external graph libs",
+    "ELIPS ships its own distance and top-k kernels rather than depending on vendor graph libraries. Metal implements distance/top-k; richer GPU index kernels are future work.",
   ],
   [
     "GPU-003",
@@ -94,13 +94,13 @@ const GPU_ADRS = [
   ],
   [
     "GPU-005",
-    "Dynamic batching",
-    "The batcher coalesces concurrent queries into a single launch to amortise kernel overhead.",
+    "Query batching",
+    "QueryBatcher coalesces concurrent single-vector queries into one launch to amortise kernel overhead.",
   ],
   [
     "GPU-006",
     "Apple unified memory",
-    "When the platform offers it, ELIPS skips host↔device copies entirely.",
+    "On Apple silicon ELIPS skips host↔device copies entirely — the Metal backend's main advantage.",
   ],
   [
     "GPU-007",
@@ -110,17 +110,7 @@ const GPU_ADRS = [
   [
     "GPU-008",
     "Fallback chain",
-    "Backend → device → CPU. The runtime always lands on a working path.",
-  ],
-  [
-    "GPU-009",
-    "SYCL portability",
-    "Where SYCL fits, it stays behind the same port — never visible to domain code.",
-  ],
-  [
-    "GPU-010",
-    "Vulkan fallback",
-    "Vulkan compute provides a backstop on platforms without CUDA or Metal.",
+    "Backend → device → CPU. A named-but-absent backend raises BackendUnavailableError unless fallback is requested.",
   ],
 ];
 
@@ -157,6 +147,13 @@ function Page() {
       </div>
 
       <h2>GPU ADRs</h2>
+      <p className="text-body">
+        GPU support is Metal-first: the Metal backend is the implemented, implemented path (Beta, validated on Apple M4) on Apple
+        silicon, CUDA and HIP/ROCm are experimental and off by default, and CPU is always available.
+        SYCL and Vulkan backends were removed. See the{" "}
+        <a href="/docs/gpu/overview" className="text-primary underline">GPU engine overview</a> for
+        the maturity table.
+      </p>
       <div className="not-prose mt-4 grid sm:grid-cols-2 gap-3">
         {GPU_ADRS.map(([id, title, body]) => {
           const file = `ADR-${id}-${title

@@ -4,7 +4,7 @@ The `LockManager` is a lightweight RAII class that enforces the single-writer co
 
 ## Overview
 
-ELIPS permits multiple concurrent readers but only a single writer. This contract is enforced via an advisory file lock on a `LOCK` file within the database directory. The `LockManager` acquires an exclusive, non-blocking lock at database open time and holds it for the lifetime of the `ElipsInstance`.
+ELIPS permits multiple concurrent readers but only a single writer. This contract is enforced via an advisory file lock on a `LOCK` file within the database directory. The `LockManager` acquires an exclusive, non-blocking lock at database open time and holds it for the lifetime of the `Database`.
 
 ## Class Definition
 
@@ -17,10 +17,13 @@ public:
     using ElipsError::ElipsError;
 };
 
+enum class LockMode { exclusive, shared };
+
 class LockManager {
 public:
-    explicit LockManager(const std::string& lock_path);  // acquires exclusive lock
-    ~LockManager();                                       // releases lock
+    explicit LockManager(const std::string& lock_path,
+                         LockMode mode = LockMode::exclusive);  // acquires the lock
+    ~LockManager();                                             // releases lock
 
     LockManager(const LockManager&) = delete;             // non-copyable
     LockManager& operator=(const LockManager&) = delete;
@@ -29,6 +32,7 @@ public:
 
 private:
     int fd_{-1};  // file descriptor for the lock file
+    LockMode mode_{LockMode::exclusive};
 };
 
 } // namespace elips
@@ -86,34 +90,34 @@ LockManager::LockManager(LockManager&& other) noexcept
 ## Use in open()
 
 ```cpp
-std::unique_ptr<ElipsInstance> open(const std::string& path, const Config& config) {
+std::unique_ptr<Database> open(const std::string& path, const Config& config) {
     // ... path validation ...
 
     LockManager lock{(fs::path(path) / lock_file).string()};  // single-writer
 
     // ... identity read/write, snapshot load, WAL replay ...
 
-    auto instance = std::make_unique<ElipsInstance>(path, effective,
-                                                    /*persistent=*/true,
-                                                    std::move(lock));
-    // Lock ownership is transferred to ElipsInstance
+    auto instance = std::make_unique<Database>(path, effective,
+                                               /*persistent=*/true,
+                                               std::move(lock));
+    // Lock ownership is transferred to Database
     return instance;
 }
 ```
 
 The `LockManager` is:
 1. Created on the stack during `open()`.
-2. Moved into `ElipsInstance` (via move constructor that transfers `fd_`).
-3. Released when `ElipsInstance` is destroyed or `close()` is called (`lock_.reset()` triggers the destructor, which unlocks).
+2. Moved into `Database` (via move constructor that transfers `fd_`).
+3. Released when `Database` is destroyed or `close()` is called (`lock_.reset()` triggers the destructor, which unlocks).
 
 ## RAII Guarantees
 
 | Scenario | Lock State |
 |----------|------------|
 | Normal `open()` → `close()` | Lock acquired on open, released on close |
-| `ElipsInstance` destructor | Lock released (destructor calls `~LockManager()` which calls `flock(LOCK_UN)`) |
+| `Database` destructor | Lock released (destructor calls `~LockManager()` which calls `flock(LOCK_UN)`) |
 | Process crash / `SIGKILL` | Lock released by OS (kernel cleans up file descriptors) |
-| Exception during `open()` before `ElipsInstance` is created | Lock released (stack unwinding calls `~LockManager()`) |
+| Exception during `open()` before `Database` is created | Lock released (stack unwinding calls `~LockManager()`) |
 | In-memory database (`":memory:"`) | No lock created (no filesystem path) |
 
 ## Cross-Platform Considerations
@@ -152,14 +156,12 @@ auto db = elips::open("/data/vectors",
 
 - **Shared lock:** `flock(LOCK_SH | LOCK_NB)`. Multiple read-only openers coexist. A write-mode open (holding `LOCK_EX`) blocks new `LOCK_EX` and `LOCK_SH` requests.
 - **No WAL writer:** Read-only instances do not attach a WAL writer. They replay the existing WAL at open to see the latest committed state.
-- **Sealed vaults:** All vaults are immediately marked read-only. `place()`, `erase()`, `rebuild_index()`, and `vacuum()` raise `StorageError`.
+- **Sealed collections:** All collections are immediately marked read-only. `add()`, `remove()`, `rebuild_index()`, and `vacuum()` raise `StorageError`.
 - **No checkpoint on close:** Read-only instances never checkpoint.
 
-```python
-# Python
-reader = elips.open("/data/vectors", elips.Config().access_mode("read_only"))
-results = reader.vault("docs").seek([1.0, 0.0], top=5)
-reader.close()
+```cpp
+auto results = reader->collection("docs").search(elips::Vector{{1.0F, 0.0F}}, 5);
+reader->close();
 ```
 
 Read-only is appropriate for replica servers or analytical workers that run alongside a dedicated write process.
@@ -187,7 +189,7 @@ std::runtime_error
 ```
 
 In Python:
-```python
+```python no-exec
 try:
     db = elips.open("path/to/db")
 except elips.LockConflict as e:

@@ -34,7 +34,7 @@ uint32_t choose_pq_dim(uint16_t dimension, uint32_t configured) noexcept {
     return guess;
 }
 
-std::vector<IndexPort::Hit> exact_rank(GpuPort& backend, elips::Metric metric,
+std::vector<Index::Hit> exact_rank(GpuBackend& backend, elips::Metric metric,
                                        uint16_t dimension,
                                        std::span<const float> query,
                                        const std::vector<RecordID>& ids,
@@ -59,7 +59,7 @@ std::vector<IndexPort::Hit> exact_rank(GpuPort& backend, elips::Metric metric,
         return {};
     }
 
-    std::vector<IndexPort::Hit> hits;
+    std::vector<Index::Hit> hits;
     hits.reserve(take);
     for (std::size_t i = 0; i < take; ++i) {
         if (indices[i] >= ids.size()) {
@@ -72,7 +72,7 @@ std::vector<IndexPort::Hit> exact_rank(GpuPort& backend, elips::Metric metric,
 
 }  // namespace
 
-GpuIVFPQIndex::GpuIVFPQIndex(GpuPort& backend, elips::Metric metric,
+GpuIVFPQIndex::GpuIVFPQIndex(GpuBackend& backend, elips::Metric metric,
                              uint16_t dimension, const GpuConfig& config)
     : backend_(backend),
       metric_(metric),
@@ -147,7 +147,7 @@ std::vector<float> GpuIVFPQIndex::decode_candidate_vector(
     return decoded;
 }
 
-void GpuIVFPQIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuIVFPQIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     state_->insert(backend_, id, vector);
     rebuild_codes();
@@ -158,7 +158,7 @@ void GpuIVFPQIndex::remove(const RecordID& id) {
     rebuild_codes();
 }
 
-std::vector<IndexPort::Hit> GpuIVFPQIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuIVFPQIndex::search(std::span<const float> query,
                                                   std::size_t k) const {
     validate_dimension(query, dimension_, "query");
     if (state_->size() == 0 || k == 0) {
@@ -170,7 +170,7 @@ std::vector<IndexPort::Hit> GpuIVFPQIndex::search(std::span<const float> query,
         candidates = state_->all_candidates();
     } else {
         auto probed =
-            state_->probe_lists(const_cast<GpuPort&>(backend_), query, state_->nprobe());
+            state_->probe_lists(const_cast<GpuBackend&>(backend_), query, state_->nprobe());
         if (!probed.has_value()) {
             candidates = state_->all_candidates();
         } else {
@@ -236,7 +236,7 @@ std::vector<IndexPort::Hit> GpuIVFPQIndex::search(std::span<const float> query,
                       rerank_vectors, k);
 }
 
-std::size_t GpuIVFPQIndex::size() const noexcept { return state_->size(); }
+std::size_t GpuIVFPQIndex::ntotal() const noexcept { return state_->size(); }
 
 std::string_view GpuIVFPQIndex::type_name() const noexcept {
     return "gpu_ivf_pq";
@@ -278,7 +278,7 @@ GpuIVFPQIndex::search_batch(std::span<const float> queries, size_t k,
 }
 
 std::expected<void, GpuError>
-GpuIVFPQIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuIVFPQIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -291,7 +291,7 @@ GpuIVFPQIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
 }
 
 std::expected<void, GpuError>
-GpuIVFPQIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuIVFPQIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     if (!transfer) {

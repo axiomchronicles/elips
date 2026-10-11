@@ -36,7 +36,7 @@ function Page() {
         >
           C++ Core Guidelines
         </a>
-        . Domain code depends on ports (<code>IndexPort</code>, <code>GpuPort</code>,
+        . Domain code depends on ports (<code>Index</code>, <code>GpuBackend</code>,
         <code>TextEmbedderPort</code>), never on concrete engines. Backend headers stay inside their
         subsystem directory.
       </p>

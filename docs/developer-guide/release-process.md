@@ -13,7 +13,7 @@ ELIPS follows **Semantic Versioning** (SemVer 2.0.0): `MAJOR.MINOR.PATCH`.
 The current version is defined in `CMakeLists.txt`:
 
 ```cmake
-project(elips LANGUAGES CXX VERSION 1.0.0)
+project(elips LANGUAGES CXX VERSION 1.1.0)
 ```
 
 The Python package version should match the C++ project version. It is exposed via `elips.__version__`.
@@ -43,7 +43,7 @@ A release should include:
 ### 2. CLI Binary (`elips`)
 
 - Standalone executable built from `cli/src/main.cpp`
-- Commands: `info`, `vaults`, `stats`, `verify`, `query`, `checkpoint`, `export`, `import`, `bench`
+- Commands: `info`, `collections`, `stats`, `verify`, `query`, `checkpoint`, `quantize`, `export`, `import`, `bench`
 - Distributed as a single binary (no runtime dependencies beyond the system libc)
 
 ### 3. Python Wheel
@@ -52,7 +52,7 @@ Build with:
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+    -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
 cmake --build build --target elips_pymodule -j
 ```
 
@@ -90,7 +90,7 @@ ctest --test-dir build --output-on-failure
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DELIPS_BUILD_PYTHON=ON -DELIPS_BUILD_TESTS=OFF -DELIPS_BUILD_CLI=OFF
+    -DELIPS_ENABLE_PYTHON=ON -DBUILD_TESTING=OFF -DELIPS_BUILD_CLI=OFF
 cmake --build build --target elips_pymodule -j
 PYTHONPATH=bindings/python python3 -c "import elips; print(elips.__version__)"
 PYTHONPATH=bindings/python python3 tests/python/test_bindings.py

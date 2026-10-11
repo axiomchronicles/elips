@@ -1,9 +1,9 @@
 # Type Stubs & IDE Support
 
-ELIPS ships a complete type stub file (`_core.pyi`, 924 lines) alongside the
-compiled extension, enabling full static analysis and IDE support. The higher
-level `modern.py` surface (`connect()`, `Engine`, `Arena`, `Row`, `Hit`) also
-ships inline Python annotations.
+ELIPS ships a complete type stub file (`_core.pyi`) alongside the compiled
+extension, enabling full static analysis and IDE support. The high-level
+package surface (`Client` / `PersistentClient` / `Collection` / `Row` / `Hit`,
+and the deprecated `connect()` / `Engine`) ships inline Python annotations.
 
 ## How Type Stubs Work
 
@@ -58,16 +58,17 @@ mypy my_script.py
 Example type-checked code:
 
 ```python
+# no-exec — illustrates static types; reveal_type is a type-checker directive
 import elips
 
-db: elips.Database = elips.open(":memory:", dimension=3)
-docs: elips.Vault = db.vault("documents")
-rid: str = docs.place([1.0, 2.0, 3.0], {"title": "Test"})
+client: elips.Client = elips.Client(dimension=3)
+docs: elips.Collection = client.get_or_create_collection("documents")
+ids: list[str] = docs.add(ids=["x"], embeddings=[[1.0, 2.0, 3.0]])
 
-result: elips.Result = docs.seek([1.0, 0.0, 0.0], top=5)[0]
-reveal_type(result.id)  # Revealed type is "str"
-reveal_type(result.distance)  # Revealed type is "float"
-reveal_type(result.data)  # Revealed type is "dict[str, MetaValue]"
+hit: elips.Hit = docs.query(query_embeddings=[1.0, 0.0, 0.0], n_results=5)[0]
+reveal_type(hit.key)       # Revealed type is "str"
+reveal_type(hit.distance)  # Revealed type is "float"
+reveal_type(hit.meta)      # Revealed type is "dict[str, MetaValue]"
 ```
 
 ### Pyright
@@ -85,12 +86,13 @@ Pyright's strict mode is especially useful for catching type errors with ELIPS f
 The stub defines reusable type aliases at module level:
 
 ```python
+# no-exec — stub excerpt
 MetaValue = Union[bool, int, float, str]
 Vector = Sequence[float]
 PayloadLike = Mapping[str, MetaValue]
 ```
 
-These aliases are duplicated in `elips/types.py` for runtime use. The stub versions serve static analysis.
+These aliases are also provided for runtime use in `elips/typing.py` (which additionally defines `Literal` names like `MetricName` / `IndexName` and the `TypedDict` models). The stub versions serve static analysis.
 
 | Alias | Definition | Usage |
 |---|---|---|
@@ -102,29 +104,29 @@ These aliases are duplicated in `elips/types.py` for runtime use. The stub versi
 
 The `_core.pyi` stub covers every Python-facing type. Below is the complete inventory.
 
-### Error Hierarchy (8 classes)
+### Error Hierarchy
+
+The native runtime raises the un-suffixed classes; `elips/exceptions.py` adds
+the Phase-5 `*Error`-suffixed spellings (aliases of the same classes) plus the
+Python-layer typed additions.
 
 ```
-ElipsError(Exception)
-├── DimensionMismatch(ElipsError)
-├── InvalidVector(ElipsError)
-├── ConfigError(ElipsError)
-├── NotFound(ElipsError)
-├── StorageError(ElipsError)
-├── LockConflict(ElipsError)
-└── ParseError(ElipsError)
+RuntimeError
+└── ElipsError
+    ├── DimensionMismatch         (alias: DimensionMismatchError)
+    ├── InvalidVector             (alias: InvalidVectorError)
+    ├── ConfigError
+    ├── NotFound                  (alias: NotFoundError)
+    │   └── CollectionNotFoundError
+    ├── StorageError
+    ├── LockConflict              (alias: LockConflictError)
+    ├── ParseError
+    ├── NotTrainedError
+    └── BackendUnavailableError
 ```
 
-Each is declared as a simple `class` inheriting from its parent exception:
-
-```python
-class ElipsError(Exception):
-    """Base exception for all ELIPS errors."""
-
-
-class DimensionMismatch(ElipsError):
-    """Vector dimension does not match the database/vault configuration."""
-```
+Because the suffixed names are aliases, `except DimensionMismatchError` catches
+what the engine raises as `DimensionMismatch`.
 
 ### Core Enums (4 enums, all `IntEnum`)
 
@@ -138,6 +140,7 @@ class DimensionMismatch(ElipsError):
 Each member is typed with `: int`:
 
 ```python
+# no-exec — stub excerpt
 class Metric(IntEnum):
     """Similarity metrics supported by ELIPS."""
 
@@ -198,50 +201,68 @@ GPU types are defined in the stub unconditionally (type checkers see them regard
 | `Vault` | Properties: `name: str`. Methods: `.place(...)`, `.place_document(...)`, `.place_many(...)`, `.seek(...)`, `.seek_text(...)`, `.seek_hybrid(...)`, `.explain_seek(...)`, `.fetch(id)`, `.erase(id)`, `.scan(...)`, `.info()`, `.count()` |
 | `Database` | Methods: `.vault(name) -> Vault`, `.list_vaults()`, `.begin_transaction()`, `.checkpoint()`, `.close()`, `.abandon()`, `.query(eql, bindings)`, `.gpu_info()`, `.gpu_stats()`. Properties: `config: Config`. Context manager. |
 
-### Modern Python Types
+### FAISS-style Index Types
 
-The `modern.py` layer is not part of `_core.pyi`; it is regular Python code
-with inline annotations. IDEs still provide full completion for:
+| Class / function | Key members |
+|---|---|
+| `Index` (base) | `train(x)`, `add(x)`, `add_with_ids(x, ids)`, `search(x, k) -> (D, I)`, `reset()`; properties `d`, `ntotal`, `is_trained`, `nprobe` |
+| `IndexFlat(d, metric)` | Brute-force exact |
+| `IndexIVFFlat(d, nlist, metric)` | Inverted file, full-precision postings |
+| `IndexIVFPQ(d, nlist, M, metric)` | Inverted file, product-quantized postings |
+| `IndexIVFScalarQuantizer(d, nlist, metric)` | Inverted file, SQ8 postings |
+| `IndexHNSW(d, M, metric)` | HNSW graph |
+| `index_factory(d, spec, metric)` | Build from a factory string |
+| `bf_knn(xq, xb, k, metric, device)` | One-shot exact k-NN over raw arrays |
 
-- `Engine`
-- `Arena`
-- `Row`
-- `Hit`
-- `Embedder`
+Index vectors are `float32` NumPy arrays; `search` returns a `(distances,
+labels)` tuple.
+
+### High-Level Python Types
+
+The high-level package (`collection/`, `database/`, `config/`, `records/`) is
+regular Python with inline annotations, not part of `_core.pyi`. IDEs provide
+full completion for:
+
+- `Client` / `PersistentClient` (and the deprecated `Engine`)
+- `Collection` (deprecated alias `Arena`)
+- `RecordInput` / `Row` / `Hit` / `CollectionHealth`
+- `Embedder` (protocol)
 
 ### Module-Level Functions
 
 | Function | Signature |
 |---|---|
-| `open(path, dimension, metric, index) -> Database` | Open a database with simple parameters |
-| `open_with_config(path, config) -> Database` | Open with a Config builder |
+| `open(path, dimension, metric, index) -> Database` | Open a native database (deprecated; use `Client`/`PersistentClient`) |
+| `open_with_config(path, config) -> Database` | Open with a Config builder (deprecated) |
 | `distance(metric, a, b) -> float` | Compute distance between two vectors (string or enum overload) |
 | `requires_normalization(metric) -> bool` | Whether vectors should be L2-normalized |
 | `metric_to_string(metric) -> str` | Convert Metric enum to string name |
 | `metric_from_string(name) -> Metric` | Parse string to Metric enum |
+| `generate_id() -> str` | Fresh unique record id |
+| `is_valid_id(id) -> bool` | Whether a string is a valid ELIPS id |
+| `magnitude(vector) -> float` | L2 norm |
+| `normalize(vector) -> tuple[float, ...]` | L2-normalized copy |
 | `validate_eql(source) -> None` | Validate EQL syntax (raises ParseError) |
 | `tokenize_eql(source) -> list[Token]` | Tokenize EQL source string |
+| `index_factory(d, spec, metric) -> Index` | Build a FAISS-style index from a factory string |
+| `bf_knn(xq, xb, k, metric, device) -> (D, I)` | Brute-force exact k-NN over raw float32 arrays |
 
 ## Docstrings in Stubs
 
 The stub includes comprehensive docstrings for every public method and property. These appear in IDE hover tooltips and are rendered by documentation generators:
 
 ```python
-def place(
-    self,
-    vector: Vector,
-    data: PayloadLike = ...,
-    id: Optional[str] = ...,
-) -> str:
-    """Ingest a single record. Returns the assigned UUIDv7 id.
+# no-exec — stub excerpt
+def search(self, x: numpy.ndarray, k: int) -> tuple:
+    """Return the k nearest neighbours of each query row.
 
     Args:
-        vector: The embedding vector (list or tuple of floats).
-        data: Optional metadata payload (dict of str -> int/float/bool/str).
-        id: Optional custom UUIDv7 record ID.
+        x: Query matrix, shape (nq, d), float32.
+        k: Number of neighbours per query.
 
     Returns:
-        The record's ID as a hex string.
+        A (distances, labels) tuple of float32 / int64 arrays,
+        each shaped (nq, k).
     """
 ```
 

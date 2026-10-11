@@ -1,136 +1,152 @@
-# Database API Reference
+# Database / Client API Reference
 
-`Database` is the top-level Python handle for an ELIPS database. It owns vaults,
-coordinates persistence, exposes EQL, and surfaces the effective configuration.
+The high-level entry points are `elips.Client` (in-memory) and
+`elips.PersistentClient` (on disk). Both subclass `Engine`, so they carry the
+full client surface — collection management, EQL, persistence, and the
+effective configuration. The native `Database` handle sits one level down,
+reachable as `client.native`.
 
-## Factory Functions
+> **Maturity:** CPU engine and Collection API are **Stable**. GPU via Metal is
+> **Beta** (Apple M4); CUDA/HIP are **Experimental**, not hardware-validated.
 
-### `elips.open()`
+## Clients
+
+### `elips.Client(**settings)`
+
+An ephemeral, in-memory database. ELIPS is dimension-first, so a `dimension`
+(or dimension-fixing `embedder`) is required.
 
 ```python
-def open(
-    path: str,
-    dimension: int = 0,
-    metric: str = "cosine",
-    index: str = "graph",
-    access_mode: str = "read_write",
-    embedder = None,
-    use_default_text_embedder: bool = True,
-) -> Database
+import elips
+
+client = elips.Client(dimension=4, metric="cosine")
+print(client.config.dimension_val)
+client.close()
 ```
 
-Use `open()` for simple cases.
+### `elips.PersistentClient(path, **settings)`
 
-- `path`: filesystem path or `":memory:"`
-- `dimension`: required for new databases and all in-memory opens
-- `metric`: `"cosine"`, `"euclidean"`, `"dot_product"`
-- `index`: `"graph"` or `"exact"`
-- `access_mode`: `"read_write"` or `"read_only"`
-- `embedder`: optional Python callable embedder or `LocalEmbedderConfig`
-- `use_default_text_embedder`: attach the built-in local embedder automatically
-  for new databases when no explicit embedder is supplied
-
-Read-only opens require an existing database.
-
-### `elips.open_with_config()`
+An on-disk database; creates `path` if needed.
 
 ```python
-def open_with_config(path: str, config: Config) -> Database
+import elips, tempfile
+
+path = tempfile.mkdtemp()
+db = elips.PersistentClient(path, dimension=4)
+db.get_or_create_collection("documents").add(ids=["a"], embeddings=[[1.0, 0, 0, 0]])
+db.close()
 ```
 
-Use this when you need:
+Shared settings (both clients): `dimension`, `metric` (`"cosine"` |
+`"euclidean"` | `"dot_product"`), `index` (`"graph"` | `"exact"`),
+`access_mode` (`"read_write"` | `"read_only"`), `segmented_storage`,
+`metadata_acceleration`, `embedder`, `use_default_text_embedder`,
+`quantization`, and GPU (`gpu=` / `device=` / `fallback=`).
 
-- `segmented_storage()`
-- `metadata_acceleration()`
-- `auto_text_embedder()`
-- `local_text_embedder()`
-- `text_embedder()`
-- GPU configuration
+> **Deprecated openers.** `elips.connect(path, **settings)`,
+> `elips.connect_with_config(path, config)`, `elips.open(...)`,
+> `elips.open_with_config(...)`, and the `elips.Engine` class remain as working
+> shims (`connect`/`connect_with_config` emit `DeprecationWarning`). New code
+> uses `Client` / `PersistentClient`.
 
-## `Database`
-
-### `vault(name)`
+## Collection management
 
 ```python
-docs = db.vault("documents")
+client = elips.Client(dimension=4)
+
+docs = client.get_or_create_collection("documents")   # idempotent create
+# client.create_collection("documents")               # raises: already exists
+# client.get_collection("missing")                    # CollectionNotFoundError
+print(client.list_collections())                       # -> ['documents']
+client.close()
 ```
 
-Returns a `Vault`, creating it lazily if needed.
+| Method | Returns / behavior |
+|---|---|
+| `get_or_create_collection(name, *, embedder=None)` | The collection, created on first use. |
+| `create_collection(name, ...)` | New collection; `ValueError` if it exists. |
+| `get_collection(name, *, embedder=None)` | Existing collection; `CollectionNotFoundError` otherwise. |
+| `list_collections()` / `collection_names()` | `list[str]` of existing names. |
+| `delete_collection(name)` | `NotImplementedError` (no vault drop yet). |
+| `reset()` | `NotImplementedError`. |
 
-### `list_vaults()`
+`metadata=` / `configuration=` are accepted on the create methods for Chroma
+compatibility but ignored.
+
+## Persistence and lifecycle
+
+| Method | Effect |
+|---|---|
+| `checkpoint()` | Flush state to durable storage and truncate the WAL. |
+| `compact()` | Rebuild each collection's index and checkpoint. |
+| `vacuum()` | Reclaim index space held by deleted records across all collections (works in-memory; no snapshot rewrite). |
+| `pending_writes()` | Read the WAL without mutating (`list[WalRecord]`; empty for in-memory). |
+| `close()` | Checkpoint, release the lock, seal collections. Idempotent. |
+
+`Client` / `PersistentClient` are context managers:
 
 ```python
-names = db.list_vaults()
+with elips.Client(dimension=2) as client:
+    client.get_or_create_collection("documents").add(ids=["a"], embeddings=[[1.0, 0.0]])
+    print(client.collection_names())
 ```
 
-### `begin_transaction()`
+## EQL
+
+EQL runs through `query_eql` on the client (which delegates to the native
+`Database.query`). It returns native `Result` rows (`.id`, `.distance`,
+`.data`).
 
 ```python
-with db.begin_transaction() as txn:
-    txn.vault("documents").place([1.0, 0.0], {"kind": "design"})
-```
-
-Transactions buffer vector `place()` and `erase()` calls and commit atomically.
-
-### `query(eql, bindings={})`
-
-```python
-rows = db.query(
-    'seek in documents nearest $q top 5 where kind = "design" yield',
-    bindings={"q": [1.0, 0.0]},
+client = elips.Client(dimension=2)
+client.get_or_create_collection("documents").add(
+    ids=["d1"], embeddings=[[1.0, 0.0]], metadatas=[{"kind": "design"}]
 )
+rows = client.query_eql(
+    'search in documents nearest $q k 5 where kind = "design" yield',
+    {"q": [1.0, 0.0]},
+)
+print(len(list(rows)))
+client.close()
 ```
 
-EQL supports declarative vector operations. Text-first retrieval is exposed on
-`Vault` rather than through EQL.
+Note: EQL is not on the high-level handle as `.query(...)` (that name is the
+Chroma vector search on `Collection`). Use `client.query_eql(...)` or
+`client.native.query(...)`.
 
-### `checkpoint()`
-
-Writes the current state to manifest/segments or snapshot and truncates the WAL.
-
-### `compact()`
-
-Rebuilds each vault index from stored records and checkpoints the compacted
-state.
-
-### `close()`
-
-Gracefully checkpoints and releases locks. Safe to call more than once.
-
-### `abandon()`
-
-Testing hook that skips checkpointing so the next open must recover from the
-WAL.
-
-### `config`
+## Configuration
 
 ```python
-effective = db.config
+client = elips.Client(dimension=4, metric="cosine")
+cfg = client.config
+print(cfg.dimension_val, cfg.metric_val, cfg.index_val)
+client.close()
 ```
 
-Returns the effective `Config`, including persisted dimension/metric/index and
-runtime options such as access mode, metadata acceleration, and resolved text
-embedder metadata.
+`config` returns the effective `Config` (see
+[Config & Enums](config-and-enums.md)).
 
-### `gpu_info()` and `gpu_stats()`
+## Native handle
 
-Available only when the Python extension is built with GPU support.
-
-`gpu_info()` reports the active accelerator device when a GPU backend is
-selected, and otherwise returns non-empty CPU fallback metadata.
-
-## Context Manager
+Everything the client does goes through `client.native`, a native `Database`.
+Reach for it when you need something the facade does not surface:
 
 ```python
-with elips.open("/tmp/elips-db", dimension=2) as db:
-    db.vault("documents").place([1.0, 0.0])
+client = elips.Client(dimension=2)
+with client.native.begin_transaction() as txn:
+    txn.vault("documents").place([1.0, 0.0], {"kind": "design"})
+print(client.native.list_vaults())
+client.close()
 ```
 
-This automatically calls `close()` on exit.
+The native `Database` also exposes `gpu_info()` / `gpu_stats()` (GPU builds
+only); these are **not** on the high-level client.
 
-## Common Errors
+## Common errors
 
-- `ConfigError`: invalid configuration or read-only open on a missing database
-- `LockConflict`: another writer already holds the database
-- `StorageError`: IO failure or attempted mutation in read-only mode
-- `ParseError`: malformed EQL
+- `ValueError`: `Client()` opened without a dimension or dimension-fixing embedder.
+- `ConfigError`: invalid configuration, or read-only open of a missing database.
+- `LockConflict(Error)`: another writer holds the database.
+- `StorageError`: IO failure, or a write to a read-only database.
+- `BackendUnavailableError`: a named GPU backend is unavailable and `fallback=False`.
+- `ParseError`: malformed EQL.

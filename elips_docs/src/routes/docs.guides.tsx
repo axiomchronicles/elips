@@ -41,24 +41,19 @@ function Page() {
       <CodeBlock lang="python">
         {`import elips
 
-db = elips.open("/var/lib/rag", dimension=384, metric="cosine")
-docs = db.vault("docs")
+client = elips.PersistentClient("/var/lib/rag", dimension=384, metric="cosine")
+docs = client.get_or_create_collection("docs")
 
 for chunk in iter_chunks(corpus):
-    docs.place_document(
-        chunk.text,
-        {"source": chunk.source_id, "page": chunk.page},
-        lineage=elips.EmbeddingLineage(
-            provider="local",
-            model="default_v1",
-            revision="2024-01",
-        ),
+    docs.add(
+        documents=[chunk.text],
+        metadatas=[{"source": chunk.source_id, "page": chunk.page}],
     )
 
-db.checkpoint()
+client.checkpoint()
 
-for hit in docs.seek_text("how do we rotate keys?", top=5):
-    print(hit.document.text, hit.payload, hit.distance)`}
+for hit in docs.query(query_texts=["how do we rotate keys?"], n_results=5):
+    print(hit.text, hit.meta, hit.distance)`}
       </CodeBlock>
 
       <h2 id="fanout">Shared-reader fan-out</h2>
@@ -68,11 +63,13 @@ for hit in docs.seek_text("how do we rotate keys?", top=5):
       </p>
       <CodeBlock lang="python">
         {`# writer.py — exclusive lock
-writer = elips.open("/srv/index", dimension=768)
+writer = elips.PersistentClient("/srv/index", dimension=768)
 
 # reader.py — shared lock, can run in N processes concurrently
-reader = elips.open("/srv/index", access_mode="read_only")
-result = reader.vault("docs").seek_text("status of incident 9412", top=10)`}
+reader = elips.PersistentClient("/srv/index", access_mode="read_only")
+result = reader.get_collection("docs").query(
+    query_texts=["status of incident 9412"], n_results=10
+)`}
       </CodeBlock>
 
       <h2 id="rebuild">Reindex without downtime</h2>
@@ -81,7 +78,7 @@ result = reader.vault("docs").seek_text("status of incident 9412", top=10)`}
         their next open.
       </p>
       <CodeBlock lang="python">
-        {`new = elips.open("/srv/index.next", dimension=768)
+        {`new = elips.PersistentClient("/srv/index.next", dimension=768)
 hydrate(new)
 new.compact()
 new.close()
@@ -93,7 +90,7 @@ os.rename("/srv/index.next", "/srv/index")`}
 
       <h2 id="import">Bulk import</h2>
       <CodeBlock lang="bash">
-        {`elips import /srv/index --vault docs --input dump.jsonl --dimension 768
+        {`elips import /srv/index --collection docs --input dump.jsonl --dimension 768
 elips checkpoint /srv/index`}
       </CodeBlock>
     </DocsShell>

@@ -43,7 +43,7 @@ function Page() {
       <p className="text-[18px] text-ink">
         <code>LockManager</code> enforces ELIPS' single-writer / many-reader contract for on-disk
         databases through a POSIX advisory file lock. It acquires an exclusive, non-blocking lock at
-        open time and holds it for the lifetime of the <code>ElipsInstance</code>.
+        open time and holds it for the lifetime of the <code>Database</code>.
       </p>
 
       <h2 id="overview">Overview</h2>
@@ -130,19 +130,19 @@ LockManager::~LockManager() {
         Use in <code>open()</code>
       </h2>
       <CodeBlock lang="cpp">
-        {`std::unique_ptr<ElipsInstance> open(const std::string& path, const Config& config) {
+        {`std::unique_ptr<Database> open(const std::string& path, const Config& config) {
     // ... path validation ...
     LockManager lock{(fs::path(path) / lock_file).string()};   // single-writer
     // ... identity, snapshot load, WAL replay ...
-    auto instance = std::make_unique<ElipsInstance>(path, effective,
-                                                    /*persistent=*/true,
-                                                    std::move(lock));
+    auto instance = std::make_unique<Database>(path, effective,
+                                               /*persistent=*/true,
+                                               std::move(lock));
     return instance;
 }`}
       </CodeBlock>
       <p>
         The lock is created on the stack inside <code>open()</code>, moved into{" "}
-        <code>ElipsInstance</code>, and released when the instance is destroyed or{" "}
+        <code>Database</code>, and released when the instance is destroyed or{" "}
         <code>close()</code> is called. If any step between acquisition and instance construction
         throws, stack unwinding releases the lock — there is no leakage path.
       </p>
@@ -159,7 +159,7 @@ LockManager::~LockManager() {
           <tbody>
             {[
               ["Normal open → close", "Acquired on open, released on close"],
-              ["ElipsInstance destructor", "Released via ~LockManager() → flock(LOCK_UN)"],
+              ["Database destructor", "Released via ~LockManager() → flock(LOCK_UN)"],
               ["Process crash / SIGKILL", "Released by the kernel"],
               [
                 "Exception during open() before instance constructed",
@@ -195,7 +195,7 @@ LockManager::~LockManager() {
 
       <CodeBlock lang="python">
         {`try:
-    db = elips.open("path/to/db")
+    db = elips.PersistentClient("path/to/db")
 except elips.LockConflict as e:
     print(f"Database is locked by another process: {e}")
 except elips.StorageError as e:

@@ -2,6 +2,12 @@
 
 Date: 2026-06-15
 
+> **Historical audit (names drifted).** This is a dated record of a specific
+> fix; the narrative is accurate for its date. In current code the names are
+> `GpuBackend` (was `GpuPort`), `BackendSelector` (was `GpuSelector`),
+> `Database` (was `ElipsInstance`), and `Collection` (was `Vault`). For the
+> authoritative GPU behavior and maturity, see the [GPU guide](../gpu/index.md).
+
 ## Scope
 
 This audit covers ELIPS GPU detection, runtime device reporting, Python bindings,
@@ -31,8 +37,6 @@ This flag is not runtime device detection.
    - Metal
    - CUDA
    - HIP
-   - SYCL
-   - Vulkan
 5. `GpuSelector::select()` chooses the preferred runtime backend
 6. Returns `GpuPort::device_info()` when a backend initializes
 7. Returns `GpuDeviceManager::cpu_fallback_info()` when no GPU backend is selected
@@ -132,8 +136,6 @@ reporting path.
 | Metal backend | Working | Verified on Apple M4 outside sandbox |
 | CUDA backend | Stubbed/incomplete | Source exists but backend is not production-ready |
 | HIP backend | Stubbed/incomplete | Source exists but backend is not production-ready |
-| SYCL backend | Stubbed/incomplete | Source exists but backend is not production-ready |
-| Vulkan backend | Stubbed/incomplete | Source exists but backend is not production-ready |
 
 ## Validation Summary
 

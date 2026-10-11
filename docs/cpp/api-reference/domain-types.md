@@ -1,6 +1,13 @@
 # API Reference: Domain Types
 
+**Maturity:** stable (v1.0+).
+
 Namespace `elips`. The value types and error hierarchy used throughout ELIPS. All domain types are in `include/elips/domain/`.
+
+> Renamed in v1.1: `VaultInfo`→`CollectionInfo`; `DimensionMismatch` gained the
+> alias `DimensionMismatchError`; typed errors `NotTrainedError` and
+> `BackendUnavailableError` were added. Old names remain as aliases. See
+> `MIGRATION.md`.
 
 ---
 
@@ -117,7 +124,7 @@ public:
 
 | Constructor | Description |
 |-------------|-------------|
-| `RecordID()` | Default: all zero bytes. Acts as a sentinel for "no ID" (used in `place_many()` to detect records needing auto-generated IDs). |
+| `RecordID()` | Default: all zero bytes. Acts as a sentinel for "no ID" (used in `add_many()` to detect records needing auto-generated IDs). |
 | `RecordID(Bytes bytes)` | Constructs from a 16-byte array. |
 
 ### UUIDv7 Byte Format
@@ -219,7 +226,7 @@ FNV-1a hash over the 16 bytes. Offset basis: `1469598103934665603`, prime: `1099
 
 ### Usage as Map Key
 
-`RecordID` is used as the key in `std::map<RecordID, Record>` (the vault's record store). This gives O(log N) lookup ordered by insertion time, which also means `scan()` iterates in temporal order.
+`RecordID` is used as the key in `std::map<RecordID, Record>` (the collection's record store). This gives O(log N) lookup ordered by insertion time, which also means `scan()` iterates in temporal order.
 
 ---
 
@@ -232,15 +239,40 @@ struct Record {
     RecordID id;
     Vector vector;
     Payload payload;
+    std::optional<DocumentAttachment> document;
+    std::optional<ChunkInfo> chunk;
+    std::optional<EmbeddingLineage> lineage;
+    std::vector<std::uint8_t> codes;        // compressed code (quantized collections)
+    quant::CodecId codec{quant::CodecId::none};
+
+    [[nodiscard]] bool approximate() const noexcept;  // true when codec != none
 };
 ```
 
-A simple aggregate: an identity (RecordID), an embedding (Vector), and metadata (Payload). No invariants beyond those of its fields. All members are publicly accessible.
+An identity (`RecordID`), an embedding (`Vector`), metadata (`Payload`), and
+optional document/chunk/lineage attachments. In a quantized collection `codes`
+holds the stored code and `codec` names the quantizer; `vector` then carries a
+reconstruction and `approximate()` returns `true`. All members are publicly
+accessible.
 
 Used as:
-- The value type in the vault's record store (`std::map<RecordID, Record>`)
-- The return type of `Vault::scan()` and `Vault::fetch()`
-- Input to `Vault::place_many()`
+- The value type in the collection's record store (`std::map<RecordID, Record>`)
+- The return type of `Collection::scan()` and `Collection::get()`
+- Input to `Collection::add_many()`
+
+### DocumentAttachment, ChunkInfo, EmbeddingLineage
+
+```cpp
+struct DocumentAttachment { std::string text; std::string uri;
+                            std::string mime_type{"text/plain"}; };
+struct ChunkInfo { std::string document_key; std::uint32_t ordinal{0};
+                   std::uint32_t char_start{0}; std::uint32_t char_end{0}; };
+struct EmbeddingLineage { std::string provider; std::string model;
+                          std::string revision; Payload attributes; };
+```
+
+Optional attachments carried by `Record` and `SearchResult` for document-aware
+collections.
 
 ---
 
@@ -316,40 +348,55 @@ struct SearchResult {
     RecordID id;
     float distance{0.0F};
     Payload data;
+    std::optional<DocumentAttachment> document;
+    std::optional<ChunkInfo> chunk;
+    std::optional<EmbeddingLineage> lineage;
+    quant::CodecId codec{quant::CodecId::none};
+
+    [[nodiscard]] bool approximate() const noexcept;  // true when codec != none
 };
 ```
 
-Returned by `Vault::seek()` and `ElipsInstance::query()`. Contains:
+Returned by `Collection::search()` and `Database::query()`. Contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `RecordID` | The matched record's identity |
 | `distance` | `float` | Ordering-normalized distance from the query. **Smaller = more similar.** Cosine: `1 - dot`, Euclidean: `sqrt(L2)`, Dot product: `-dot`. |
 | `data` | `Payload` | The record's full metadata payload. For EQL queries with projection, only projected fields are present. |
+| `document` / `chunk` / `lineage` | optional | Attachments hydrated from the record store. |
+| `codec` | `quant::CodecId` | Quantizer behind an approximate score; `approximate()` is `true` when a quantized collection produced the hit. |
 
-Results from `seek()` are sorted ascending by `distance`. When `rank_by` is used in EQL, results are re-sorted by the named payload field.
+Results from `search()` are sorted ascending by `distance`. When `rank_by` is
+used in EQL, results are re-sorted by the named payload field.
 
 ---
 
-## VaultInfo
+## CollectionInfo
 
-`include/elips/elips.hpp:33`
+`include/elips/elips.hpp`
 
 ```cpp
-struct VaultInfo {
+struct CollectionInfo {
     std::size_t count{0};
     std::uint16_t dimension{0};
     Metric metric{Metric::cosine};
+    quant::CodecId codec{quant::CodecId::none};
+    std::size_t code_bytes{0};
 };
+
+using VaultInfo [[deprecated("renamed to CollectionInfo")]] = CollectionInfo;
 ```
 
-Returned by `Vault::info()`. Summary statistics:
+Returned by `Collection::info()`. Summary statistics:
 
 | Field | Description |
 |-------|-------------|
-| `count` | Number of records in the vault (`records_.size()`) |
-| `dimension` | Configured vector dimension from the vault's config |
-| `metric` | Configured similarity metric from the vault's config |
+| `count` | Number of records in the collection |
+| `dimension` | Configured vector dimension |
+| `metric` | Configured similarity metric |
+| `codec` | Active compression codec (`none` until `train()` has run) |
+| `code_bytes` | Width of one stored code, against `dimension * 4` uncompressed |
 
 ---
 
@@ -360,11 +407,13 @@ All errors in `include/elips/domain/Errors.hpp` unless otherwise noted.
 ```
 std::runtime_error
  └── elips::ElipsError           (domain/Errors.hpp)
-      ├── DimensionMismatch      (domain/Errors.hpp)
+      ├── DimensionMismatch      (domain/Errors.hpp)   [alias DimensionMismatchError]
       ├── InvalidVector          (domain/Errors.hpp)
       ├── ConfigError            (domain/Errors.hpp)
+      │    └── NotTrainedError   (domain/Errors.hpp)
       ├── NotFound               (domain/Errors.hpp)
       ├── StorageError           (domain/Errors.hpp)
+      ├── BackendUnavailableError(domain/Errors.hpp)
       ├── LockConflict           (kernel/LockManager.hpp)
       └── eql::ParseError        (query_engine/EQLParser.hpp)
 ```
@@ -387,13 +436,16 @@ class DimensionMismatch : public ElipsError {
 public:
     using ElipsError::ElipsError;
 };
+using DimensionMismatchError = DimensionMismatch;  // *Error-suffixed alias
 ```
 
 Thrown when:
-- `Vault::prepare()` detects `vector.dimension() != config_.dimension()`
-- `Transaction::enqueue_place()` detects dimension mismatch during eager validation
+- `Collection::prepare()` detects `vector.dimension() != config_.dimension()`
+- `Transaction` enqueue detects a dimension mismatch during eager validation
 
-Message example: `"vector dimension does not match vault"` or `"vector dimension does not match database"`.
+Message example: `"vector dimension does not match collection"` or `"vector
+dimension does not match database"`. `DimensionMismatchError` is an exact alias
+(same type), mirroring the Python name — a throw of either is caught by either.
 
 ### InvalidVector
 
@@ -405,8 +457,8 @@ public:
 ```
 
 Thrown when:
-- `Vault::prepare()` detects NaN or Inf via `!std::isfinite(v)`
-- `Transaction::enqueue_place()` detects NaN/Inf during eager validation
+- `Collection::prepare()` detects NaN or Inf via `!std::isfinite(v)`
+- `Transaction` enqueue detects NaN/Inf during eager validation
 
 Message example: `"vector contains NaN or Inf"`.
 
@@ -422,9 +474,25 @@ public:
 Thrown when:
 - In-memory database opened without dimension
 - New file database opened without dimension
-- Configured dimension conflicts with existing `IDENTITY` file
+- Configured dimension conflicts with persisted identity
 - `RecordID::from_string()` receives malformed hex input
-- `metric_from_string()` receives unknown metric name
+- `metric_from_string()` receives an unknown metric name
+- an unrecognized/malformed `index_factory` spec is given
+
+### NotTrainedError
+
+```cpp
+class NotTrainedError : public ConfigError {
+public:
+    using ConfigError::ConfigError;
+};
+```
+
+Thrown when an IVF-family index (`IndexIVFFlat` / `IndexIVFPQ` /
+`IndexIVFScalarQuantizer`) is used (`add_with_ids`/`search`) before `train()`
+has learned its coarse quantizer. **Derives from `ConfigError`**, so existing
+`catch (const ConfigError&)` handlers keep catching it; catch `NotTrainedError`
+directly for the specific condition.
 
 ### NotFound
 
@@ -440,7 +508,8 @@ Thrown when:
 
 Message example: `"EQL: unbound query vector $my_vec"`.
 
-**Note**: `Vault::fetch()` returns `std::nullopt` rather than throwing on missing records. `Vault::erase()` returns `false`.
+**Note**: `Collection::get()` returns `std::nullopt` rather than throwing on
+missing records. `Collection::remove()` returns `false`.
 
 ### StorageError
 
@@ -460,6 +529,20 @@ Thrown on persistence/IO failures:
 - WAL append fails (disk full or stream error)
 - Unknown payload value type tag in deserialization (tag byte not 0-3)
 - Can't open lock file
+
+### BackendUnavailableError
+
+```cpp
+class BackendUnavailableError : public ElipsError {
+public:
+    using ElipsError::ElipsError;
+};
+```
+
+Thrown when a required compute backend (e.g. a GPU device) was requested but is
+unavailable and no CPU fallback was permitted — the GPU policy failure surfaces
+as a typed error instead of a silent CPU demotion. Mirrors the Python
+`BackendUnavailableError`.
 
 ### LockConflict
 
@@ -489,7 +572,7 @@ Thrown by `eql::parse()` on malformed EQL syntax. Message describes the expected
 
 - `"EQL: expected a statement keyword, got 'foo'"`
 - `"EQL: expected 'yield'"`
-- `"EQL: unexpected token ',' in seek"`
+- `"EQL: unexpected token ',' in search"`
 - `"EQL: unknown comparator '@'"`
 
 ### Catching Errors
@@ -497,16 +580,18 @@ Thrown by `eql::parse()` on malformed EQL syntax. Message describes the expected
 ```cpp
 try {
     auto db = elips::open("./data", Config{}.dimension(768));
-    auto& vault = db->vault("docs");
-    vault.place(embedding, metadata);
+    auto& docs = db->collection("docs");
+    docs.add(embedding, metadata);
 } catch (const elips::DimensionMismatch& e) {
     // wrong vector dimension
 } catch (const elips::InvalidVector& e) {
     // NaN/Inf in vector
+} catch (const elips::NotTrainedError& e) {
+    // IVF index used before train()
 } catch (const elips::StorageError& e) {
     // disk / IO issue
 } catch (const elips::ConfigError& e) {
-    // misconfiguration
+    // misconfiguration (also catches NotTrainedError)
 } catch (const elips::LockConflict& e) {
     // another process holds the lock
 } catch (const elips::ElipsError& e) {

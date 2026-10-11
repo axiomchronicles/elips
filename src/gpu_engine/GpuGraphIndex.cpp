@@ -6,13 +6,13 @@
 #include "elips/domain/Errors.hpp"
 #include "elips/domain/Expected.hpp"
 #include "elips/gpu_engine/GpuIndexTransferManager.hpp"
-#include "elips/index_engine/HierarchicalGraphIndex.hpp"
+#include "elips/index_engine/IndexHNSW.hpp"
 
 namespace elips::gpu {
 namespace {
 
-elips::GraphParams to_cpu_graph_params(const GpuConfig& config) {
-    elips::GraphParams params;
+elips::HnswParams to_cpu_graph_params(const GpuConfig& config) {
+    elips::HnswParams params;
     params.max_connections = std::max<std::size_t>(config.graph_params.graph_degree, 2);
     params.ef_construction = std::max<std::size_t>(
         config.graph_params.intermediate_graph_degree, params.max_connections);
@@ -30,12 +30,12 @@ void validate_dimension(std::span<const float> vector, uint16_t dimension,
 
 }  // namespace
 
-GpuGraphIndex::GpuGraphIndex(GpuPort& backend, elips::Metric metric,
+GpuGraphIndex::GpuGraphIndex(GpuBackend& backend, elips::Metric metric,
                              uint16_t dimension, const GpuConfig& config)
     : backend_(backend),
       metric_(metric),
       dimension_(dimension),
-      cpu_graph_(std::make_unique<elips::HierarchicalGraphIndex>(
+      cpu_graph_(std::make_unique<elips::IndexHNSW>(
           metric, dimension, to_cpu_graph_params(config))),
       backend_name_(backend.device_info().backend),
       config_(config) {}
@@ -68,13 +68,13 @@ void GpuGraphIndex::sync_device_data_best_effort() noexcept {
     }
 }
 
-void GpuGraphIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuGraphIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     if (id_to_slot_.contains(id)) {
         remove(id);
     }
 
-    cpu_graph_->insert(id, vector);
+    cpu_graph_->add_with_ids(id, vector);
     ids_.push_back(id);
     host_vectors_.insert(host_vectors_.end(), vector.begin(), vector.end());
     id_to_slot_[id] = ids_.size() - 1;
@@ -112,13 +112,13 @@ void GpuGraphIndex::remove(const RecordID& id) {
     sync_device_data_best_effort();
 }
 
-std::vector<IndexPort::Hit> GpuGraphIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuGraphIndex::search(std::span<const float> query,
                                                    std::size_t k) const {
     validate_dimension(query, dimension_, "query");
     return cpu_graph_->search(query, k);
 }
 
-std::size_t GpuGraphIndex::size() const noexcept { return count_; }
+std::size_t GpuGraphIndex::ntotal() const noexcept { return count_; }
 std::string_view GpuGraphIndex::type_name() const noexcept { return "gpu_graph"; }
 
 std::expected<void, GpuError>
@@ -165,7 +165,7 @@ GpuGraphIndex::search_batch(std::span<const float> queries, size_t k,
 }
 
 std::expected<void, GpuError>
-GpuGraphIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuGraphIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -178,7 +178,7 @@ GpuGraphIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
 }
 
 std::expected<void, GpuError>
-GpuGraphIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuGraphIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     if (!transfer) {

@@ -25,18 +25,18 @@ function Page() {
         { id: "static-factories", title: "Static Factories" },
         { id: "runtime-eval", title: "Runtime Evaluation" },
         { id: "metadata-acceleration", title: "Metadata Acceleration" },
-        { id: "seek-integration", title: "Seek Integration" },
-        { id: "explain-seek", title: "Explain Seek" },
+        { id: "seek-integration", title: "Query Integration" },
+        { id: "explain-seek", title: "Explain Query" },
         { id: "examples", title: "Examples" },
         { id: "pitfalls", title: "Pitfalls" },
       ]}
     >
       <h2 id="overview">Overview</h2>
       <p>
-        The ELIPS Python API provides a powerful and expressive <code>Filter</code> class for querying 
-        metadata associated with vectors. It supports fluent chaining of predicates, boolean combinators, 
-        and works seamlessly with both vector similarity search (<code>seek</code>) and 
-        insertion-order iteration (<code>scan</code>).
+        The ELIPS Python API provides a powerful and expressive <code>Filter</code> class for querying
+        metadata associated with vectors. It supports fluent chaining of predicates, boolean combinators,
+        and works seamlessly with both vector similarity search (<code>collection.query</code>) and
+        row retrieval (<code>collection.get</code>).
       </p>
       <p>
         <strong>Type Aliases used in this API:</strong>
@@ -105,7 +105,7 @@ excluded = elips.Filter.not_(
         <li><code>Filter.in_set(field, values)</code>: Equivalent to <code>field().one_of()</code>.</li>
         <li><code>Filter.has_substring(field, substring)</code>: Equivalent to <code>field().contains()</code>.</li>
       </ul>
-      <p>The <code>Comparator</code> enum includes: <code>eq</code>, <code>ne</code>, <code>lt</code>, <code>le</code>, <code>gt</code>, <code>ge</code>.</p>
+      <p>The <code>Comparator</code> enum includes: <code>eq</code>, <code>ne</code>, <code>lt</code>, <code>le</code>, <code>gt</code>, <code>gte</code>.</p>
       <CodeBlock lang="python">
 {`# Static compare with Comparator enum
 f2 = elips.Filter.compare("price", elips.Comparator.lt, 100.0)
@@ -135,7 +135,7 @@ print(elips.Filter().matches_all())  # True`}
 
       <h2 id="metadata-acceleration">Metadata Acceleration</h2>
       <p>
-        ELIPS utilizes a <code>MetadataIndex</code> to accelerate similarity searches by narrowing down candidates before executing the Approximate Nearest Neighbor (ANN) search. Only equality constraints (<code>.equals()</code> and <code>.one_of()</code> / <code>in_set()</code>) can be used for index pre-filtering. Range predicates (<code>lt</code>, <code>le</code>, <code>gt</code>, <code>ge</code>) and substring matches (<code>contains</code>, <code>has_substring</code>) are applied during a post-filtering phase after ANN candidates are retrieved.
+        ELIPS utilizes a <code>MetadataIndex</code> to accelerate similarity searches by narrowing down candidates before executing the Approximate Nearest Neighbor (ANN) search. Only equality constraints (<code>.equals()</code> and <code>.one_of()</code> / <code>in_set()</code>) can be used for index pre-filtering. Range predicates (<code>lt</code>, <code>le</code>, <code>gt</code>, <code>gte</code>) and substring matches (<code>contains</code>, <code>has_substring</code>) are applied during a post-filtering phase after ANN candidates are retrieved.
       </p>
       <p>
         You can inspect a filter to see what constraints can be pushed down to the index:
@@ -150,26 +150,29 @@ constraints = f.exact_constraints()
 # The gte(0.8) predicate is NOT equality, so it's not in exact_constraints`}
       </CodeBlock>
 
-      <h2 id="seek-integration">Seek Integration</h2>
+      <h2 id="seek-integration">Query Integration</h2>
       <p>
-        Filters are heavily used when querying a Vault. Both vector similarity search (<code>seek</code>) and 
-        insertion-order iteration (<code>scan</code>) accept a <code>where</code> argument.
+        Filters are heavily used when querying a Collection. Both vector similarity search (<code>collection.query</code>) and
+        row retrieval (<code>collection.get</code>) accept a <code>where</code> argument, as does <code>collection.delete</code>.
       </p>
       <CodeBlock lang="python">
-{`# Use in seek
-hits = vault.seek([1.0, 0.0], top=10, where=f)
+{`# Use in query (vector similarity search)
+hits = collection.query(query_embeddings=[1.0, 0.0], n_results=10, where=f)
 
-# Use in scan (insertion-order iteration)
-rows = vault.scan(where=f, offset=0, limit=100)`}
+# Use in get (row retrieval by predicate)
+rows = collection.get(where=f, offset=0, limit=100)
+
+# Use in delete (remove every matching record)
+removed = collection.delete(where=f)`}
       </CodeBlock>
 
-      <h2 id="explain-seek">Explain Seek</h2>
+      <h2 id="explain-seek">Explain Query</h2>
       <p>
-        To understand how your filter interacts with the query planner, you can use <code>explain_seek()</code>. This returns a <code>QueryPlan</code> object detailing whether metadata acceleration was utilized.
+        To understand how your filter interacts with the query planner, you can use <code>collection.explain()</code>. This returns a <code>QueryPlan</code> object detailing whether metadata acceleration was utilized.
       </p>
       <CodeBlock lang="python">
 {`# Explain the plan
-plan = vault.explain_seek([1.0, 0.0], top=10, where=f)
+plan = collection.explain([1.0, 0.0], n_results=10, where=f)
 print(f"Accelerated: {plan.metadata_accelerated}")
 print(f"Strategy: {plan.strategy.name}")`}
       </CodeBlock>
@@ -197,7 +200,7 @@ final_filter = tenant_filter.and_(active_items).and_(no_drafts)`}
       <ul>
         <li><strong>Chained predicates are AND-ed:</strong> Calling <code>.field(x).equals(y).field(a).equals(b)</code> creates an AND filter. It does NOT overwrite or OR them.</li>
         <li><strong>Empty filters are not errors:</strong> An empty <code>elips.Filter()</code> matches everything. This is usually intended but can be unexpected. Use <code>matches_all()</code> to detect empty filters if you need to validate user input.</li>
-        <li><strong>Substring is metadata match:</strong> <code>.contains()</code> and <code>has_substring()</code> perform substring matches on the metadata text, <em>not</em> semantic searches on the document content. Use <code>seek_text</code> or <code>seek_hybrid</code> for semantic text search.</li>
+        <li><strong>Substring is metadata match:</strong> <code>.contains()</code> and <code>has_substring()</code> perform substring matches on the metadata text, <em>not</em> semantic searches on the document content. Use <code>collection.query(query_texts=...)</code> (or a hybrid <code>query_embeddings</code> + <code>query_texts</code> call) for semantic text search.</li>
         <li><strong>Immutability in combinators:</strong> <code>.or_()</code> and <code>.and_()</code> return <em>new</em> filters. Calling <code>f.or_(other)</code> does not mutate <code>f</code>.</li>
         <li><strong>Acceleration limitations:</strong> <code>exact_constraints()</code> returns <code>None</code> if ANY predicate in the filter is non-equality (like ranges or substrings). The whole filter will still work correctly (and results will be accurate), but the index cannot accelerate it entirely before the ANN step.</li>
       </ul>

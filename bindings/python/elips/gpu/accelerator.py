@@ -48,7 +48,7 @@ class AcceleratorSpec:
     Args:
         name (str): Device name, e.g. ``"Apple M4"``.
         backend (str): Backend that drives it: ``"metal"``, ``"cuda"``,
-            ``"hip"``, ``"sycl"``, or ``"vulkan"``.
+            or ``"hip"``.
         index (int): Device ordinal, for multi-GPU hosts.
         memory_bytes (int): Total device memory.
         free_memory_bytes (int): Device memory currently free.

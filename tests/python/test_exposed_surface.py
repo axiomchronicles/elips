@@ -583,37 +583,6 @@ def test_checkpoint_truncates_the_wal(db_path):
     db.abandon()
 
 
-# =========================  index snapshots  ===========================
-
-
-def test_index_snapshot_types_are_constructible():
-    """Snapshots are engine internals, reachable only through the seam.
-
-    Nothing in the binding returns one, which is why they are demoted rather
-    than rehomed: they were only ever constructible placeholders.
-    """
-
-    snapshot = core.IndexSnapshot()
-    assert len(snapshot) == 0
-    snapshot.dimension = 8
-    snapshot.kind = core.IndexSnapshotKind.graph
-    snapshot.metric = elips.Metric.cosine
-    snapshot.vectors = [1.0, 2.0]
-    assert snapshot.dimension == 8
-    assert snapshot.kind == core.IndexSnapshotKind.graph
-    assert snapshot.ivf is None and snapshot.pq is None
-
-    ivf = core.IvfSnapshot()
-    ivf.n_lists, ivf.n_probe = 16, 4
-    snapshot.ivf = ivf
-    assert snapshot.ivf.n_lists == 16
-
-    pq = core.PqSnapshot()
-    pq.pq_dim, pq.pq_bits = 8, 6
-    snapshot.pq = pq
-    assert (snapshot.pq.pq_dim, snapshot.pq.pq_bits) == (8, 6)
-
-
 # ==============================  GPU  ==================================
 
 

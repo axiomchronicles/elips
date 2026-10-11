@@ -51,6 +51,7 @@ Every module reaches the extension through `_native`, and nothing else
 imports `_core`. The surface is derived rather than transcribed:
 
 ```python
+# no-exec — internal excerpt
 globals().update({name: getattr(_core, name) for name in _public_names()})
 ```
 
@@ -71,12 +72,14 @@ whatever the extension exposes, so a conditional surface needs no
 conditional import:
 
 ```python
+# no-exec — internal excerpt
 has_gpu: bool = hasattr(_core, "GpuDevice")
 ```
 
 `elips.has_gpu` is the public flag to check before touching GPU types:
 
 ```python
+# no-exec — requires a GPU-enabled build
 if elips.has_gpu:
     gpu = elips.native.GpuConfig()
     gpu.policy = elips.native.GpuPolicy.prefer_gpu
@@ -217,6 +220,7 @@ from elips.exceptions import DimensionMismatch  # via submodule
 - `TypedDict` models such as `RecordInputDict`, `BatchRecord`, and `StoredRecord`
 
 ```python
+# no-exec — internal excerpt
 MetaValue: TypeAlias = bool | int | float | str
 Vector: TypeAlias = Sequence[float]
 PayloadLike: TypeAlias = Mapping[str, MetaValue]
@@ -241,6 +245,7 @@ package list, and `package-data`. `setup.py` carries only what static
 metadata cannot express:
 
 ```python
+# no-exec — internal excerpt
 setup(
     ext_modules=[CMakeExtension("elips._core")],
     cmdclass={"build_ext": CMakeBuild, "sdist": VendorSourcesSdist},
@@ -248,7 +253,7 @@ setup(
 )
 ```
 
-`CMakeBuild` invokes CMake configure + build with `ELIPS_BUILD_PYTHON=ON`.
+`CMakeBuild` invokes CMake configure + build with `ELIPS_ENABLE_PYTHON=ON`.
 `zip_safe=False` is required because the extension is a shared library that
 cannot be loaded from a zip archive.
 

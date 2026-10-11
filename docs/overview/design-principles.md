@@ -1,5 +1,15 @@
 # Design Principles
 
+> **Name update.** The code examples below use pre-rename class names to
+> illustrate C++ Core Guidelines principles; the principles are unchanged, only
+> the names drifted. Current names: `Database` (was `ElipsInstance`),
+> `Collection` (was `Vault`), `Index`/`IndexFlat`/`IndexHNSW` (was
+> `IndexPort`/`ExactIndex`/`HierarchicalGraphIndex`), `index_factory` (was
+> `IndexFactory`/`make_index`), `GpuBackend` (was `GpuPort`), and verbs
+> `add`/`search`/`get` (was `place`/`seek`/`fetch`). The DI-seam example
+> (`Collection` depends on the abstract `Index`, domain code depends on
+> `GpuBackend`) still holds exactly as drawn.
+
 ELIPS is built from first principles in C++23 following the
 [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
 and modern software engineering practices. Every design choice is intentional,
@@ -416,9 +426,9 @@ class GpuIndexPort : public elips::IndexPort {
 This segregation means:
 - A component that only needs memory management can inject `GpuMemoryPort` and
   be tested with a minimal mock — no need to mock 15 unrelated methods.
-- Backend implementations can be built incrementally (e.g., Vulkan only
-  implements `GpuKernelPort` for brute-force, skips `GpuIndexPort` for advanced
-  indexes).
+- Backend implementations can be built incrementally (e.g., a backend can
+  implement only `GpuKernelPort` for brute-force, skipping `GpuIndexPort` for
+  advanced indexes).
 - The `GpuIndexPort` extends `IndexPort`, so GPU indexes plug into the existing
   DI seam without modifying any existing code.
 
@@ -446,7 +456,7 @@ std::runtime_error
 
 1. **Purpose-designed exception types (E.14).** Each error category has its own
    type, making `catch` blocks precise:
-   ```python
+   ```python no-exec
    try:
        docs.place(invalid_vector)
    except elips.DimensionMismatch:

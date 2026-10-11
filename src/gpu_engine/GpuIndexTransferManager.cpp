@@ -14,7 +14,7 @@ std::expected<void, std::string> GpuIndexTransferManager::clone(
 
 std::expected<void, GpuError> GpuIndexTransferManager::clone_cpu_to_gpu(
     const elips::IndexTransferPort& source,
-    GpuIndexPort& destination) {
+    GpuIndex& destination) {
     auto result = clone(source, destination);
     if (!result.has_value()) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -23,7 +23,7 @@ std::expected<void, GpuError> GpuIndexTransferManager::clone_cpu_to_gpu(
 }
 
 std::expected<void, std::string> GpuIndexTransferManager::clone_gpu_to_cpu(
-    const GpuIndexPort& source,
+    const GpuIndex& source,
     elips::IndexTransferPort& destination) {
     return clone(source, destination);
 }

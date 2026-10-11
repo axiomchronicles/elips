@@ -18,7 +18,7 @@ struct VectorRef {
 };
 
 struct SearchStatement {
-    std::string vault;
+    std::string collection;
     VectorRef query;
     std::optional<int> top;
     std::optional<double> threshold;
@@ -27,31 +27,35 @@ struct SearchStatement {
     std::vector<std::string> projection;  // empty => all fields
 };
 
-struct FetchStatement {
-    std::string vault;
+struct GetStatement {
+    std::string collection;
     std::string id;
 };
 
 struct ScanStatement {
-    std::string vault;
+    std::string collection;
     Filter where;
     std::optional<int> offset;
     std::optional<int> limit;
 };
 
-struct InsertStatement {
-    std::string vault;
+struct AddStatement {
+    std::string collection;
     std::vector<float> vector;
     Payload data;
 };
 
 struct DeleteStatement {
-    std::string vault;
+    std::string collection;
     std::string id;
 };
 
-using Statement = std::variant<SearchStatement, FetchStatement, ScanStatement,
-                               InsertStatement, DeleteStatement>;
+// Deprecated pre-Phase-5 type names; retained one minor version as aliases.
+using FetchStatement [[deprecated("renamed to GetStatement")]] = GetStatement;
+using InsertStatement [[deprecated("renamed to AddStatement")]] = AddStatement;
+
+using Statement = std::variant<SearchStatement, GetStatement, ScanStatement,
+                               AddStatement, DeleteStatement>;
 
 }  // namespace elips::eql
 

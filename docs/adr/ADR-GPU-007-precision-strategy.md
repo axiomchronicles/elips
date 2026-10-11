@@ -1,34 +1,39 @@
 # ADR-GPU-007: Precision Selection Strategy
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-11 — FP16/Int8 compute not yet implemented)
 **Date:** 2026-05-31
 **Deciders:** ELIPS Engineering
 
 ## Context
 
-Modern GPUs support multiple floating-point precisions: FP32, FP16, BF16, INT8. Each offers different accuracy/speed/memory tradeoffs. Users should not need to understand GPU-specific precision capabilities.
+Modern GPUs support FP32, FP16, BF16, INT8, each trading accuracy for speed and
+memory. Users should not need to understand GPU-specific precision capabilities.
 
 ## Decision
 
-Auto-select precision based on hardware capabilities and user preference. User can override via `GpuConfig::search_precision`.
+Auto-select precision from hardware capability and user preference, overridable
+via `GpuConfig::search_precision`. Storage is always FP32 (lossless ground
+truth).
 
-Auto-selection logic:
-- If `GpuPrecision::Auto` (default): FP16 if Tensor Cores/ANE available, else FP32
-- If `GpuPrecision::FP32`: always FP32 (maximum accuracy, baseline)
-- If `GpuPrecision::FP16`: FP16 if hardware supports it, else warn and fallback to FP32
-- If `GpuPrecision::Int8`: INT8 for ultra-fast approximate search (datacenter GPUs)
+Intended auto-selection:
+- `GpuPrecision::Auto` (default): FP16 if available, else FP32
+- `GpuPrecision::FP32`: always FP32 (baseline)
+- `GpuPrecision::FP16`: FP16 if supported, else warn + FP32
+- `GpuPrecision::Int8`: INT8 for ultra-fast approximate search
 
-Storage always uses FP32 (lossless ground truth). Mixed-precision pipeline: FP32 storage → FP16 GPU upload → FP16 GPU compute → FP32 reranking → FP32 results.
+## Reality Update (2026-10-11)
 
-## Rationale
-
-- FP16 provides 2x memory savings and 2-4x throughput on Tensor Core GPUs
-- FP32 is always available as correctness baseline
-- Auto mode picks optimal precision without user intervention
-- Reranking top-2K candidates in FP32 ensures result accuracy
+- **The validated path runs all math in FP32.** On Metal, FP16 is *storage-only*
+  for centroids and is accepted-then-ignored for compute; there is **no FP16 or
+  INT8 compute kernel**. `GpuConfig::enable_fp16_search` defaults to **false**.
+- `GpuPrecision::Auto` therefore effectively resolves to **FP32** today.
+  `GpuDeviceInfo` still reports `supports_fp16` for observability, but selecting
+  FP16/Int8 does not change the kernels that run.
+- Mixed-precision "FP16 compute → FP32 rerank" is **unimplemented aspiration**,
+  not a shipped pipeline.
 
 ## Consequences
 
-- Each backend must implement FP16 kernels (FP16 native on Metal/Apple7+, CUDA Tensor Cores, HIP Matrix Cores)
-- GpuDeviceInfo reports `supports_fp16`, `supports_bf16`, `supports_int8`
-- Users see `fp16_search_enabled` in metrics
+- Treat `search_precision` other than FP32 as a no-op on the validated backend.
+- FP16/Int8 compute kernels are future work (and would land first on Metal, where
+  parity tests exist); CUDA/HIP precision paths are experimental and unvalidated.

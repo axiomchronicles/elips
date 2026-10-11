@@ -13,7 +13,7 @@
 #include "elips/domain/RecordID.hpp"
 #include "elips/gpu_engine/GpuBuffer.hpp"
 #include "elips/gpu_engine/GpuConfig.hpp"
-#include "elips/gpu_engine/GpuPort.hpp"
+#include "elips/gpu_engine/GpuBackend.hpp"
 #include "elips/index_engine/IndexSnapshot.hpp"
 
 namespace elips::gpu::detail {
@@ -36,25 +36,25 @@ public:
     IvfIndexState(IvfIndexState&&) = delete;
     IvfIndexState& operator=(IvfIndexState&&) = delete;
 
-    void insert(GpuPort& backend, const RecordID& id, std::span<const float> vector);
-    void remove(GpuPort& backend, const RecordID& id);
+    void insert(GpuBackend& backend, const RecordID& id, std::span<const float> vector);
+    void remove(GpuBackend& backend, const RecordID& id);
 
     [[nodiscard]] std::expected<void, std::string>
-    build_from_batch(GpuPort& backend, std::span<const float> vectors,
+    build_from_batch(GpuBackend& backend, std::span<const float> vectors,
                      std::span<const RecordID> ids);
 
     [[nodiscard]] std::expected<void, std::string>
-    import_snapshot(GpuPort& backend, const elips::IndexSnapshot& snapshot);
+    import_snapshot(GpuBackend& backend, const elips::IndexSnapshot& snapshot);
 
     [[nodiscard]] elips::IndexSnapshot
     export_snapshot(elips::IndexSnapshotKind kind) const;
 
     [[nodiscard]] std::expected<std::vector<std::uint32_t>, GpuError>
-    probe_lists(GpuPort& backend, std::span<const float> query,
+    probe_lists(GpuBackend& backend, std::span<const float> query,
                 std::size_t nprobe) const;
 
     [[nodiscard]] std::expected<std::vector<std::vector<std::uint32_t>>, GpuError>
-    probe_lists_batch(GpuPort& backend, std::span<const float> queries,
+    probe_lists_batch(GpuBackend& backend, std::span<const float> queries,
                       std::size_t nprobe) const;
 
     [[nodiscard]] CandidateSet gather_candidates(
@@ -87,9 +87,9 @@ private:
                             std::string_view label) const;
     void rebuild_id_map();
     void rebuild_list_members();
-    void maybe_retrain_after_growth(GpuPort& backend);
-    void rebuild_from_current_data(GpuPort& backend, std::size_t n_lists);
-    void sync_device_buffers_best_effort(GpuPort& backend) noexcept;
+    void maybe_retrain_after_growth(GpuBackend& backend);
+    void rebuild_from_current_data(GpuBackend& backend, std::size_t n_lists);
+    void sync_device_buffers_best_effort(GpuBackend& backend) noexcept;
 
     [[nodiscard]] std::vector<float> train_centroids(
         std::span<const float> vectors,

@@ -5,11 +5,11 @@ import { CodeBlock } from "../components/Code";
 export const Route = createFileRoute("/docs/cpp/vault")({
   head: () => ({
     meta: [
-      { title: "Vault — C++ Collection API Reference" },
+      { title: "Collection — C++ API Reference" },
       {
         name: "description",
         content:
-          "Complete C++ reference for elips::Vault: vector and document placement, seek, seek_hybrid, explain_seek, filtering, tombstone vacuum, and index rebuilding.",
+          "Complete C++ reference for elips::Collection: vector and document add, search, hybrid_search, explain_query, filtering, tombstone vacuum, and index rebuilding.",
       },
     ],
   }),
@@ -20,30 +20,30 @@ function Page() {
   return (
     <DocsShell
       eyebrow="C++ API"
-      title="Vault"
+      title="Collection"
       toc={[
         { id: "overview", label: "Overview" },
-        { id: "placement", label: "Placement & Ingestion" },
-        { id: "seeking", label: "Seeking & Querying" },
+        { id: "placement", label: "Add & Ingestion" },
+        { id: "seeking", label: "Searching & Querying" },
         { id: "hybrid-seek", label: "Hybrid Search" },
-        { id: "query-planner", label: "explain_seek()" },
-        { id: "retrieval-scan", label: "Scan & Fetch" },
-        { id: "erasure-vacuum", label: "Erasure & Vacuum" },
+        { id: "query-planner", label: "explain_query()" },
+        { id: "retrieval-scan", label: "Scan & Get" },
+        { id: "erasure-vacuum", label: "Removal & Vacuum" },
         { id: "concurrency", label: "Concurrency & Locking" },
       ]}
     >
       <p className="text-[18px] text-ink">
-        <code>elips::Vault</code> is the core collection container in ELIPS. Each vault owns its HNSW/exact vector index, metadata inverted index, and payload store.
+        <code>elips::Collection</code> is the core collection container in ELIPS. Each collection owns its HNSW/flat vector index, metadata inverted index, and payload store.
       </p>
 
       <h2 id="overview">Overview</h2>
       <p>
-        Vaults are named collections created via <Link to="/docs/cpp/elips-instance"><code>db-&gt;vault("name")</code></Link>.
-        They expose methods for vector ingestion, text embedding placement, multi-modal seeking, boolean metadata filtering, and graph compaction.
+        Collections are named partitions created via <Link to="/docs/cpp/elips-instance"><code>db-&gt;collection("name")</code></Link>.
+        They expose methods for vector ingestion, text embedding, multi-modal search, boolean metadata filtering, and graph compaction.
       </p>
 
-      <h2 id="placement">Placement & Ingestion</h2>
-      <CodeBlock lang="cpp">{`RecordID place(
+      <h2 id="placement">Add &amp; Ingestion</h2>
+      <CodeBlock lang="cpp">{`RecordID add(
     const Vector& vector,
     Payload payload = {},
     std::optional<RecordID> id = std::nullopt,
@@ -52,7 +52,7 @@ function Page() {
     std::optional<EmbeddingLineage> lineage = std::nullopt
 );
 
-RecordID place_document(
+RecordID add_document(
     std::string text,
     Payload payload = {},
     std::optional<RecordID> id = std::nullopt,
@@ -60,39 +60,39 @@ RecordID place_document(
     std::optional<EmbeddingLineage> lineage = std::nullopt
 );
 
-void place_many(const std::vector<Record>& records);`}</CodeBlock>
+void add_many(const std::vector<Record>& records);`}</CodeBlock>
       <ul>
         <li>
-          <code>place()</code> — Inserts a raw floating-point vector into the vault index and returns its <code>RecordID</code>.
+          <code>add()</code> — Inserts a raw floating-point vector into the collection index and returns its <code>RecordID</code>.
         </li>
         <li>
-          <code>place_document()</code> — Invokes the configured text embedder engine to convert raw text into a vector before indexing.
+          <code>add_document()</code> — Invokes the configured text embedder engine to convert raw text into a vector before indexing.
         </li>
         <li>
-          <code>place_many()</code> — Efficient batch placement of pre-constructed records.
+          <code>add_many()</code> — Efficient batch add of pre-constructed records.
         </li>
       </ul>
 
-      <h2 id="seeking">Seeking & Querying</h2>
-      <CodeBlock lang="cpp">{`std::vector<SearchResult> seek(
+      <h2 id="seeking">Searching &amp; Querying</h2>
+      <CodeBlock lang="cpp">{`std::vector<SearchResult> search(
     const Vector& query,
     std::size_t top,
     const Filter& filter = Filter{},
     std::optional<float> threshold = std::nullopt
 ) const;
 
-std::vector<SearchResult> seek_text(
+std::vector<SearchResult> search_text(
     std::string_view text,
     std::size_t top,
     const Filter& filter = Filter{},
     std::optional<float> threshold = std::nullopt
 ) const;`}</CodeBlock>
       <p>
-        Executes vector similarity search. Returns an ordered list of <code>SearchResult</code> items sorted by score.
+        Executes vector similarity search. Returns an ordered list of <code>SearchResult</code> items sorted by distance.
       </p>
 
       <h2 id="hybrid-seek">Hybrid Search</h2>
-      <CodeBlock lang="cpp">{`std::vector<SearchResult> seek_hybrid(
+      <CodeBlock lang="cpp">{`std::vector<SearchResult> hybrid_search(
     const Vector& query,
     std::string_view text,
     std::size_t top,
@@ -104,8 +104,8 @@ std::vector<SearchResult> seek_text(
         Fuses dense vector similarity with sparse BM25 text relevance scores using <code>lexical_weight</code>.
       </p>
 
-      <h2 id="query-planner">explain_seek()</h2>
-      <CodeBlock lang="cpp">{`QueryPlan explain_seek(
+      <h2 id="query-planner">explain_query()</h2>
+      <CodeBlock lang="cpp">{`QueryPlan explain_query(
     const Vector& query,
     std::size_t top,
     const Filter& filter = Filter{},
@@ -113,11 +113,11 @@ std::vector<SearchResult> seek_text(
     bool has_text_component = false
 ) const;`}</CodeBlock>
       <p>
-        Returns an inspection <code>QueryPlan</code> object detailing whether HNSW graph traversal, exact scan, or metadata-accelerated filtering will be selected by the optimizer.
+        Returns an inspection <code>QueryPlan</code> object detailing whether HNSW graph traversal, flat exact scan, or metadata-accelerated filtering will be selected by the optimizer.
       </p>
 
-      <h2 id="retrieval-scan">Scan & Fetch</h2>
-      <CodeBlock lang="cpp">{`std::optional<Record> fetch(const RecordID& id) const;
+      <h2 id="retrieval-scan">Scan &amp; Get</h2>
+      <CodeBlock lang="cpp">{`std::optional<Record> get(const RecordID& id) const;
 
 std::vector<Record> scan(
     const Filter& filter = Filter{},
@@ -125,14 +125,14 @@ std::vector<Record> scan(
     std::size_t limit = std::numeric_limits<std::size_t>::max()
 ) const;`}</CodeBlock>
 
-      <h2 id="erasure-vacuum">Erasure & Vacuum</h2>
-      <CodeBlock lang="cpp">{`bool erase(const RecordID& id);
+      <h2 id="erasure-vacuum">Removal &amp; Vacuum</h2>
+      <CodeBlock lang="cpp">{`bool remove(const RecordID& id);
 void vacuum();
 std::size_t pending_removals() const noexcept;
 void rebuild_index();`}</CodeBlock>
       <ul>
         <li>
-          <code>erase()</code> — Tombstones a record ID.
+          <code>remove()</code> — Tombstones a record ID. (C++ uses <code>remove</code>; the Python binding exposes <code>delete</code>.)
         </li>
         <li>
           <code>vacuum()</code> — Purges tombstoned node slots from HNSW graph indices and reclaims memory.
@@ -142,9 +142,9 @@ void rebuild_index();`}</CodeBlock>
         </li>
       </ul>
 
-      <h2 id="concurrency">Concurrency & Locking</h2>
+      <h2 id="concurrency">Concurrency &amp; Locking</h2>
       <p>
-        Every public method on <code>Vault</code> is thread-safe. Read operations take a shared reader lock (<code>std::shared_mutex::lock_shared</code>), enabling parallel seek operations across CPU threads.
+        Every public method on <code>Collection</code> is thread-safe. Read operations take a shared reader lock (<code>std::shared_mutex::lock_shared</code>), enabling parallel search operations across CPU threads.
       </p>
     </DocsShell>
   );

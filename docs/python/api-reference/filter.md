@@ -1,312 +1,150 @@
 # Filter API Reference
 
-The `Filter` class provides a fluent builder API for constructing metadata predicates used in `seek()` and `scan()`.
+The `Filter` class is a fluent builder for metadata predicates. Pass one as the
+`where=` argument to `Collection.query()`, `Collection.get()`, and
+`Collection.delete()` (and to the native `Vault.seek()` / `Vault.scan()`).
 
-## Filter
+An empty `Filter()` matches all records.
 
-```python
-class Filter
-```
-
-Metadata filter for search and scan operations. Uses a fluent builder pattern for chaining predicates.
-
-**Constructor:**
-
-```python
-def __init__(self) -> None
-```
-
-Creates an empty filter that matches all records.
-
-### Filter Building Model
+## Filter building model
 
 Filters combine **field-level predicates** with **boolean combinators**:
 
-1. **Field predicates**: call `.field(name)` to select a field, then chain a comparison method. Multiple field-level predicates are AND-ed together.
-2. **Boolean combinators**: `.and_(other)`, `.or_(other)`, and `Filter.not_(inner)` build compound expressions.
-
-### Field-Level Predicates
-
-#### `Filter.field()`
+1. **Field predicates:** call `.field(name)` to select a field, then chain a
+   comparison method. Multiple field predicates on the same filter are AND-ed.
+2. **Boolean combinators:** `.and_(other)`, `.or_(other)`, and the static
+   `Filter.not_(inner)` build compound expressions.
 
 ```python
-def field(self, name: str) -> Filter
-```
+import elips
 
-Select a metadata field for comparison. Returns `self` for chaining.
-
-**Parameters:**
-
-| Name | Type | Description |
-|---|---|---|
-| `name` | `str` | The metadata field name |
-
-**Returns:** `self` (the same Filter object) for chaining.
-
-#### Comparison Methods
-
-Each of the following is called on the result of `.field(name)`:
-
-##### `Filter.equals()`
-
-```python
-def equals(self, value: MetaValue) -> Filter
-```
-
-Field equals the given value.
-
-```python
+# field + comparison
 elips.Filter().field("category").equals("tech")
+# chained predicates are AND-ed
+elips.Filter().field("category").equals("tech").field("score").gte(0.8)
+```
+
+## Field-level predicates
+
+Each is called on the result of `.field(name)`:
+
+| Method | Meaning |
+|---|---|
+| `equals(value)` | Field equals value. |
+| `not_equals(value)` | Field does not equal value. |
+| `lt(value)` | Less than. |
+| `le(value)` | Less than or equal. |
+| `gt(value)` | Greater than. |
+| `gte(value)` | Greater than or equal. |
+| `one_of(values)` | Field value is in the given set (IN). |
+| `contains(substring)` | String field contains the substring (case-sensitive). |
+
+```python
+import elips
+
 elips.Filter().field("year").equals(2024)
-elips.Filter().field("active").equals(True)
-```
-
-##### `Filter.not_equals()`
-
-```python
-def not_equals(self, value: MetaValue) -> Filter
-```
-
-Field does **not** equal the given value.
-
-```python
 elips.Filter().field("status").not_equals("deleted")
-```
-
-##### `Filter.lt()`
-
-```python
-def lt(self, value: MetaValue) -> Filter
-```
-
-Field is less than the given value.
-
-```python
-elips.Filter().field("score").lt(0.5)
-elips.Filter().field("year").lt(2020)
-```
-
-##### `Filter.le()`
-
-```python
-def le(self, value: MetaValue) -> Filter
-```
-
-Field is less than or equal to the given value.
-
-```python
-elips.Filter().field("score").le(0.5)
-```
-
-##### `Filter.gt()`
-
-```python
-def gt(self, value: MetaValue) -> Filter
-```
-
-Field is greater than the given value.
-
-```python
-elips.Filter().field("score").gt(0.8)
-```
-
-##### `Filter.gte()`
-
-```python
-def gte(self, value: MetaValue) -> Filter
-```
-
-Field is greater than or equal to the given value.
-
-```python
-elips.Filter().field("year").gte(2023)
-```
-
-##### `Filter.one_of()`
-
-```python
-def one_of(self, values: Iterable[MetaValue]) -> Filter
-```
-
-Field value is contained in the given set of values (IN clause).
-
-```python
+elips.Filter().field("score").gte(0.8).field("score").lt(1.0)
 elips.Filter().field("country").one_of(["US", "GB", "DE"])
-elips.Filter().field("priority").one_of([1, 2, 3])
-```
-
-##### `Filter.contains()`
-
-```python
-def contains(self, substring: str) -> Filter
-```
-
-String field contains the given substring (case-sensitive).
-
-```python
 elips.Filter().field("title").contains("intro")
-elips.Filter().field("description").contains("machine learning")
 ```
 
-### Boolean Combinators
+> **Spelling:** the comparison methods are `lt`, `le`, `gt`, and `gte`. There is
+> **no** `.ge()` or `.lte()` method (`ge` / `le` exist only as `Comparator`
+> enum members). Use `.gte(...)` for greater-or-equal and `.le(...)` for
+> less-or-equal.
 
-#### `Filter.and_()`
-
-```python
-def and_(self, other: Filter) -> Filter
-```
-
-Logical AND. Both this filter and `other` must match.
+## Boolean combinators
 
 ```python
-f = (
-    elips.Filter()
-    .field("cat")
-    .equals("tech")
-    .and_(elips.Filter().field("score").gte(90))
+import elips
+
+# AND of two separate filters (chaining fields already ANDs)
+tech_high = elips.Filter().field("cat").equals("tech").and_(
+    elips.Filter().field("score").gte(90)
 )
-# Both conditions must be true
+
+# OR
+pro_or_recent = elips.Filter().field("tier").equals("pro").or_(
+    elips.Filter().field("year").gte(2023)
+)
+
+# NOT (static)
+active = elips.Filter.not_(elips.Filter().field("draft").equals(True))
 ```
 
-Note: Chaining field predicates on the same filter is already an AND. Use `.and_()` only when combining separate `Filter` instances:
+`.and_()` / `.or_()` combine separate `Filter` instances; chaining field
+predicates on one filter is already an AND, so these two are equivalent:
 
 ```python
-# These are equivalent:
+import elips
+
 f1 = elips.Filter().field("cat").equals("tech").field("score").gte(90)
-f2 = (
-    elips.Filter()
-    .field("cat")
-    .equals("tech")
-    .and_(elips.Filter().field("score").gte(90))
+f2 = elips.Filter().field("cat").equals("tech").and_(
+    elips.Filter().field("score").gte(90)
 )
 ```
 
-#### `Filter.or_()`
+## Composite examples
 
 ```python
-def or_(self, other: Filter) -> Filter
+import elips
+
+# (cat == "tech" AND score >= 80) OR (cat == "finance" AND year >= 2022)
+tech = elips.Filter().field("cat").equals("tech").field("score").gte(80)
+finance = elips.Filter().field("cat").equals("finance").field("year").gte(2022)
+combined = tech.or_(finance)
+
+# NOT (status in {deleted, archived})
+live = elips.Filter.not_(elips.Filter().field("status").one_of(["deleted", "archived"]))
 ```
 
-Logical OR. Either this filter or `other` (or both) must match.
+## Using a filter
 
 ```python
-f = (
-    elips.Filter()
-    .field("tier")
-    .equals("pro")
-    .or_(elips.Filter().field("year").gte(2023))
-)
-# Matches if tier == "pro" OR year >= 2023
-```
+import elips
 
-#### `Filter.not_()` (static)
-
-```python
-@staticmethod
-def not_(inner: Filter) -> Filter
-```
-
-Logical NOT. Negates the inner filter.
-
-```python
-f = elips.Filter.not_(elips.Filter().field("draft").equals(True))
-# Matches records where draft is NOT True
-```
-
-## Composite Examples
-
-### Multi-field AND
-
-```python
-f = (
-    elips.Filter()
-    .field("category")
-    .equals("tech")
-    .field("score")
-    .gte(80)
-    .field("country")
-    .one_of(["US", "GB"])
-    .field("title")
-    .contains("intro")
-)
-```
-
-### Complex Boolean Expression
-
-```python
-# (category == "tech" AND score >= 80) OR (category == "finance" AND year >= 2022)
-tech_high = elips.Filter().field("category").equals("tech").field("score").gte(80)
-finance_recent = (
-    elips.Filter().field("category").equals("finance").field("year").gte(2022)
+client = elips.Client(dimension=3)
+docs = client.get_or_create_collection("docs")
+docs.add(
+    ids=["a", "b"],
+    embeddings=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+    metadatas=[{"category": "tech", "score": 0.9}, {"category": "bio", "score": 0.3}],
 )
 
-combined = tech_high.or_(finance_recent)
-```
-
-### Negation
-
-```python
-# NOT (status == "deleted" OR status == "archived")
-active = elips.Filter.not_(
-    elips.Filter().field("status").one_of(["deleted", "archived"])
-)
-```
-
-### With seek()
-
-```python
 f = elips.Filter().field("category").equals("tech").field("score").gte(0.8)
 
-results = docs.seek([1.0, 0.0, 0.0], top=10, where=f)
+# vector search with a filter
+hits = docs.query(query_embeddings=[1.0, 0.0, 0.0], n_results=10, where=f)
+# filter-only scan
+rows = docs.get(where=f, limit=100)
+# range search: drop hits beyond max_distance
+near = docs.query(query_embeddings=[1.0, 0.0, 0.0], n_results=1000, where=f, max_distance=0.25)
+print(len(hits), len(rows), len(near))
+client.close()
 ```
 
-### With scan()
+## `MetaValue` type
 
-```python
-f = elips.Filter().field("year").gte(2023).field("year").lt(2025)
-rows = docs.scan(where=f, limit=100)
-```
+Comparison methods accept only four metadata types:
 
-### With threshold (range search)
-
-```python
-f = elips.Filter().field("category").equals("tech")
-results = docs.seek([1.0, 0.0, 0.0], top=1000, where=f, threshold=0.25)
-```
-
-## `Filter.__repr__()`
-
-```python
-def __repr__(self) -> str
-```
-
-Returns `"<Filter match-all>"` for an empty filter, or `"<Filter>"` for a populated one.
-
-## `MetaValue` Type
-
-```python
-MetaValue = Union[bool, int, float, str]
-```
-
-The type accepted by comparison methods. Only these four types are valid:
-
-| Python Type | C++ Type | Example |
+| Python type | C++ type | Example |
 |---|---|---|
 | `bool` | `bool` | `True`, `False` |
-| `int` | `std::int64_t` | `42`, `-1`, `0` |
-| `float` | `double` | `0.95`, `3.14` |
-| `str` | `std::string` | `"tech"`, `"hello world"` |
+| `int` | `std::int64_t` | `42`, `-1` |
+| `float` | `double` | `0.95` |
+| `str` | `std::string` | `"tech"` |
 
-Passing a `list`, `dict`, `None`, or any other type raises `TypeError: metadata values must be int, float, bool, or str`.
+Passing a `list`, `dict`, `None`, or any other type raises `TypeError:
+metadata values must be int, float, bool, or str`. `bool` is checked before
+`int` (because `bool` is a subclass of `int` in Python), so `True` stays a bool
+rather than collapsing to `1`.
 
-**Important:** `bool` is checked before `int` in the C++ conversion (`to_meta()`) because `bool` is a subclass of `int` in Python.
+## Filter and index interaction
 
-## Filter and Index Interaction
-
-- Filter predicates are evaluated **after** vector distance computation, not before. The search first retrieves candidate vectors by distance, then applies the filter.
-- For large datasets with selective filters, a filtered search may return fewer than `top` results if not enough filtered candidates exist.
-- For range searches with `threshold`, the filter is applied in addition to the distance constraint.
-
-## Filter and Transactions
-
-Within a transaction, filters only see **committed** data, not in-flight writes from the same transaction. This is consistent with the transaction's isolation model.
+- Filter predicates are evaluated **after** vector distance computation: the
+  search retrieves candidates by distance, then applies the filter. A selective
+  filter may return fewer than `n_results` hits if not enough candidates match.
+- With `max_distance`, the filter applies in addition to the distance bound.
+- Within a native transaction, filters see only **committed** data, not
+  in-flight writes from the same transaction.

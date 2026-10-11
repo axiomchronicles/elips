@@ -1,0 +1,76 @@
+#include <gtest/gtest.h>
+
+#include <vector>
+
+#include "elips/Config.hpp"
+#include "elips/domain/Errors.hpp"
+#include "elips/domain/RecordID.hpp"
+#include "elips/index_engine/IndexFlat.hpp"
+
+namespace {
+
+using elips::IndexFlat;
+using elips::Metric;
+using elips::RecordID;
+
+RecordID make_id() { return RecordID::generate(); }
+
+TEST(IndexFlatTest, ReturnsNearestFirstAscending) {
+    IndexFlat index(Metric::euclidean, 2);
+    const RecordID near = make_id();
+    const RecordID far = make_id();
+    index.add_with_ids(near, std::vector<float>{0.0F, 0.0F});
+    index.add_with_ids(far, std::vector<float>{10.0F, 10.0F});
+
+    const std::vector<float> query{0.1F, 0.1F};
+    const auto hits = index.search(query, 2);
+
+    ASSERT_EQ(hits.size(), 2U);
+    EXPECT_EQ(hits[0].first, near);
+    EXPECT_EQ(hits[1].first, far);
+    EXPECT_LT(hits[0].second, hits[1].second);
+}
+
+TEST(IndexFlatTest, TopKCapsResultCount) {
+    IndexFlat index(Metric::euclidean, 1);
+    for (int i = 0; i < 5; ++i) {
+        index.add_with_ids(make_id(), std::vector<float>{static_cast<float>(i)});
+    }
+    EXPECT_EQ(index.ntotal(), 5U);
+    EXPECT_EQ(index.search(std::vector<float>{0.0F}, 3).size(), 3U);
+}
+
+TEST(IndexFlatTest, RemoveDropsRecordFromResults) {
+    IndexFlat index(Metric::euclidean, 1);
+    const RecordID a = make_id();
+    const RecordID b = make_id();
+    index.add_with_ids(a, std::vector<float>{1.0F});
+    index.add_with_ids(b, std::vector<float>{2.0F});
+
+    index.remove(a);
+    const auto hits = index.search(std::vector<float>{1.0F}, 10);
+    ASSERT_EQ(hits.size(), 1U);
+    EXPECT_EQ(hits[0].first, b);
+}
+
+TEST(IndexFlatTest, TypeNameIsExact) {
+    IndexFlat index(Metric::cosine, 4);
+    EXPECT_EQ(index.type_name(), "exact");
+}
+
+TEST(IndexFlatTest, InsertRejectsDimensionMismatch) {
+    IndexFlat index(Metric::euclidean, 2);
+
+    EXPECT_THROW(index.add_with_ids(make_id(), std::vector<float>{1.0F}),
+                 elips::DimensionMismatch);
+}
+
+TEST(IndexFlatTest, SearchRejectsDimensionMismatch) {
+    IndexFlat index(Metric::euclidean, 2);
+    index.add_with_ids(make_id(), std::vector<float>{0.0F, 0.0F});
+
+    EXPECT_THROW((void)index.search(std::vector<float>{1.0F}, 1),
+                 elips::DimensionMismatch);
+}
+
+}  // namespace

@@ -23,7 +23,7 @@ void validate_dimension(std::span<const float> vector, uint16_t dimension,
 
 }  // namespace
 
-GpuBruteForceIndex::GpuBruteForceIndex(GpuPort& backend, elips::Metric metric,
+GpuBruteForceIndex::GpuBruteForceIndex(GpuBackend& backend, elips::Metric metric,
                                        uint16_t dimension, const GpuConfig& config)
     : backend_(backend),
       metric_(metric),
@@ -74,7 +74,7 @@ GpuBruteForceIndex::create_device_buffer_from_host(std::span<const float> vector
     return buffer;
 }
 
-void GpuBruteForceIndex::insert(const RecordID& id, std::span<const float> vector) {
+void GpuBruteForceIndex::add_with_ids(const RecordID& id, std::span<const float> vector) {
     validate_dimension(vector, dimension_, "vector");
     ids_.push_back(id);
     host_vectors_.insert(host_vectors_.end(), vector.begin(), vector.end());
@@ -98,7 +98,7 @@ void GpuBruteForceIndex::remove(const RecordID& id) {
     sync_device_buffer_best_effort();
 }
 
-std::vector<IndexPort::Hit> GpuBruteForceIndex::search(std::span<const float> query,
+std::vector<Index::Hit> GpuBruteForceIndex::search(std::span<const float> query,
                                                         std::size_t k) const {
     validate_dimension(query, dimension_, "query");
     if (count_ == 0 || k == 0 || host_vectors_.empty()) return {};
@@ -124,7 +124,7 @@ std::vector<IndexPort::Hit> GpuBruteForceIndex::search(std::span<const float> qu
     return hits;
 }
 
-std::size_t GpuBruteForceIndex::size() const noexcept { return count_; }
+std::size_t GpuBruteForceIndex::ntotal() const noexcept { return count_; }
 std::string_view GpuBruteForceIndex::type_name() const noexcept { return "gpu_brute_force"; }
 
 std::expected<void, GpuError>
@@ -163,14 +163,14 @@ GpuBruteForceIndex::search_batch(std::span<const float> queries, size_t k,
     }
 
     const size_t take = std::min(k, count_);
-    GpuSearchPipeline pipeline(const_cast<GpuPort&>(backend_));
+    GpuSearchPipeline pipeline(const_cast<GpuBackend&>(backend_));
     return pipeline.batch_search(queries, nq,
         std::span<const float>{host_vectors_.data(), host_vectors_.size()},
         ids_, count_, dimension_, take, metric_);
 }
 
 std::expected<void, GpuError>
-GpuBruteForceIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
+GpuBruteForceIndex::export_to_cpu_index(elips::Index& cpu_index_out) const {
     auto* transfer = dynamic_cast<elips::IndexTransferPort*>(&cpu_index_out);
     if (!transfer) {
         return std::unexpected(GpuError::IndexBuildFailed);
@@ -183,7 +183,7 @@ GpuBruteForceIndex::export_to_cpu_index(elips::IndexPort& cpu_index_out) const {
 }
 
 std::expected<void, GpuError>
-GpuBruteForceIndex::import_from_cpu_index(const elips::IndexPort& cpu_index) {
+GpuBruteForceIndex::import_from_cpu_index(const elips::Index& cpu_index) {
     const auto* transfer =
         dynamic_cast<const elips::IndexTransferPort*>(&cpu_index);
     if (!transfer) {
